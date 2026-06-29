@@ -4,6 +4,7 @@ import {
   RuleCatalogCharacterFeatureSnapshot,
   RuleCatalogEntry,
   RuleCost,
+  RuleRuntimeStatus,
   RuleRuntimeEffect,
   RuleTargeting,
 } from "./rule-catalog.types";
@@ -15,8 +16,9 @@ import { P5_MONSTER_ABILITY_DEFINITIONS } from "./p5-monster-definitions";
 import { P5_SPELL_DEFINITIONS } from "./p5-spell-definitions";
 import { P6_MONSTER_ABILITY_DEFINITIONS } from "./p6-monster-definitions";
 import { P6_SPELL_DEFINITIONS } from "./p6-spell-definitions";
+import canonicalClassFeatures from "@trpg/srd-data/generated/srd/class-features.json";
 
-type ClassFeatureSeed = {
+type ClassFeatureRuntimeOverride = {
   id: string;
   classKey: string;
   level: number;
@@ -29,6 +31,14 @@ type ClassFeatureSeed = {
 const NO_COST: RuleCost = { type: "none" };
 const NO_TARGETING: RuleTargeting = { type: "none" };
 const SELF_TARGETING: RuleTargeting = { type: "self" };
+type CanonicalClassFeature = {
+  id: string;
+  nameKo?: string | null;
+  summaryKo?: string | null;
+};
+const CANONICAL_CLASS_FEATURES_BY_ID = new Map(
+  (canonicalClassFeatures as CanonicalClassFeature[]).map((feature) => [feature.id, feature]),
+);
 
 function subclassChoiceRuntime(classKey: string): RuleRuntimeEffect {
   return {
@@ -91,6 +101,7 @@ const RACE_TRAIT_DEFINITIONS: RuleCatalogEntry[] = [
     "fixed:size:medium",
     "fixed:speed:30",
     "language:common",
+    "language:choice:one",
   ]),
 
   raceTrait("elf", "base_traits", [
@@ -588,7 +599,7 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
   }, { type: "resource", resourceId: "resource.sorcerer.sorcery_points", amount: 5 }, SELF_TARGETING),
 ];
 
-const CLASS_FEATURE_DEFINITIONS: ClassFeatureSeed[] = [
+const CLASS_FEATURE_RUNTIME_OVERRIDES: ClassFeatureRuntimeOverride[] = [
   classFeature("barbarian", 1, "rage", {
     type: "grant_resource",
     tags: ["action:bonus", "resource:rage", "rest:long"],
@@ -2562,7 +2573,7 @@ export class RuleCatalogService {
     for (const entry of [
       ...RACE_TRAIT_DEFINITIONS,
       ...SUBCLASS_FEATURE_DEFINITIONS,
-      ...CLASS_FEATURE_DEFINITIONS.map(toClassFeatureEntry),
+      ...CLASS_FEATURE_RUNTIME_OVERRIDES.map(toClassFeatureEntry),
       ...CONDITION_DEFINITIONS,
       ...TERRAIN_EFFECT_DEFINITIONS,
       ...SPELL_DEFINITIONS,
@@ -2839,7 +2850,7 @@ function classFeature(
   cost: RuleCost = NO_COST,
   targeting: RuleTargeting = NO_TARGETING,
   trigger?: RuleCatalogEntry["trigger"],
-): ClassFeatureSeed {
+): ClassFeatureRuntimeOverride {
   return {
     id: `class.${classKey}.feature.${featureKey}`,
     classKey,
@@ -2851,11 +2862,18 @@ function classFeature(
   };
 }
 
-function toClassFeatureEntry(seed: ClassFeatureSeed): RuleCatalogEntry {
+function toClassFeatureEntry(seed: ClassFeatureRuntimeOverride): RuleCatalogEntry {
+  const canonicalFeature = CANONICAL_CLASS_FEATURES_BY_ID.get(seed.id);
+  if (!canonicalFeature) {
+    throw new Error(`Class feature runtime override is missing from canonical SRD manifest: ${seed.id}`);
+  }
+
   return {
     id: seed.id,
     kind: "class_features",
     source: "SRD5E",
+    displayNameKo: canonicalFeature.nameKo || undefined,
+    descriptionKo: canonicalFeature.summaryKo || undefined,
     levelRequirement: {
       classKey: seed.classKey,
       minClassLevel: seed.level,
@@ -2868,8 +2886,33 @@ function toClassFeatureEntry(seed: ClassFeatureSeed): RuleCatalogEntry {
     duration: null,
     concentration: false,
     scaling: null,
+    runtimeStatus: resolveRuntimeStatus(seed),
     runtimeEffect: seed.runtimeEffect,
   };
+}
+
+function resolveRuntimeStatus(seed: ClassFeatureRuntimeOverride): RuleRuntimeStatus {
+  const cost = seed.cost ?? NO_COST;
+  const hasExecutableCost = cost.type !== "none";
+  const hasExecutableTrigger =
+    seed.trigger === "action" ||
+    seed.trigger === "bonus_action" ||
+    seed.trigger === "reaction" ||
+    seed.trigger === "short_rest" ||
+    seed.trigger === "long_rest";
+  const hasExecutableRuntime = seed.runtimeEffect.tags.some((tag) =>
+    tag.startsWith("action:") ||
+    tag.startsWith("selection:") ||
+    tag.startsWith("resource:") ||
+    tag.startsWith("spellcasting:") ||
+    tag.startsWith("snapshot:"),
+  );
+
+  if (hasExecutableCost || hasExecutableTrigger || seed.runtimeEffect.resourceId || hasExecutableRuntime) {
+    return "executable";
+  }
+
+  return "passive";
 }
 
 function raceTrait(
@@ -2914,10 +2957,17 @@ function subclassFeature(
   cost: RuleCost = NO_COST,
   targeting: RuleTargeting = NO_TARGETING,
 ): RuleCatalogEntry {
+  const id = `subclass.${classKey}.${subclassKey}.feature.${featureKey}`;
+  const canonicalFeature =
+    CANONICAL_CLASS_FEATURES_BY_ID.get(id) ??
+    CANONICAL_CLASS_FEATURES_BY_ID.get(`class.${classKey}.subclass_feature.${featureKey}`);
+
   return {
-    id: `subclass.${classKey}.${subclassKey}.feature.${featureKey}`,
+    id,
     kind: "subclass_features",
     source: "SRD5E",
+    displayNameKo: canonicalFeature?.nameKo || undefined,
+    descriptionKo: canonicalFeature?.summaryKo || undefined,
     levelRequirement: {
       classKey,
       subclassKey,

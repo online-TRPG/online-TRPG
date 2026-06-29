@@ -1,0 +1,498 @@
+{
+  "class.barbarian.feature.danger_sense": {
+    "nameKo": "위험 감지",
+    "summaryKo": "볼 수 있는 함정이나 주문 같은 위험에 대한 민첩 내성 굴림에 이점을 얻습니다."
+  },
+  "class.barbarian.feature.primal_path": {
+    "nameKo": "원초적 길",
+    "summaryKo": "3레벨에 바바리안 서브클래스를 선택해 격노와 전투 스타일을 확장합니다."
+  },
+  "class.barbarian.feature.extra_attack": {
+    "nameKo": "추가 공격",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다."
+  },
+  "class.barbarian.feature.fast_movement": {
+    "nameKo": "빠른 이동",
+    "summaryKo": "중갑을 입지 않았을 때 이동속도가 10ft 증가합니다."
+  },
+  "class.barbarian.feature.feral_instinct": {
+    "nameKo": "야성적 본능",
+    "summaryKo": "선제권 굴림에 이점을 얻고, 기습당해도 첫 턴에 격노하면 행동할 수 있습니다."
+  },
+  "class.barbarian.feature.brutal_critical": {
+    "nameKo": "잔혹한 치명타",
+    "summaryKo": "근접 무기 공격으로 치명타를 냈을 때 무기 피해 주사위를 추가로 굴립니다."
+  },
+  "class.barbarian.feature.relentless_rage": {
+    "nameKo": "끈질긴 격노",
+    "summaryKo": "격노 중 HP가 0이 될 때 건강 내성에 성공하면 1 HP로 버틸 수 있습니다."
+  },
+  "class.barbarian.feature.persistent_rage": {
+    "nameKo": "지속되는 격노",
+    "summaryKo": "무의식 상태가 되거나 직접 끝내지 않는 한 격노가 쉽게 종료되지 않습니다."
+  },
+  "class.barbarian.feature.indomitable_might": {
+    "nameKo": "굴하지 않는 힘",
+    "summaryKo": "근력 판정 결과가 근력 점수보다 낮으면 근력 점수로 대신 사용할 수 있습니다."
+  },
+  "class.barbarian.feature.primal_champion": {
+    "nameKo": "원초적 투사",
+    "summaryKo": "근력과 건강이 크게 상승하고 해당 능력치 최대치도 함께 증가하는 바바리안 최종 특성입니다."
+  },
+  "class.bard.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "바드는 매력을 주문시전 능력치로 사용하며, 알고 있는 바드 주문을 주문 슬롯으로 시전합니다. 의식 주문과 악기 초점구를 활용할 수 있습니다."
+  },
+  "class.bard.feature.expertise": {
+    "nameKo": "전문화",
+    "summaryKo": "선택한 두 숙련 기술의 숙련 보너스를 두 배로 적용합니다."
+  },
+  "class.bard.feature.bard_college": {
+    "nameKo": "바드 대학",
+    "summaryKo": "3레벨에 바드 대학을 선택해 공연, 지식, 전투 방식에 맞는 서브클래스 특성을 얻습니다."
+  },
+  "class.bard.feature.font_of_inspiration": {
+    "nameKo": "고양감의 원천",
+    "summaryKo": "바드의 고양감 사용 횟수가 긴 휴식뿐 아니라 짧은 휴식 후에도 회복됩니다."
+  },
+  "class.bard.feature.bardic_inspiration_d8": {
+    "nameKo": "바드의 고양감 d8",
+    "summaryKo": "바드의 고양감 주사위가 d8로 커집니다."
+  },
+  "class.bard.feature.countercharm": {
+    "nameKo": "반대매혹",
+    "summaryKo": "행동으로 공연을 시작해 주변 아군이 매혹과 공포에 대한 내성 굴림에 이점을 얻도록 돕습니다."
+  },
+  "class.bard.feature.bard_college_feature": {
+    "nameKo": "바드 대학 기능",
+    "summaryKo": "선택한 바드 대학에서 제공하는 추가 서브클래스 특성을 얻습니다."
+  },
+  "class.bard.feature.bardic_inspiration_d10": {
+    "nameKo": "바드의 고양감 d10",
+    "summaryKo": "바드의 고양감 주사위가 d10으로 커집니다."
+  },
+  "class.bard.feature.expertise_10": {
+    "nameKo": "전문화 추가",
+    "summaryKo": "추가로 두 숙련 기술을 선택해 숙련 보너스를 두 배로 적용합니다."
+  },
+  "class.bard.feature.magical_secrets": {
+    "nameKo": "마법의 비밀",
+    "summaryKo": "다른 직업 주문 목록에서도 주문을 선택해 바드 주문으로 배울 수 있습니다."
+  },
+  "class.bard.feature.bardic_inspiration_d12": {
+    "nameKo": "바드의 고양감 d12",
+    "summaryKo": "바드의 고양감 주사위가 d12로 커집니다."
+  },
+  "class.bard.feature.superior_inspiration": {
+    "nameKo": "뛰어난 고양감",
+    "summaryKo": "전투 시작 시 바드의 고양감 사용 횟수가 없으면 1회를 회복합니다."
+  },
+  "class.cleric.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "클레릭은 지혜를 주문시전 능력치로 사용하며, 긴 휴식 후 클레릭 주문 목록에서 준비 주문을 바꿀 수 있습니다."
+  },
+  "class.cleric.feature.divine_domain": {
+    "nameKo": "신성 권역",
+    "summaryKo": "1레벨에 클레릭 권역을 선택해 권역 주문과 추가 기능을 얻습니다."
+  },
+  "class.cleric.feature.divine_domain_feature": {
+    "nameKo": "신성 권역 기능",
+    "summaryKo": "선택한 신성 권역에서 제공하는 추가 주문, 숙련, 신성 변환 선택지, 권역 특성을 얻습니다."
+  },
+  "class.cleric.feature.destroy_undead": {
+    "nameKo": "언데드 파괴",
+    "summaryKo": "언데드 퇴치에 실패한 낮은 CR의 언데드를 즉시 파괴할 수 있게 됩니다. 적용 가능한 CR은 레벨에 따라 증가합니다."
+  },
+  "class.druid.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "드루이드는 지혜를 주문시전 능력치로 사용하며, 긴 휴식 후 드루이드 주문 목록에서 준비 주문을 바꿀 수 있습니다."
+  },
+  "class.druid.feature.druid_circle": {
+    "nameKo": "드루이드 서클",
+    "summaryKo": "2레벨에 드루이드 서클을 선택해 주문, 자연 회복, 지형 관련 기능 등 서브클래스 기능을 얻습니다."
+  },
+  "class.druid.feature.wild_shape_improvement": {
+    "nameKo": "야생 변신 향상",
+    "summaryKo": "야생 변신으로 선택할 수 있는 야수의 CR과 이동 유형 제한이 레벨에 따라 완화됩니다."
+  },
+  "class.druid.feature.timeless_body": {
+    "nameKo": "영원한 육체",
+    "summaryKo": "자연 마법의 힘으로 노화가 크게 느려집니다."
+  },
+  "class.druid.feature.beast_spells": {
+    "nameKo": "야수 주문",
+    "summaryKo": "야생 변신 상태에서도 대부분의 드루이드 주문을 시전할 수 있습니다."
+  },
+  "class.druid.feature.archdruid": {
+    "nameKo": "대드루이드",
+    "summaryKo": "야생 변신을 제한 없이 사용할 수 있고, 드루이드 주문 시전 능력이 극대화됩니다."
+  },
+  "class.fighter.feature.martial_archetype": {
+    "nameKo": "무예 아키타입",
+    "summaryKo": "3레벨에 파이터 서브클래스를 선택해 전투 스타일을 더 구체화합니다."
+  },
+  "class.fighter.feature.extra_attack": {
+    "nameKo": "추가 공격",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 여러 번 공격할 수 있습니다. 파이터는 레벨이 오르면 공격 횟수가 더 늘어납니다."
+  },
+  "class.fighter.feature.extra_attack_2": {
+    "nameKo": "추가 공격 2회",
+    "summaryKo": "공격 행동을 할 때 세 번 공격할 수 있습니다."
+  },
+  "class.fighter.feature.extra_attack_3": {
+    "nameKo": "추가 공격 3회",
+    "summaryKo": "공격 행동을 할 때 네 번 공격할 수 있습니다."
+  },
+  "class.rogue.feature.thieves_cant": {
+    "nameKo": "도둑의 은어",
+    "summaryKo": "도둑과 범죄자들 사이에서 쓰이는 암호, 은어, 표식을 이해하고 사용할 수 있습니다."
+  },
+  "class.rogue.feature.roguish_archetype": {
+    "nameKo": "로그 아키타입",
+    "summaryKo": "3레벨에 로그 서브클래스를 선택해 전투, 잠입, 기교 방향을 정합니다."
+  },
+  "class.rogue.feature.uncanny_dodge": {
+    "nameKo": "불가사의한 회피",
+    "summaryKo": "볼 수 있는 공격자가 자신을 명중시켰을 때 reaction으로 그 공격의 피해를 절반으로 줄일 수 있습니다."
+  },
+  "class.rogue.feature.evasion": {
+    "nameKo": "회피",
+    "summaryKo": "민첩 내성에 성공하면 피해를 받지 않고, 실패해도 일반적으로 절반 피해만 받습니다."
+  },
+  "class.rogue.feature.reliable_talent": {
+    "nameKo": "믿음직한 재능",
+    "summaryKo": "숙련 보너스를 더하는 능력 판정에서 d20 결과가 9 이하이면 10으로 취급합니다."
+  },
+  "class.rogue.feature.blindsense": {
+    "nameKo": "맹시 감각",
+    "summaryKo": "들을 수 있는 상태라면 10ft 이내의 숨은 크리처나 투명 크리처의 위치를 감지할 수 있습니다."
+  },
+  "class.rogue.feature.slippery_mind": {
+    "nameKo": "미끄러운 정신",
+    "summaryKo": "정신을 단련해 지혜 내성 굴림에 숙련을 얻습니다."
+  },
+  "class.rogue.feature.elusive": {
+    "nameKo": "포착 불가",
+    "summaryKo": "무력화 상태가 아닌 동안 자신을 향한 공격 굴림은 유리함을 얻을 수 없습니다."
+  },
+  "class.rogue.feature.stroke_of_luck": {
+    "nameKo": "행운의 일격",
+    "summaryKo": "빗나간 공격을 명중으로 바꾸거나 실패한 능력 판정의 d20 결과를 20으로 바꿀 수 있습니다."
+  },
+  "class.ranger.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "레인저는 지혜를 주문시전 능력치로 사용하며, 알고 있는 레인저 주문을 주문 슬롯으로 시전합니다."
+  },
+  "class.ranger.feature.fighting_style": {
+    "nameKo": "전투 방식",
+    "summaryKo": "2레벨에 궁술, 방어술, 결투술, 쌍수 전투술 등 레인저 전투 방식을 선택합니다."
+  },
+  "class.ranger.feature.ranger_archetype": {
+    "nameKo": "레인저 아키타입",
+    "summaryKo": "3레벨에 레인저 서브클래스를 선택해 사냥 방식과 전투 역할을 확장합니다."
+  },
+  "class.ranger.feature.primeval_awareness": {
+    "nameKo": "원초적 감지",
+    "summaryKo": "주문 슬롯을 소비해 주변의 특정 크리처 유형 존재를 감지합니다."
+  },
+  "class.ranger.feature.extra_attack": {
+    "nameKo": "추가 공격",
+    "summaryKo": "자기 턴에 공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다."
+  },
+  "class.ranger.feature.lands_stride": {
+    "nameKo": "대지의 발걸음",
+    "summaryKo": "비마법적 험지와 식물이 이동을 늦추지 않으며, 마법 식물의 방해에 저항하기 쉬워집니다."
+  },
+  "class.ranger.feature.hide_in_plain_sight": {
+    "nameKo": "눈앞의 은신",
+    "summaryKo": "1분 동안 위장을 준비해 움직이지 않는 동안 은신 판정에 큰 보너스를 받을 수 있습니다."
+  },
+  "class.ranger.feature.vanish": {
+    "nameKo": "사라지기",
+    "summaryKo": "보조행동으로 숨기 행동을 할 수 있고, 흔적을 남기지 않으면 비마법적 추적을 피할 수 있습니다."
+  },
+  "class.ranger.feature.feral_senses": {
+    "nameKo": "야성 감각",
+    "summaryKo": "보이지 않는 크리처와 싸울 때의 불리함을 줄이고, 조건을 만족하면 투명한 적의 위치를 감지합니다."
+  },
+  "class.monk.feature.unarmored_movement": {
+    "nameKo": "비무장 이동",
+    "summaryKo": "갑옷과 방패를 쓰지 않을 때 이동속도가 증가합니다."
+  },
+  "class.monk.feature.monastic_tradition": {
+    "nameKo": "수도 전통",
+    "summaryKo": "3레벨에 몽크 서브클래스를 선택해 수련 방식과 전투 기술을 확장합니다."
+  },
+  "class.monk.feature.deflect_missiles": {
+    "nameKo": "투사체 쳐내기",
+    "summaryKo": "반응행동으로 원거리 무기 공격의 피해를 줄이고, 조건을 만족하면 투사체를 되던질 수 있습니다."
+  },
+  "class.monk.feature.slow_fall": {
+    "nameKo": "느린 낙하",
+    "summaryKo": "반응행동으로 낙하 피해를 몽크 레벨에 비례해 줄입니다."
+  },
+  "class.monk.feature.extra_attack": {
+    "nameKo": "추가 공격",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다."
+  },
+  "class.monk.feature.monastic_tradition_feature": {
+    "nameKo": "수도 전통 기능",
+    "summaryKo": "선택한 수도 전통에서 제공하는 추가 서브클래스 특성을 얻습니다."
+  },
+  "class.monk.feature.evasion": {
+    "nameKo": "회피",
+    "summaryKo": "민첩 내성에 성공하면 피해를 받지 않고, 실패해도 일반적으로 절반 피해만 받습니다."
+  },
+  "class.monk.feature.stillness_of_mind": {
+    "nameKo": "고요한 정신",
+    "summaryKo": "행동을 사용해 자신에게 걸린 매혹 또는 공포 효과 하나를 끝낼 수 있습니다."
+  },
+  "class.monk.feature.purity_of_body": {
+    "nameKo": "순수한 육체",
+    "summaryKo": "질병과 독에 면역을 얻습니다."
+  },
+  "class.monk.feature.diamond_soul": {
+    "nameKo": "다이아몬드 영혼",
+    "summaryKo": "모든 내성 굴림에 숙련을 얻고, 기를 소비해 실패한 내성을 다시 굴릴 수 있습니다."
+  },
+  "class.monk.feature.empty_body": {
+    "nameKo": "빈 몸",
+    "summaryKo": "기를 소비해 투명화에 가까운 상태가 되거나, 더 많은 기를 소비해 아스트랄 투사를 사용할 수 있습니다."
+  },
+  "class.monk.feature.perfect_self": {
+    "nameKo": "완전한 자아",
+    "summaryKo": "전투 시작 시 기가 부족하면 일부 기를 회복하는 몽크 최종 특성입니다."
+  },
+  "class.paladin.feature.fighting_style": {
+    "nameKo": "전투 방식",
+    "summaryKo": "2레벨에 방어, 결투, 대형 무기 전투, 보호 같은 팔라딘 전투 방식을 선택합니다."
+  },
+  "class.paladin.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "팔라딘은 매력을 주문시전 능력치로 사용하며, 긴 휴식 후 준비 주문을 바꿀 수 있습니다."
+  },
+  "class.paladin.feature.divine_health": {
+    "nameKo": "신성한 건강",
+    "summaryKo": "신성한 힘으로 질병에 면역을 얻습니다."
+  },
+  "class.paladin.feature.sacred_oath": {
+    "nameKo": "신성한 맹세",
+    "summaryKo": "3레벨에 팔라딘 맹세를 선택해 맹세 주문과 신성 변환 선택지를 얻습니다."
+  },
+  "class.paladin.feature.extra_attack": {
+    "nameKo": "추가 공격",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다."
+  },
+  "class.paladin.feature.aura_of_courage": {
+    "nameKo": "용기의 오라",
+    "summaryKo": "자신과 가까운 아군이 공포 상태에 면역을 얻습니다."
+  },
+  "class.paladin.feature.improved_divine_smite": {
+    "nameKo": "향상된 신성한 강타",
+    "summaryKo": "근접 무기 공격이 명중할 때마다 추가 광휘 피해를 줍니다."
+  },
+  "class.paladin.feature.cleansing_touch": {
+    "nameKo": "정화의 손길",
+    "summaryKo": "행동으로 자신이나 접촉한 크리처에게 걸린 주문 효과 하나를 끝낼 수 있습니다."
+  },
+  "class.sorcerer.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "소서러는 매력을 주문시전 능력치로 사용하며, 알고 있는 소서러 주문을 주문 슬롯으로 시전합니다."
+  },
+  "class.sorcerer.feature.sorcerous_origin": {
+    "nameKo": "소서러 기원",
+    "summaryKo": "1레벨에 소서러 기원을 선택해 마법의 근원과 서브클래스 기능을 정합니다."
+  },
+  "class.warlock.feature.otherworldly_patron": {
+    "nameKo": "다른 세계의 후원자",
+    "summaryKo": "1레벨에 워락 후원자를 선택해 계약의 성격과 서브클래스 기능을 정합니다."
+  },
+  "class.warlock.feature.pact_magic": {
+    "nameKo": "계약 마법",
+    "summaryKo": "워락은 매력을 주문시전 능력치로 사용하며, 짧은 휴식 또는 긴 휴식 후 계약 주문 슬롯을 회복합니다."
+  },
+  "class.warlock.feature.eldritch_master": {
+    "nameKo": "섬뜩한 주인",
+    "summaryKo": "후원자에게 간청해 짧은 의식 후 소모한 계약 마법 슬롯을 회복합니다."
+  },
+  "class.wizard.feature.spellcasting": {
+    "nameKo": "주문시전",
+    "summaryKo": "위저드는 지능을 주문시전 능력치로 사용합니다. 주문책에 주문을 기록하고, 긴 휴식 후 준비 주문을 바꿀 수 있습니다."
+  },
+  "class.wizard.feature.arcane_tradition": {
+    "nameKo": "비전 전통",
+    "summaryKo": "2레벨에 위저드 전통을 선택해 주문 학파와 서브클래스 기능을 얻습니다."
+  },
+  "class.barbarian.feature.brutal_critical_2": {
+    "nameKo": "잔혹한 치명타 2",
+    "summaryKo": "잔혹한 치명타로 추가로 굴리는 무기 피해 주사위가 두 개로 증가합니다."
+  },
+  "class.barbarian.feature.brutal_critical_3": {
+    "nameKo": "잔혹한 치명타 3",
+    "summaryKo": "잔혹한 치명타로 추가로 굴리는 무기 피해 주사위가 세 개로 증가합니다."
+  },
+  "class.barbarian.feature.rage_damage_3": {
+    "nameKo": "격노 피해 +3",
+    "summaryKo": "격노 중 근력을 사용하는 근접 무기 공격 피해 보너스가 +3으로 증가합니다."
+  },
+  "class.bard.feature.magical_secrets_14": {
+    "nameKo": "마법적 비밀 14레벨",
+    "summaryKo": "바드 주문 목록 밖의 주문을 추가로 배워 바드 주문으로 사용할 수 있습니다."
+  },
+  "class.bard.feature.magical_secrets_18": {
+    "nameKo": "마법적 비밀 18레벨",
+    "summaryKo": "바드 주문 목록 밖의 주문을 추가로 배워 바드 주문으로 사용할 수 있습니다."
+  },
+  "class.bard.feature.song_of_rest_d8": {
+    "nameKo": "휴식의 노래 d8",
+    "summaryKo": "휴식의 노래로 추가 회복하는 주사위가 d8로 증가합니다."
+  },
+  "class.bard.feature.song_of_rest_d10": {
+    "nameKo": "휴식의 노래 d10",
+    "summaryKo": "휴식의 노래로 추가 회복하는 주사위가 d10으로 증가합니다."
+  },
+  "class.bard.feature.song_of_rest_d12": {
+    "nameKo": "휴식의 노래 d12",
+    "summaryKo": "휴식의 노래로 추가 회복하는 주사위가 d12로 증가합니다."
+  },
+  "class.cleric.feature.channel_divinity_uses_2": {
+    "nameKo": "신성 변환 2회",
+    "summaryKo": "휴식 사이 사용할 수 있는 신성 변환 횟수가 두 번으로 증가합니다."
+  },
+  "class.cleric.feature.destroy_undead_cr_1": {
+    "nameKo": "언데드 파괴 CR 1",
+    "summaryKo": "언데드 퇴치에 실패한 CR 1 이하 언데드를 즉시 파괴할 수 있습니다."
+  },
+  "class.cleric.feature.destroy_undead_cr_2": {
+    "nameKo": "언데드 파괴 CR 2",
+    "summaryKo": "언데드 퇴치에 실패한 CR 2 이하 언데드를 즉시 파괴할 수 있습니다."
+  },
+  "class.cleric.feature.destroy_undead_cr_3": {
+    "nameKo": "언데드 파괴 CR 3",
+    "summaryKo": "언데드 퇴치에 실패한 CR 3 이하 언데드를 즉시 파괴할 수 있습니다."
+  },
+  "class.cleric.feature.destroy_undead_cr_4": {
+    "nameKo": "언데드 파괴 CR 4",
+    "summaryKo": "언데드 퇴치에 실패한 CR 4 이하 언데드를 즉시 파괴할 수 있습니다."
+  },
+  "class.druid.feature.seventh_level_spells": {
+    "nameKo": "7레벨 주문",
+    "summaryKo": "드루이드 주문시전 진행에 따라 7레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.druid.feature.eighth_level_spells": {
+    "nameKo": "8레벨 주문",
+    "summaryKo": "드루이드 주문시전 진행에 따라 8레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.druid.feature.ninth_level_spells": {
+    "nameKo": "9레벨 주문",
+    "summaryKo": "드루이드 주문시전 진행에 따라 9레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.druid.feature.wild_shape_improvement_cr_1": {
+    "nameKo": "야생 변신 향상 CR 1",
+    "summaryKo": "야생 변신으로 변신할 수 있는 야수의 최대 도전 등급이 CR 1로 증가합니다."
+  },
+  "class.druid.feature.wild_shape_uses_stable": {
+    "nameKo": "야생 변신 유지",
+    "summaryKo": "야생 변신 사용 횟수와 기본 운용 규칙이 유지됩니다."
+  },
+  "class.fighter.feature.action_surge_2": {
+    "nameKo": "행동 연쇄 2회",
+    "summaryKo": "휴식 사이 행동 연쇄를 두 번 사용할 수 있습니다."
+  },
+  "class.fighter.feature.indomitable_2": {
+    "nameKo": "불굴 2회",
+    "summaryKo": "실패한 내성 굴림을 다시 굴리는 불굴 사용 횟수가 두 번으로 증가합니다."
+  },
+  "class.fighter.feature.indomitable_3": {
+    "nameKo": "불굴 3회",
+    "summaryKo": "실패한 내성 굴림을 다시 굴리는 불굴 사용 횟수가 세 번으로 증가합니다."
+  },
+  "class.monk.feature.martial_arts_d6": {
+    "nameKo": "무술 주사위 d6",
+    "summaryKo": "무술 피해 주사위가 d6으로 증가합니다."
+  },
+  "class.monk.feature.martial_arts_d8": {
+    "nameKo": "무술 주사위 d8",
+    "summaryKo": "무술 피해 주사위가 d8로 증가합니다."
+  },
+  "class.monk.feature.martial_arts_d10": {
+    "nameKo": "무술 주사위 d10",
+    "summaryKo": "무술 피해 주사위가 d10으로 증가합니다."
+  },
+  "class.monk.feature.timeless_body": {
+    "nameKo": "영원의 몸",
+    "summaryKo": "수도승의 기가 노화를 늦추며, 노쇠로 인한 약화를 겪지 않습니다."
+  },
+  "class.monk.feature.tongue_of_the_sun_and_moon": {
+    "nameKo": "해와 달의 언어",
+    "summaryKo": "말을 이해하는 모든 크리처와 의사소통할 수 있습니다."
+  },
+  "class.monk.feature.unarmored_movement_improvement": {
+    "nameKo": "비무장 이동 향상",
+    "summaryKo": "비무장 이동 보너스가 증가하고 특정 레벨부터 수직 표면과 물 위를 이동할 수 있습니다."
+  },
+  "class.paladin.feature.aura_improvements": {
+    "nameKo": "오라 향상",
+    "summaryKo": "팔라딘 오라의 적용 범위가 더 넓어집니다."
+  },
+  "class.paladin.feature.sacred_oath_capstone": {
+    "nameKo": "성스러운 맹세 최종 특성",
+    "summaryKo": "선택한 성스러운 맹세의 20레벨 최종 특성을 얻습니다."
+  },
+  "class.ranger.feature.favored_enemy_improvement": {
+    "nameKo": "주적 향상",
+    "summaryKo": "주적 선택지가 추가되어 더 많은 적 유형에 대한 추적과 지식 판정 이점을 얻습니다."
+  },
+  "class.ranger.feature.favored_enemy_improvement_14": {
+    "nameKo": "주적 향상 14레벨",
+    "summaryKo": "주적 선택지가 한 번 더 추가되어 더 많은 적 유형에 대응할 수 있습니다."
+  },
+  "class.ranger.feature.natural_explorer_improvement": {
+    "nameKo": "자연 탐험가 향상",
+    "summaryKo": "익숙한 지형 선택지가 추가되어 더 많은 환경에서 탐험 이점을 얻습니다."
+  },
+  "class.rogue.feature.expertise_improvement": {
+    "nameKo": "전문화 향상",
+    "summaryKo": "전문화 대상을 추가로 선택해 더 많은 숙련에 숙련 보너스를 두 배로 적용합니다."
+  },
+  "class.sorcerer.feature.seventh_level_spells": {
+    "nameKo": "7레벨 주문",
+    "summaryKo": "소서러 주문시전 진행에 따라 7레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.sorcerer.feature.eighth_level_spells": {
+    "nameKo": "8레벨 주문",
+    "summaryKo": "소서러 주문시전 진행에 따라 8레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.sorcerer.feature.ninth_level_spells": {
+    "nameKo": "9레벨 주문",
+    "summaryKo": "소서러 주문시전 진행에 따라 9레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.sorcerer.feature.metamagic_improvement_17": {
+    "nameKo": "메타매직 향상 17레벨",
+    "summaryKo": "메타매직 선택지가 추가되어 주문 변형 방식을 더 많이 사용할 수 있습니다."
+  },
+  "class.sorcerer.feature.sorcery_points_10": {
+    "nameKo": "소서리 포인트 10",
+    "summaryKo": "소서러 레벨에 따라 사용할 수 있는 소서리 포인트 최대치가 10으로 증가합니다."
+  },
+  "class.sorcerer.feature.sorcery_points_16": {
+    "nameKo": "소서리 포인트 16",
+    "summaryKo": "소서러 레벨에 따라 사용할 수 있는 소서리 포인트 최대치가 16으로 증가합니다."
+  },
+  "class.wizard.feature.arcane_tradition_feature_10": {
+    "nameKo": "비전 전통 특성 10레벨",
+    "summaryKo": "선택한 비전 전통의 10레벨 서브클래스 특성을 얻습니다."
+  },
+  "class.wizard.feature.seventh_level_spells": {
+    "nameKo": "7레벨 주문",
+    "summaryKo": "위저드 주문시전 진행에 따라 7레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.wizard.feature.eighth_level_spells": {
+    "nameKo": "8레벨 주문",
+    "summaryKo": "위저드 주문시전 진행에 따라 8레벨 주문 슬롯을 사용할 수 있습니다."
+  },
+  "class.wizard.feature.ninth_level_spells": {
+    "nameKo": "9레벨 주문",
+    "summaryKo": "위저드 주문시전 진행에 따라 9레벨 주문 슬롯을 사용할 수 있습니다."
+  }
+}

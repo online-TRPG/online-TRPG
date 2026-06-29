@@ -12,6 +12,7 @@ import type {
   SessionScenarioStatus,
   SessionStatus,
   SessionVisibility,
+  UserRole,
 } from "../../constants/enums";
 import type { AbilityScores, InventoryItem } from "../common/ability-scores";
 
@@ -22,6 +23,7 @@ export type UserModel = {
   name: string;
   nickname: string;
   authProvider: string;
+  role: UserRole;
   displayName: string;
   createdAt: string;
 };

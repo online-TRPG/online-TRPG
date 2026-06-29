@@ -101,7 +101,7 @@ npm run build
 
 운영자 계정 조건:
 
-- user id가 `operator-`, `admin-`, `moderator-` 중 하나로 시작해야 한다.
+- 사용자 `role`이 `MODERATOR` 또는 `ADMIN`이어야 한다.
 
 확인 절차:
 

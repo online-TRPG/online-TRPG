@@ -1,6 +1,11 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  getSrdCatalogFingerprint,
+  normalizeSrdClassKey,
+  SRD_CATALOG_FINGERPRINT_FILES,
+} from '../index.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const generatedDir = path.join(packageRoot, 'generated', 'srd');
@@ -8,6 +13,11 @@ const engineDir = path.join(packageRoot, 'generated', 'srd-engine');
 
 const requiredFiles = [
   'backend_engine_p0_contracts.json',
+  'catalog-fingerprint.json',
+  'class-features.json',
+  'fe-spell-pools.json',
+  'fe-usable-items.json',
+  'item-labels.json',
   'classes.jsonl',
   'conditions.jsonl',
   'equipment.jsonl',
@@ -22,6 +32,7 @@ const requiredFiles = [
   'rules_cards.jsonl',
   'rules_hooks.json',
   'source_manifest.json',
+  'spell-class-lists.json',
   'spells.jsonl',
   'srd_qa_report.json',
 ];
@@ -38,6 +49,28 @@ const requiredEngineFiles = [
 ];
 await Promise.all(requiredEngineFiles.map((fileName) => access(path.join(engineDir, fileName))));
 
+async function readJsonLines(filePath) {
+  return (await readFile(filePath, 'utf8'))
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+async function readJson(filePath) {
+  return JSON.parse(await readFile(filePath, 'utf8'));
+}
+
+function collectSpellClassListIds(classSpellList) {
+  return [
+    ...(classSpellList.cantrips ?? []),
+    ...Object.values(classSpellList.spellsByLevel ?? {}).flat(),
+  ];
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 const mvpSpellIds = [
   'spell.fire_bolt',
   'spell.sacred_flame',
@@ -52,21 +85,133 @@ const mvpSpellIds = [
   'spell.vicious_mockery',
 ];
 
-const spells = (await readFile(path.join(engineDir, 'spells.jsonl'), 'utf8'))
-  .split(/\r?\n/)
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
+const srdSpells = await readJsonLines(path.join(generatedDir, 'spells.jsonl'));
+const srdClasses = await readJsonLines(path.join(generatedDir, 'classes.jsonl'));
+const spells = await readJsonLines(path.join(engineDir, 'spells.jsonl'));
 const spellsById = new Map(spells.map((spell) => [spell.id, spell]));
-const classes = (await readFile(path.join(engineDir, 'classes.jsonl'), 'utf8'))
-  .split(/\r?\n/)
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
+const classes = await readJsonLines(path.join(engineDir, 'classes.jsonl'));
 const classesById = new Map(classes.map((klass) => [klass.id, klass]));
-const equipment = (await readFile(path.join(engineDir, 'equipment.jsonl'), 'utf8'))
-  .split(/\r?\n/)
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
+const equipment = await readJsonLines(path.join(engineDir, 'equipment.jsonl'));
 const equipmentById = new Map(equipment.map((item) => [item.id, item]));
+const classFeatures = JSON.parse(
+  await readFile(path.join(generatedDir, 'class-features.json'), 'utf8'),
+);
+const catalogFingerprint = JSON.parse(
+  await readFile(path.join(generatedDir, 'catalog-fingerprint.json'), 'utf8'),
+);
+const spellClassLists = await readJson(path.join(generatedDir, 'spell-class-lists.json'));
+const spellClassListsSource = await readJson(path.join(packageRoot, 'sources', 'spell-class-lists.json'));
+
+if (!Array.isArray(classFeatures) || classFeatures.length === 0) {
+  throw new Error('Generated class feature manifest is empty.');
+}
+
+const classFeaturesMissingSummary = classFeatures.filter((feature) => !feature.summaryKo);
+if (classFeaturesMissingSummary.length) {
+  throw new Error(
+    `Generated class feature manifest contains entries without summaryKo: ${classFeaturesMissingSummary
+      .slice(0, 10)
+      .map((feature) => feature.id)
+      .join(', ')}`,
+  );
+}
+
+const expectedCatalogFingerprint = await getSrdCatalogFingerprint();
+if (JSON.stringify(catalogFingerprint) !== JSON.stringify(expectedCatalogFingerprint)) {
+  throw new Error('Generated catalog-fingerprint.json is stale.');
+}
+const catalogFingerprintPaths = new Set(
+  (catalogFingerprint.files ?? []).map((entry) => `${entry.scope}/${entry.path}`),
+);
+const missingCatalogFingerprintPaths = SRD_CATALOG_FINGERPRINT_FILES.map(
+  ({ scope, path: fileName }) => `${scope}/${fileName}`,
+).filter(
+  (filePath) => !catalogFingerprintPaths.has(filePath),
+);
+if (missingCatalogFingerprintPaths.length) {
+  throw new Error(
+    `Generated catalog-fingerprint.json is missing required files: ${missingCatalogFingerprintPaths.join(', ')}`,
+  );
+}
+
+if (JSON.stringify(spellClassListsSource) !== JSON.stringify(spellClassLists)) {
+  throw new Error('Generated spell-class-lists.json is not synced with its source.');
+}
+
+const srdSpellLevelsById = new Map(srdSpells.map((spell) => [spell.id, spell.level]));
+const srdClassKeys = new Set(
+  srdClasses.map((klass) => normalizeSrdClassKey(klass.nameEn ?? klass.id)).filter(Boolean),
+);
+const classesByKey = spellClassLists.classes ?? {};
+const spellClassListErrors = [];
+
+if (spellClassLists.schemaVersion !== 'srd-spell-class-lists-v1') {
+  spellClassListErrors.push('spell-class-lists.json schemaVersion must be srd-spell-class-lists-v1');
+}
+if (!classesByKey || typeof classesByKey !== 'object' || Array.isArray(classesByKey)) {
+  spellClassListErrors.push('spell-class-lists.json classes must be an object keyed by class key');
+}
+
+for (const [classKey, classSpellList] of Object.entries(classesByKey)) {
+  if (!isPlainObject(classSpellList)) {
+    spellClassListErrors.push(`spell-class-lists.json ${classKey} entry must be an object`);
+    continue;
+  }
+  if (!srdClassKeys.has(classKey)) {
+    spellClassListErrors.push(`spell-class-lists.json class key is not present in generated SRD classes: ${classKey}`);
+  }
+
+  const cantrips = classSpellList.cantrips ?? [];
+  const spellsByLevel = classSpellList.spellsByLevel ?? {};
+  if (!Array.isArray(cantrips)) {
+    spellClassListErrors.push(`spell-class-lists.json ${classKey}.cantrips must be an array`);
+    continue;
+  }
+  if (!isPlainObject(spellsByLevel)) {
+    spellClassListErrors.push(`spell-class-lists.json ${classKey}.spellsByLevel must be an object`);
+    continue;
+  }
+
+  const seenIds = new Set();
+  for (const spellId of collectSpellClassListIds(classSpellList)) {
+    if (seenIds.has(spellId)) {
+      spellClassListErrors.push(`spell-class-lists.json ${classKey} contains duplicate spell id: ${spellId}`);
+    }
+    seenIds.add(spellId);
+  }
+
+  for (const spellId of cantrips) {
+    if (srdSpellLevelsById.get(spellId) !== 0) {
+      spellClassListErrors.push(`spell-class-lists.json ${classKey} cantrip list contains non-cantrip spell: ${spellId}`);
+    }
+  }
+
+  for (const [rawLevel, spellIds] of Object.entries(spellsByLevel)) {
+    if (!Array.isArray(spellIds)) {
+      spellClassListErrors.push(`spell-class-lists.json ${classKey}.spellsByLevel.${rawLevel} must be an array`);
+      continue;
+    }
+    const level = Number(rawLevel);
+    if (!Number.isInteger(level) || level < 1 || level > 9) {
+      spellClassListErrors.push(`spell-class-lists.json ${classKey} has invalid spell level bucket: ${rawLevel}`);
+      continue;
+    }
+    for (const spellId of spellIds) {
+      if (srdSpellLevelsById.get(spellId) !== level) {
+        spellClassListErrors.push(`spell-class-lists.json ${classKey} level ${level} list contains mismatched spell: ${spellId}`);
+      }
+    }
+  }
+}
+
+if (spellClassListErrors.length) {
+  throw new Error(
+    `Generated spell-class-lists.json is invalid:\n${spellClassListErrors
+      .slice(0, 20)
+      .map((error) => `  - ${error}`)
+      .join('\n')}`,
+  );
+}
 
 for (const spellId of mvpSpellIds) {
   const spell = spellsById.get(spellId);

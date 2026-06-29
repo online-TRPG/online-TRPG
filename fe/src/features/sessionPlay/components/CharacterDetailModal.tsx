@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { SessionCharacterResponseDto } from '@trpg/shared-types';
 import {
   getCharacterClassLabel,
@@ -6,6 +6,10 @@ import {
 } from '../utils/characterVisuals';
 import { getUserFacingItemName } from '../utils/displayNames';
 import { getCharacterFeatureDisplayInfo } from '../../characters/characterFeaturePresentation';
+import {
+  loadClassFeatureManifest,
+  type CanonicalClassFeatureEntry,
+} from '../../../services/staticSrd';
 import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import './StoryNodeSurface.css';
 
@@ -84,6 +88,7 @@ export function CharacterDetailModal({
   onEquipInventoryItem,
   isEquipmentBusy = false,
 }: CharacterDetailModalProps) {
+  const [classFeatureManifest, setClassFeatureManifest] = useState<CanonicalClassFeatureEntry[]>([]);
   const characterImage = getCharacterImage(character);
   const equippedWeapon =
     character.inventory.find(
@@ -100,6 +105,25 @@ export function CharacterDetailModal({
   const equippedArmor =
     character.inventory.find((item) => isArmorItem(item)) ?? null;
   const preparedSpellSet = new Set(character.spells?.preparedSpells ?? []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadClassFeatureManifest()
+      .then((manifest) => {
+        if (!cancelled) {
+          setClassFeatureManifest(manifest);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClassFeatureManifest([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -227,7 +251,7 @@ export function CharacterDetailModal({
             {character.features.length ? (
               <ul className="story-character-text-list">
                 {character.features.map((feature) => {
-                  const info = getCharacterFeatureDisplayInfo(feature);
+                  const info = getCharacterFeatureDisplayInfo(feature, classFeatureManifest);
                   return (
                     <li key={feature}>
                       <span

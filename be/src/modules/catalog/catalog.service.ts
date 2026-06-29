@@ -21,7 +21,7 @@ export class CatalogService {
       id: entry.id,
       kind: entry.kind,
       executable: entry.kind !== "monster_abilities" || entry.cost.type !== "none",
-      label: this.formatRuleCatalogLabel(entry.id),
+      label: entry.displayNameKo ?? this.formatRuleCatalogLabel(entry.id),
       runtimeTags: [...entry.runtimeEffect.tags],
       spellLevel:
         entry.kind === "spell_definitions"

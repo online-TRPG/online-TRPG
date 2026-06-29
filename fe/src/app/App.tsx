@@ -622,6 +622,7 @@ export function App() {
             error={error}
             onLogout={handleLogout}
             onOpenProfile={() => guardedNavigate('/profile')}
+            onConvertGuestAccount={auth.convertGuestAccount}
             onDeleteAccount={handleDeleteAccount}
           />
         ) : null}

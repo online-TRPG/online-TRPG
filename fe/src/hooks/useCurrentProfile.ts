@@ -22,6 +22,7 @@ function fallbackProfile(user: StoredUser, authMode: AuthMode | null): User {
     name: user.displayName,
     nickname: user.displayName,
     authProvider: (authMode === "guest" ? "GUEST" : "LOCAL") as User["authProvider"],
+    role: user.role,
     displayName: user.displayName,
     createdAt: user.createdAt,
   };

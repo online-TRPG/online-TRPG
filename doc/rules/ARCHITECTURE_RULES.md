@@ -76,3 +76,24 @@ TRPG 세션은 현재 상태뿐 아니라 “어떻게 여기까지 왔는가”
 
 TRPG 세션은 사람들의 동기화된 플레이 시간에 의존한다. 외부 AI 호출 하나가 실패했다고 세션 전체가 멈추면 서비스 신뢰성이 크게 떨어진다.
 
+## 6. SRD 데이터는 단일 원천에서 생성한다
+
+SRD 기반 직업, 특성, 주문, 종족, 장비, 몬스터 데이터는 `srd-data/generated` 산출물을 기준으로 관리한다.
+
+지켜야 할 것:
+
+- 사람이 SRD id, 이름, 레벨, 설명, 선택 규칙을 FE/BE에 새로 중복 작성하지 않는다.
+- SRD 데이터 수정은 `ai/translated/*`와 `srd-data` generator/export 흐름을 통해 반영한다.
+- 직업별 주문 목록은 `srd-data/sources/spell-class-lists.json`을 canonical source로 두고, D&D 5e API 2014 SRD 기반 importer `npm run import:spell-class-lists -w @trpg/srd-data`로 갱신한다.
+- canonical 보조 artifact인 `class-features.json`, `spell-class-lists.json`, `fe-spell-pools.json`, `fe-usable-items.json`, `item-labels.json`, `catalog-fingerprint.json`은 `npm run build -w @trpg/srd-data`로 생성/검증한다.
+- FE의 `fe/public/srd/*.json`은 원천이 아니라 `npm run sync:fe:srd`로 생성되는 배포용 복사본으로 본다.
+- FE/BE/AI catalog version은 `srd-data/generated/srd/catalog-fingerprint.json`과 FE public 복사본으로 대조한다.
+- id 기반 보강 입력은 `srd-data/overrides/README.md`의 허용 범위 안에서만 추가한다.
+- FE-only 보강은 아이콘, 색상, 카드 tone, UX grouping 같은 id 기반 presentation override로 제한한다.
+- BE-only 보강은 action cost, hook id, resource id, targeting 같은 canonical id 기반 runtime metadata로 제한한다.
+- 새 SRD id나 runtime content id를 추가하거나 바꾼 뒤에는 `npm run verify:rule-data-sync`가 통과해야 한다.
+
+이유:
+
+FE, BE, AI가 서로 다른 SRD 데이터를 읽으면 캐릭터 생성 프리뷰, 서버 검증, 전투 실행, AI 검색 결과가 어긋난다. `srd-data`를 단일 원천으로 두고 `verify:rule-data-sync`로 drift를 막아야 “FE에는 보이지만 BE는 모르는 id”나 “BE에는 있지만 FE 설명이 fallback으로 떨어지는 feature”가 재발하지 않는다.
+

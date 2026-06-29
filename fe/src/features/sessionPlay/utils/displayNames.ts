@@ -1,26 +1,10 @@
+import itemLabelsById from '@trpg/srd-data/generated/srd/item-labels.json';
+
 type ItemNameSource = {
   id?: string | null;
   name?: string | null;
   itemDefinitionId?: string | null;
 };
-
-const explicitItemLabelMap = new Map<string, string>([
-  ['equipment.potion_of_healing', '치유 물약'],
-  ['equipment.healer_s_kit', '치료사의 도구'],
-  ['equipment.thieves__tools', '도둑 도구'],
-  ['equipment.rope__hempen__50_feet', '삼베 밧줄 50피트'],
-  ['equipment.backpack', '배낭'],
-  ['equipment.crowbar', '쇠지렛대'],
-  ['equipment.torch', '횃불'],
-  ['equipment.acid__vial', '산성액 병'],
-  ['equipment.alchemist_s_fire__flask', '연금술사의 불꽃 병'],
-  ['equipment.antitoxin__vial', '해독제 병'],
-  ['equipment.ball_bearings__bag_of_1_000', '쇠구슬 주머니'],
-  ['equipment.caltrops__bag_of_20', '마름쇠 주머니'],
-  ['equipment.holy_water__flask', '성수 병'],
-  ['equipment.oil__flask', '기름 병'],
-  ['equipment.poison__basic__vial', '기본 독 병'],
-]);
 
 export function looksLikeFrontendInternalId(value: string | null | undefined) {
   const normalized = value?.trim() ?? '';
@@ -54,7 +38,7 @@ export function formatInternalIdAsReadableName(
   if (!normalized) return fallback;
   if (looksLikeOpaqueDatabaseId(normalized)) return fallback;
 
-  const explicitLabel = explicitItemLabelMap.get(normalized);
+  const explicitLabel = itemLabelsById[normalized as keyof typeof itemLabelsById];
   if (explicitLabel) return explicitLabel;
 
   const tail = normalized.split(/[.:]/).filter(Boolean).at(-1) ?? normalized;

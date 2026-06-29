@@ -10,6 +10,8 @@
 
 "직업 8종 추가"는 현재 기능 구현이 일부 들어간 파이터/바바리안/로그/레인저 외의 8개 직업을 우선 실행 가능하게 만드는 것으로 본다.
 
+SRD 데이터 원천과 FE/BE/AI 정합성 관리는 [`future_plan_srd_data_consistency.md`](future_plan_srd_data_consistency.md)를 따른다. 새 SRD id, 표시 데이터, 직업별 주문 목록, runtime metadata, seed/scenario content id를 추가하거나 바꿀 때는 `srd-data` source/generated 산출물, FE public sync, `npm run verify:rule-data-sync`를 기준으로 drift를 확인한다.
+
 ## 문서 역할
 
 이 문서는 SRD 5e 룰/콘텐츠 확장의 **장기 플랜**이다. 여기의 목표 범위는 축소하지 않는다.

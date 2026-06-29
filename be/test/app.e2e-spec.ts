@@ -899,7 +899,12 @@ describe("Session service e2e", () => {
     const creator = await createGuest("P6 Scenario Creator");
     const reviewer = await createGuest("P6 Scenario Reviewer");
     const reporter = await createGuest("P6 Scenario Reporter");
-    const operator = { id: "operator-p6-e2e" };
+    const operator = await prisma.user.create({
+      data: {
+        displayName: "P6 Scenario Moderator",
+        role: "MODERATOR",
+      },
+    });
 
     const draft = await request(baseUrl)
       .post("/api/v1/scenarios")
