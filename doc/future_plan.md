@@ -10,7 +10,7 @@
 
 "직업 8종 추가"는 현재 기능 구현이 일부 들어간 파이터/바바리안/로그/레인저 외의 8개 직업을 우선 실행 가능하게 만드는 것으로 본다.
 
-SRD 데이터 원천과 FE/BE/AI 정합성 관리는 [`future_plan_srd_data_consistency.md`](future_plan_srd_data_consistency.md)를 따른다. 새 SRD id, 표시 데이터, 직업별 주문 목록, runtime metadata, seed/scenario content id를 추가하거나 바꿀 때는 `srd-data` source/generated 산출물, FE public sync, `npm run verify:rule-data-sync`를 기준으로 drift를 확인한다.
+SRD 데이터 원천과 FE/BE/AI 정합성 관리는 완료된 [`completed/future_plan_srd_data_consistency.md`](completed/future_plan_srd_data_consistency.md)의 운영 규칙을 따른다. 캐릭터 생성/레벨업/주문 진행 규칙의 후속 단일 원천화는 [`future_plan_srd_character_rules_single_source.md`](future_plan_srd_character_rules_single_source.md)를 따른다. 새 SRD id, 표시 데이터, 직업별 주문 목록, runtime metadata, seed/scenario content id를 추가하거나 바꿀 때는 `srd-data` source/generated 산출물, FE public sync, `npm run verify:rule-data-sync`를 기준으로 drift를 확인한다.
 
 ## 문서 역할
 
