@@ -13,8 +13,16 @@
     "./generated/srd/*": "./generated/srd/*",
     "./generated/srd-engine/*": "./generated/srd-engine/*"
   },
-  "files": ["generated", "index.mjs", "index.d.ts"],
+  "files": [
+    "generated",
+    "index.mjs",
+    "index.d.ts",
+    "overrides",
+    "scripts",
+    "sources"
+  ],
   "scripts": {
-    "build": "node scripts/verify-generated.mjs"
+    "build": "node scripts/generate-canonical-artifacts.mjs && node scripts/verify-generated.mjs",
+    "import:spell-class-lists": "node scripts/import-spell-class-lists-from-dnd5eapi.mjs"
   }
 }

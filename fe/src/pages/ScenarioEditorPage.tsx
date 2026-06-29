@@ -17,7 +17,6 @@ import {
   deleteScenarioAsset as deleteScenarioAssetRequest,
   getScenario,
   listScenarioAssets,
-  listRuleCatalog,
   publishScenario,
   updateScenario,
   uploadScenarioAsset,
@@ -30,7 +29,6 @@ import type {
   ScenarioAssetResponseDto,
   ScenarioLicense,
   ScenarioNodeType,
-  RuleCatalogReferenceDto,
   SrdMonsterReferenceDto,
   UpdateScenarioDto,
   VttMapStateDto,
@@ -947,10 +945,9 @@ function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioD
   return null;
 }
 
-function validateScenarioForm(form: ScenarioFormState, catalog: RuleCatalogReferenceDto[]): string[] {
+function validateScenarioForm(form: ScenarioFormState): string[] {
   const issues: string[] = [];
   const nodeIds = new Set(form.nodes.map((node) => node.id));
-  const catalogIds = new Set(catalog.map((entry) => entry.id));
   const startNodeId = resolveScenarioStartNodeId(form.nodes, form.startNodeId);
   if (!startNodeId || !nodeIds.has(startNodeId)) {
     issues.push('시작 노드가 올바르게 지정되지 않았습니다.');
@@ -976,15 +973,6 @@ function validateScenarioForm(form: ScenarioFormState, catalog: RuleCatalogRefer
     node.links.forEach((link) => {
       if (link.nextNodeId && !nodeIds.has(link.nextNodeId)) {
         issues.push(`${node.title || node.id}의 연결 대상이 존재하지 않습니다: ${link.nextNodeId}`);
-      }
-    });
-    [
-      ...node.ruleRefs.spellIds,
-      ...node.ruleRefs.conditionIds,
-      ...node.ruleRefs.terrainEffectIds,
-    ].forEach((id) => {
-      if (catalog.length && !catalogIds.has(id)) {
-        issues.push(`${node.title || node.id}에서 찾을 수 없는 룰 참조: ${id}`);
       }
     });
     if (
@@ -1228,8 +1216,6 @@ export function ScenarioEditorPage({
   const [error, setError] = useState<string | null>(null);
   const [monsterCatalog, setMonsterCatalog] = useState<SrdMonsterReferenceDto[]>([]);
   const [monsterCatalogError, setMonsterCatalogError] = useState<string | null>(null);
-  const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
-  const [ruleCatalogError, setRuleCatalogError] = useState<string | null>(null);
   const [itemOptions, setItemOptions] = useState<BattleMapOption[]>([]);
   const [itemCatalogError, setItemCatalogError] = useState<string | null>(null);
   const [mapAssets, setMapAssets] = useState<ScenarioAsset[]>([]);
@@ -1266,8 +1252,6 @@ export function ScenarioEditorPage({
     if (form.ruleSetId !== 'dnd5e') {
       setMonsterCatalog([]);
       setMonsterCatalogError('현재는 dnd5e 5.1 SRD 몬스터만 지원합니다.');
-      setRuleCatalog([]);
-      setRuleCatalogError('현재는 dnd5e 룰 카탈로그만 지원합니다.');
       setItemOptions([]);
       setItemCatalogError('현재는 dnd5e 5.1 SRD 아이템만 지원합니다.');
       return;
@@ -1275,7 +1259,6 @@ export function ScenarioEditorPage({
 
     let ignore = false;
     setMonsterCatalogError(null);
-    setRuleCatalogError(null);
     setItemCatalogError(null);
 
     loadMonsterCatalog()
@@ -1289,20 +1272,6 @@ export function ScenarioEditorPage({
           setMonsterCatalog([]);
           setMonsterCatalogError(
             caught instanceof Error ? caught.message : 'SRD 몬스터 목록을 불러오지 못했습니다.'
-          );
-        }
-      });
-    listRuleCatalog()
-      .then((entries) => {
-        if (!ignore) {
-          setRuleCatalog(entries.filter((entry) => entry.executable));
-        }
-      })
-      .catch((caught) => {
-        if (!ignore) {
-          setRuleCatalog([]);
-          setRuleCatalogError(
-            caught instanceof Error ? caught.message : '룰 카탈로그를 불러오지 못했습니다.'
           );
         }
       });
@@ -1598,10 +1567,7 @@ export function ScenarioEditorPage({
     () => resolveScenarioStartNodeId(form.nodes, form.startNodeId || form.nodes[0]?.id),
     [form.nodes, form.startNodeId]
   );
-  const validationIssues = useMemo(
-    () => validateScenarioForm(form, ruleCatalog),
-    [form, ruleCatalog],
-  );
+  const validationIssues = useMemo(() => validateScenarioForm(form), [form]);
 
   const orderedNodes = useMemo(
     () => sortNodesForScenarioFlow(form.nodes, effectiveStartNodeId),
@@ -2231,7 +2197,6 @@ export function ScenarioEditorPage({
           </div>
           <strong>{validationIssues.length ? `${validationIssues.length}개 확인 필요` : '통과'}</strong>
         </div>
-        {ruleCatalogError ? <p className="panel-error">{ruleCatalogError}</p> : null}
         {publishStatus ? <p className="helper-copy">{publishStatus}</p> : null}
         {validationIssues.length ? (
           <ul>
@@ -2240,7 +2205,7 @@ export function ScenarioEditorPage({
             ))}
           </ul>
         ) : (
-          <p className="helper-copy">시작 노드, 연결, 룰 참조, 전투 배치를 확인했습니다.</p>
+          <p className="helper-copy">시작 노드, 연결, 전투 배치를 확인했습니다.</p>
         )}
       </section>
 
@@ -2319,8 +2284,6 @@ export function ScenarioEditorPage({
                 uploadTokenAsset={handleTokenAssetUpload}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
-                ruleCatalog={ruleCatalog}
-                ruleCatalogError={ruleCatalogError}
                 itemOptions={itemOptions}
                 itemCatalogError={itemCatalogError}
                 updateNode={updateNode}
@@ -2396,8 +2359,6 @@ function NodeDetailEditor({
   uploadTokenAsset,
   monsterCatalog,
   monsterCatalogError,
-  ruleCatalog,
-  ruleCatalogError,
   itemOptions,
   itemCatalogError,
   updateNode,
@@ -2428,8 +2389,6 @@ function NodeDetailEditor({
   uploadTokenAsset: (file: File | null) => Promise<ScenarioAsset | null>;
   monsterCatalog: SrdMonsterReferenceDto[];
   monsterCatalogError: string | null;
-  ruleCatalog: RuleCatalogReferenceDto[];
-  ruleCatalogError: string | null;
   itemOptions: BattleMapOption[];
   itemCatalogError: string | null;
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
@@ -2985,42 +2944,6 @@ function NodeDetailEditor({
             rows={4}
             placeholder="플레이어에게 공개되지 않는 진행 메모"
           />
-        </section>
-
-        <section className="scenario-node-panel">
-          <span className="eyebrow">Rule catalog references</span>
-          {ruleCatalogError ? <p className="panel-error">{ruleCatalogError}</p> : null}
-          <div className="scenario-info-grid">
-            {([
-              ['spellIds', '주문', 'spell_definitions'],
-              ['conditionIds', '상태', 'condition_definitions'],
-              ['terrainEffectIds', '지형 효과', 'terrain_effects'],
-            ] as const).map(([field, label, kind]) => (
-              <label key={field}>
-                {label}
-                <select
-                  multiple
-                  size={6}
-                  value={node.ruleRefs[field]}
-                  onChange={(event) => {
-                    const values = Array.from(event.target.selectedOptions, (option) => option.value);
-                    updateNode(node.id, (current) => ({
-                      ...current,
-                      ruleRefs: { ...current.ruleRefs, [field]: values },
-                    }));
-                  }}
-                >
-                  {ruleCatalog
-                    .filter((entry) => entry.kind === kind)
-                    .map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.id}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            ))}
-          </div>
         </section>
 
         <div className="scenario-node-grid">

@@ -8,7 +8,7 @@
 
 | 문서 | 역할 |
 | --- | --- |
-| [ARCHITECTURE_RULES.md](ARCHITECTURE_RULES.md) | 상태, 턴 처리, 서버 권위성, 동시성 원칙 |
+| [ARCHITECTURE_RULES.md](ARCHITECTURE_RULES.md) | 상태, 턴 처리, 서버 권위성, 동시성, SRD 데이터 단일 원천 원칙 |
 | [PERMISSION_RULES.md](PERMISSION_RULES.md) | 방장, 사람 GM, AI GM, 플레이어 권한 분리 원칙 |
 | [AI_RUNTIME_RULES.md](AI_RUNTIME_RULES.md) | AI 호출, 검증, fallback, 로깅 원칙 |
 | [CONTENT_LICENSE_RULES.md](CONTENT_LICENSE_RULES.md) | SRD, 시나리오, 이미지, 룰 데이터 사용 원칙 |

@@ -1,10 +1,6 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  buildCanonicalClassFeatureManifest,
-  SRD_CLASS_FEATURE_ID_ALIASES,
-} from '@trpg/srd-data';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
@@ -42,11 +38,29 @@ await copyFile(
 
 const classes = await readJsonLines('classes.jsonl');
 await writeJson(path.join(publicSrdDir, 'classes.json'), classes);
-await writeJson(
+await copyFile(
+  path.join(generatedDir, 'class-features.json'),
   path.join(publicSrdDir, 'class-features.json'),
-  buildCanonicalClassFeatureManifest(classes, {
-    aliasesByClass: SRD_CLASS_FEATURE_ID_ALIASES,
-  }),
+);
+await copyFile(
+  path.join(generatedDir, 'fe-spell-pools.json'),
+  path.join(publicSrdDir, 'fe-spell-pools.json'),
+);
+await copyFile(
+  path.join(generatedDir, 'fe-usable-items.json'),
+  path.join(publicSrdDir, 'fe-usable-items.json'),
+);
+await copyFile(
+  path.join(generatedDir, 'item-labels.json'),
+  path.join(publicSrdDir, 'item-labels.json'),
+);
+await copyFile(
+  path.join(generatedDir, 'catalog-fingerprint.json'),
+  path.join(publicSrdDir, 'catalog-fingerprint.json'),
+);
+await copyFile(
+  path.join(generatedDir, 'spell-class-lists.json'),
+  path.join(publicSrdDir, 'spell-class-lists.json'),
 );
 await writeJson(path.join(publicSrdDir, 'races.json'), await readJsonLines('races.jsonl'));
 await writeJson(path.join(publicSrdDir, 'monsters.json'), await readJsonLines('monsters.jsonl'));
