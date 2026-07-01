@@ -11,7 +11,7 @@
 이 계획의 목표는 다음과 같다.
 
 - 캐릭터 생성, 레벨업, 주문 선택, 준비 주문 한도 계산의 기준을 `@trpg/srd-data`로 통일한다.
-- `shared-types/src/constants/spellcasting-progression.ts`의 룰 데이터 역할을 제거하거나 호환 wrapper로 축소한다.
+- `shared-types/src/constants/spellcasting-progression.ts`의 룰 데이터 역할을 제거한다.
 - FE는 `@trpg/srd-data`의 browser-safe rules helper로 선택 요구량과 preview를 계산한다.
 - BE는 같은 rules helper로 요청을 검증한다.
 - `verify:rule-data-sync`가 FE/BE 계산 drift를 정적으로 잡는다.
@@ -157,9 +157,36 @@ srd-data/generated/srd/fe-spell-pools.json
 - starting known/spellbook spell requirement
 - level-up cantrip delta
 - level-up known spell delta
+- known spell replacement eligibility
+- subclass choice level
+- ASI/Feat level eligibility
+- spell slot limit
 - maximum castable spell level
 - wizard spellbook total
 - dynamic prepared pool 여부
+
+감사 결과:
+
+| 계산 | 기존 위치 | 목표 owner | 반영 상태 |
+| --- | --- | --- | --- |
+| class key normalize | FE/BE helper, `shared-types` progression helper | `@trpg/srd-data/rules` `normalizeSrdCharacterClassKey` | FE/BE가 rules helper를 호출한다. |
+| class level normalize | FE/BE local 계산 | `@trpg/srd-data/rules` `normalizeSrdCharacterLevel` | rules 내부 resolver가 공통 정규화를 사용한다. |
+| spellcasting progression lookup | `shared-types/src/constants/spellcasting-progression.ts`, BE catalog/rules service | `srd-data/generated/srd/classes.json` + `getSrdClassSpellcastingProgression` | `shared-types` 테이블을 제거하고 BE catalog/rules service를 전환했다. |
+| cantrips known limit | `shared-types` progression table, FE 시작 주문 helper | `getCantripsKnownLimit`, `resolveCharacterSpellSelectionRequirements` | FE/BE 시작/레벨업 요구량이 rules 결과를 사용한다. |
+| known slot spell limit | `shared-types` progression table, FE/BE 시작/레벨업 helper | `getKnownSpellsLimit`, `resolveCharacterSpellSelectionRequirements`, `resolveKnownSpellDelta` | FE/BE 시작/레벨업 known spell 계산이 rules 결과를 사용한다. |
+| prepared spell ability | FE/BE prepared caster 분기 | `resolveSpellcastingAbility`, `resolvePreparedSpellAbility` | 직업별 spellcasting ability를 generated class data에서 해석한다. |
+| prepared spell limit | FE `getPreparedSpellLimit`, BE `resolvePreparedSpellLimit` | `resolvePreparedSpellLimit` | FE wrapper와 BE wrapper는 rules helper 위임만 남겼다. |
+| starting cantrip requirement | FE `getMvpStartingCantripCount`, BE `resolveStartingSpells` | `resolveCharacterSpellSelectionRequirements().cantripCount` | FE/BE가 executable cantrip pool을 입력해 같은 결과를 사용한다. |
+| starting known/spellbook spell requirement | FE `getMvpStartingSlotSpellCount`, BE `resolveStartingSpells` | `resolveCharacterSpellSelectionRequirements().knownOrSpellbookSpellCount` | 위저드 spellbook, known caster, prepared caster 요구량이 같은 helper로 수렴했다. |
+| level-up cantrip delta | FE/BE local target/current progression diff | `resolveKnownSpellDelta().cantripDelta` | FE/BE 레벨업 흐름이 target level 기준 rules 결과를 사용한다. |
+| level-up known spell delta | FE/BE local target/current progression diff, wizard 상수 | `resolveKnownSpellDelta().knownSpellDelta` | 위저드 레벨당 주문책 2개 규칙도 rules 내부로 이동했다. |
+| known spell replacement eligibility | FE prepared caster 분기, BE wizard 예외 분기 | `resolveKnownSpellDelta().canReplaceKnownSpells` | known spell 교체 UI/검증이 rules 결과를 기준으로 수렴했다. |
+| subclass choice level | FE `subclassChoiceLevelByClass`, quick-create `choiceLevel`, BE RuleCatalog 기반 생성/레벨업 검증 | `resolveSubclassChoiceLevel` | generated class `featureReferences`의 subclass 레벨에서 선택 레벨을 유도하고 FE/BE 생성/레벨업 판단이 같은 helper를 사용한다. |
+| ASI/Feat level eligibility | FE `ASI_LEVELS`/quick-create ASI table, BE `ASI_OR_FEAT_LEVELS`/class-specific ASI 분기 | `resolveAbilityScoreImprovementLevels`, `resolveAvailableAbilityScoreImprovementLevels`, `resolveCrossedAbilityScoreImprovementLevels` | 캐릭터 생성/레벨업/빠른 생성의 ASI/Feat 선택 가능 레벨이 rules helper로 수렴했다. |
+| spell slot limit | BE `spell-slot.service.ts`의 pact/normal slot 해석 | `resolveSpellSlotLimit` | 주문 슬롯 개수 해석도 rules helper로 옮기고 BE service는 위임만 남겼다. |
+| maximum castable spell level | FE/BE full/half/pact local 분기 | `resolveMaximumCastableSpellLevel` | slot table과 pact magic level에서 산출한다. |
+| wizard spellbook total | FE/BE wizard 상수 | `resolveWizardSpellbookSpellCount` | rules 내부 상수로만 남기고 FE/BE 상수는 제거했다. |
+| dynamic prepared pool 여부 | FE/BE prepared caster 분기 | `usesDynamicPreparedSpellPool`, `resolveCharacterSpellSelectionRequirements().usesDynamicPreparedPool` | generated `spellcasting.formulaList`에서 준비 주문 공식을 가진 비-wizard prepared caster가 known spell 선택 대신 executable pool 기반 prepared 요구량을 사용한다. |
 
 완료 기준:
 
@@ -239,9 +266,14 @@ export function getCantripsKnownLimit(classKey: string, level: number): number |
 export function getKnownSpellsLimit(classKey: string, level: number): number | null;
 export function resolvePreparedSpellAbility(classKey: string): AbilityKey | null;
 export function resolveAbilityModifier(score: number | null | undefined): number;
+export function resolveSubclassChoiceLevel(classKey: string): number | null;
+export function resolveAbilityScoreImprovementLevels(classKey: string): number[];
+export function resolveAvailableAbilityScoreImprovementLevels(classKey: string, level: number): number[];
+export function resolveCrossedAbilityScoreImprovementLevels(classKey: string, currentLevel: number, targetLevel: number): number[];
 export function resolvePreparedSpellLimit(input: PreparedSpellLimitInput): number | null;
 export function resolveWizardSpellbookSpellCount(level: number): number;
 export function resolveMaximumCastableSpellLevel(classKey: string, level: number): number;
+export function resolveSpellSlotLimit(classKey: string, level: number, slotLevel: number): number;
 export function resolveCharacterSpellSelectionRequirements(input: CharacterSpellSelectionRequirementInput): CharacterSpellSelectionRequirements;
 export function resolveKnownSpellDelta(input: KnownSpellDeltaInput): KnownSpellDeltaResult;
 ```
@@ -250,29 +282,27 @@ export function resolveKnownSpellDelta(input: KnownSpellDeltaInput): KnownSpellD
 
 - `resolveMaximumCastableSpellLevel`은 하드코딩된 full/half/pact 분기 대신 `spellcastingProgression.spellSlotsByLevel`과 `pactMagicSlotLevel`을 우선 사용한다.
 - `knownOrSpellbookSpellCount`는 `spellsKnown`, wizard spellbook rule, legacy `startingSpellCount` fallback을 명시적으로 구분한다.
-- dynamic prepared caster는 cleric/druid/paladin처럼 known spell selection 대신 prepared pool 검증이 필요한 직업으로 판정한다.
+- dynamic prepared caster는 class-key 목록이 아니라 generated `spellcasting.formulaList`의 준비 주문 공식과 spellbook 예외를 기준으로 판정한다.
 
 완료 기준:
 
 - FE와 BE가 import 가능한 browser-safe ESM 함수가 제공된다.
 - 함수는 `srd-data/generated/srd/classes.json`을 기본 source로 사용하거나, 테스트/검증용으로 class data를 주입받을 수 있다.
 
-## Phase 3. `shared-types` spellcasting progression deprecate
+## Phase 3. `shared-types` spellcasting progression 제거
 
 목표: `shared-types`가 룰 데이터의 두 번째 원천이 되지 않게 한다.
 
 작업:
 
-- `shared-types/src/constants/spellcasting-progression.ts`를 직접 테이블 owner에서 호환 wrapper로 전환한다.
-- 가능한 경우 import 방향을 `@trpg/srd-data/rules`로 바꾼다.
-- 순환 의존 문제가 있으면 다음 중 하나를 택한다.
-  - `shared-types` export를 유지하되 내부 테이블을 제거하고 deprecation 주석을 붙인다.
-  - BE/FE 소비처를 모두 `@trpg/srd-data/rules`로 바꾼 뒤 `shared-types` export를 제거한다.
+- BE/FE 소비처를 모두 `@trpg/srd-data/rules`로 바꾼다.
+- `shared-types/src/constants/spellcasting-progression.ts` export를 제거한다.
+- DTO에서 필요한 `SpellcastingProgressionEntry` 모양은 DTO 계약 타입으로만 유지한다.
 
 완료 기준:
 
-- 신규 코드가 `shared-types/src/constants/spellcasting-progression.ts`를 참조하지 않는다.
-- `rg "spellcasting-progression"` 결과가 테스트/호환 wrapper 수준으로 축소된다.
+- `shared-types/src/constants/spellcasting-progression.ts` 파일이 남아 있지 않다.
+- 신규 코드가 `shared-types`에서 주문 진행 helper를 import하지 않는다.
 
 ## Phase 4. BE 캐릭터 검증을 `srd-data/rules`로 전환
 
@@ -321,7 +351,7 @@ export function resolveKnownSpellDelta(input: KnownSpellDeltaInput): KnownSpellD
 - `getMaximumImplementedSpellLevel` 제거.
 - `getWizardStartingSpellbookSpellCount` 제거.
 - FE 화면의 선택 개수, disabled 상태, 안내 문구가 `resolveCharacterSpellSelectionRequirements` 결과를 사용하게 한다.
-- level-up UI의 신규 cantrip/known spell 선택 개수도 `resolveKnownSpellDelta`를 사용하게 한다.
+- level-up UI의 신규 cantrip/known spell 선택 개수와 known spell 교체 가능 여부도 `resolveKnownSpellDelta`를 사용하게 한다.
 
 완료 기준:
 
@@ -451,6 +481,12 @@ npm run build -w @trpg/be
 npm run build -w @trpg/fe
 ```
 
+선택적 집중 테스트:
+
+```bash
+npm run test:quiet -w @trpg/be -- spellcasting-progression.spec.ts spell-slot.service.spec.ts level-up.service.spec.ts characters.service.spec.ts classes.spec.ts
+```
+
 중점 확인:
 
 - `verify:rule-data-sync`가 `classes.json`/`classes.jsonl` drift 없음으로 통과한다.
@@ -458,6 +494,7 @@ npm run build -w @trpg/fe
 - 위저드 1레벨 생성 시 주문책 주문 요구량 6개가 유지된다.
 - 위저드 5레벨 생성/빠른 생성 시 주문책 요구량이 같은 helper에서 산출된다.
 - 클레릭/드루이드/팔라딘은 known spell 선택 요구량이 0이고 준비 주문 수만 계산된다.
+- 팔라딘 1레벨은 아직 준비 주문 한도가 없고, 2레벨부터 준비 주문 한도가 계산된다.
 - 바드/소서러/워락/레인저는 known spell progression이 SRD class progression과 일치한다.
 - FE에서 표시한 요구 개수와 BE validation 오류의 요구 개수가 같다.
 
@@ -472,3 +509,72 @@ npm run build -w @trpg/fe
 - BE `characters.service.ts`에는 주문 요구량 독자 계산이 남아 있지 않다.
 - `verify:rule-data-sync`가 새 중복 계산과 srd-data drift를 잡는다.
 - 사용자가 권장 검증 명령을 실행해 성공 결과를 제공했다.
+
+### 완료 감사 메모
+
+현재 코드 기준으로 확인 가능한 증거:
+
+- 이전 계획 문서는 `doc/completed/future_plan_srd_data_consistency.md`에 있고, 원래 위치의 `doc/future_plan_srd_data_consistency.md`는 남아 있지 않다.
+- `@trpg/srd-data/rules`가 캐릭터 주문 진행 resolver의 public entrypoint이며, `srd-data/package.json`의 `./rules` export가 CJS, ESM, browser ESM, d.ts surface를 제공한다.
+- 새 canonical artifact와 rules entrypoint 파일은 최종 변경 묶음에 포함되어야 한다: `srd-data/generated/srd/classes.json`, `srd-data/rules/index.cjs`, `srd-data/rules/index.mjs`, `srd-data/rules/index.browser.mjs`, `srd-data/rules/index.d.ts`, `srd-data/rules/README.md`.
+- FE 핵심 소비 파일은 `CharacterPage.tsx`, `PlayPage.tsx`, `CombatNodeSurface.tsx`이며, 모두 `@trpg/srd-data/rules` helper를 사용한다.
+- FE `CharacterPage.tsx`와 `PlayPage.tsx`의 캐릭터 생성/레벨업/빠른 생성 class key 판정도 `normalizeSrdCharacterClassKey`를 사용한다.
+- BE 핵심 소비 파일은 `characters.service.ts`, `catalog.service.ts`, `rule-catalog.service.ts`, `spell-slot.service.ts`, `combat-spell.service.ts`, `action-spell-rule.service.ts`이며, 모두 `@trpg/srd-data/rules` helper를 사용한다.
+- BE `characters.service.ts`의 생성/레벨업/주문 시작값/시작 장비 class catalog 조회와 성장 특성 계산은 `normalizeSrdCharacterClassKey`를 거친 canonical key를 사용한다.
+- `shared-types/src/constants/spellcasting-progression.ts`는 제거됐고, `shared-types`에는 DTO 계약 타입만 남았다.
+- `scripts/verify-rule-data-sync.mjs`는 generated `classes.json`/`classes.jsonl` drift, FE public SRD sync, rules entrypoint export/behavior parity, FE/BE 금지 패턴, 핵심 소비 파일의 canonical helper 사용 여부, BE 캐릭터 서비스의 raw class key 회귀, seed spell count drift를 검사한다.
+- 검증 계획의 `npm run sync:fe:srd`, `npm run verify:rule-data-sync`, workspace build 명령은 현재 `package.json`, `fe/package.json`, `be/package.json`, `srd-data/package.json` script와 맞는다.
+
+아직 외부 증거가 필요한 항목:
+
+- 사용자가 검증 계획의 build/verify 명령을 실행해 성공 결과를 확인해야 한다. 이 결과가 오기 전까지 이 goal은 완료로 처리하지 않는다.
+
+## 구현 반영 현황
+
+2026-06-30 기준으로 코드 반영된 항목:
+
+- `doc/completed/future_plan_srd_data_consistency.md`로 이전 정합성 계획을 이동했다.
+- `srd-data/generated/srd/classes.json` 생성과 `catalog-fingerprint.json` 포함을 추가했다.
+- `scripts/sync-fe-static-srd.mjs`가 generated `classes.json`을 FE public으로 복사하도록 정리했다.
+- `@trpg/srd-data/rules` subpath export를 추가하고 캐릭터 주문 진행 resolver를 이 위치로 모았다. FE 번들용 `browser` 조건 export도 제공한다.
+- FE `CharacterPage.tsx`, `PlayPage.tsx`의 시작 주문/캔트립, 준비 주문, 주문 레벨 상한, 레벨업 spell delta 계산을 `@trpg/srd-data/rules` 호출로 전환했다.
+- FE `CharacterPage.tsx`의 ASI/feature choice/주문책 표시 class key와 `PlayPage.tsx`의 quick-create class key도 `normalizeSrdCharacterClassKey`를 사용하도록 맞췄다.
+- FE `CharacterPage.tsx`의 class definition 조회도 raw `toLowerCase()` 대신 `normalizeSrdCharacterClassKey`를 사용하도록 맞춰 생성/레벨 변경 경로의 class key 해석을 통일했다.
+- FE `CharacterPage.tsx`의 주문 사용 직업 목록도 로컬 `implementedSpellClasses` set 대신 `getSrdClassDefinition().spellcastingProgression`에서 유도하도록 전환했다.
+- FE `CombatNodeSurface.tsx`의 전투 중 prepared spell 시전 가능 여부도 로컬 class-key set/normalize 대신 `@trpg/srd-data/rules` class normalize와 prepared caster 판정을 사용하도록 전환했다.
+- BE `characters.service.ts`, `catalog.service.ts`, `spell-slot.service.ts`의 주문 진행 계산을 `@trpg/srd-data/rules` 호출로 전환했다.
+- BE `rule-catalog.service.ts`의 서브클래스 선택 레벨 계산도 `resolveSubclassChoiceLevel` 위임으로 전환했다.
+- BE `spell-slot.service.ts`의 pact magic/일반 슬롯 개수 해석도 `resolveSpellSlotLimit` 위임으로 전환했다.
+- BE `characters.service.ts`의 레벨업 class lookup, 생성 시 proficient skill/level stats/starting spell/starting equipment class lookup도 `normalizeSrdCharacterClassKey`를 통해 canonical SRD class key로 조회하도록 보강했다.
+- BE `characters.service.ts`의 ASI 선택 레벨, P6 capstone ability, class-specific HP bonus, class feature selection 검증도 raw lowercase 대신 `normalizeSrdCharacterClassKey`를 사용하도록 맞췄다.
+- FE/BE/quick-create의 ASI/Feat 선택 가능 레벨 계산도 `@trpg/srd-data/rules` helper로 전환했다.
+- FE/BE/quick-create의 서브클래스 선택 레벨 계산도 `resolveSubclassChoiceLevel` helper로 전환했다.
+- BE `action-spell-rule.service.ts`의 실제 주문 시전 시 prepared spell 요구 여부도 `@trpg/srd-data/rules`의 `resolvePreparedSpellAbility` 판정을 사용하도록 전환했다.
+- BE `action-spell-rule.service.ts`의 주문 공격/내성 계산용 spellcasting ability 매핑도 로컬 class-key 분기 대신 `@trpg/srd-data/rules`의 `resolveSpellcastingAbility`, `resolveAbilityModifier`를 사용하도록 전환했다.
+- BE `action-spell-rule.service.ts`의 spell save DC 계산도 로컬 className 분기 없이 같은 spellcasting ability modifier helper를 재사용하도록 정리했다.
+- BE `combat-spell.service.ts`의 MVP 주문 준비 여부와 주문 공격/DC 계산용 spellcasting ability도 같은 rules helper로 전환했다.
+- 시작 주문의 준비 주문 요구량은 실행 가능한 주문 풀과 known/spellbook 선택 수를 반영한 `resolveCharacterSpellSelectionRequirements().preparedSpellCount`를 기준으로 FE/BE가 함께 사용한다.
+- BE 레벨업 cantrip/known spell delta, known spell 교체 가능 여부, prepared spell 가능 여부도 목표 레벨 기준 `@trpg/srd-data/rules` 결과를 사용하도록 맞췄다.
+- `shared-types/src/constants/spellcasting-progression.ts`를 제거하고 DTO 타입만 남겼다.
+- `scripts/verify-rule-data-sync.mjs`에 generated `classes.json` 동기화 검사와 FE/BE/shared-types source tree 금지 패턴 guard를 추가했다.
+- `verify:rule-data-sync`가 prepared caster/spellcaster class-key set뿐 아니라 주문 능력치 class-key 매핑이 FE/BE에 재등장하는지도 잡도록 확장했다.
+- `verify:rule-data-sync`가 FE/BE 핵심 소비 파일이 필요한 `@trpg/srd-data/rules` helper를 계속 import/use하는지도 명시적으로 검사한다.
+- `verify:rule-data-sync`가 BE `characters.service.ts`에서 canonical `classKey`가 아닌 class catalog 조회, raw `params.className` 기반 spell delta/progression 호출, raw `className` 기반 시작 주문 요구치 호출이 재등장하는지도 검사한다.
+- `verify:rule-data-sync`가 FE `CharacterPage.tsx`와 `PlayPage.tsx`에서 class definition key 비교가 raw `toLowerCase()`로 되돌아가는지도 검사한다.
+- `verify:rule-data-sync`가 root 검증/sync scripts, FE/BE `package.json`, `package-lock.json` dependency와 `@trpg/srd-data` workspace link entry가 남아 있는지도 검사한다.
+- `verify:rule-data-sync`가 `srd-data/package.json`의 `./rules`, generated artifact subpath export, 배포 포함 파일 목록이 유지되는지도 검사한다.
+- FE `dev`와 `build`가 `prepare:srd`를 통해 `srd-data` build와 FE public sync를 먼저 수행하도록 바꾸고, `verify:rule-data-sync`가 이 실행 경로도 검사한다.
+- BE `build`, `start:dev`, 테스트 스크립트, test log runner가 `build:test-deps`를 통해 `shared-types`와 `srd-data`를 먼저 준비하도록 바꾸고, `verify:rule-data-sync`가 이 실행 경로도 검사한다.
+- `verify:rule-data-sync`가 `@trpg/srd-data/rules`의 기본 class data source, 필수 helper 존재 여부, CJS/ESM/browser ESM export surface, class lookup/progression lookup, class data 주입, executable spell pool 입력 변형, 주문사용 직업의 spellcasting ability 해석을 포함한 대표 resolver 결과 parity도 검사하도록 추가했다.
+- prepared caster 판정과 half-level prepared formula도 class-key 목록/분기 대신 generated `spellcasting.formulaList`에서 유도하도록 바꾸고, 한국어/영어 formula 및 ability label 회귀를 `verify:rule-data-sync`가 잡도록 추가했다.
+- `be/src/database/seed/classes.ts`의 1레벨 spell count를 SRD rules 결과와 맞추고, `verify:rule-data-sync`가 seed spell count drift를 검사하도록 추가했다.
+- `be/src/database/seed/classes.spec.ts`도 하드코딩된 주문 수 기대값 대신 `@trpg/srd-data/rules` 결과를 기준으로 seed adapter를 검증하도록 바꿨다.
+- BE package dependency에 `@trpg/srd-data`를 명시해 BE import 경로와 workspace 의존성을 맞췄다.
+- `srd-data/rules/README.md`를 추가해 rules entrypoint의 책임, 데이터 원천, FE/BE 사용 원칙, CJS/browser/type surface 동기화 규칙을 가까운 위치에 문서화했다.
+- `srd-data/rules/README.md`에 rules 동작 변경 시 CJS/browser 구현을 함께 갱신하고 `verify-rule-data-sync` parity case를 확장해야 한다는 운영 규칙을 명시했다.
+- `doc/rules/ARCHITECTURE_RULES.md`에 캐릭터 생성/레벨업/주문 진행 계산의 단일 원천 규칙을 추가했다.
+- `srd-data/sources/README.md`, `srd-data/overrides/README.md`에 캐릭터 성장/주문 진행 계산을 source/override 입력으로 복사하지 말고 `@trpg/srd-data/rules`에서만 관리한다는 규칙을 명시했다.
+
+남은 완료 조건:
+
+- 사용자가 검증 계획의 명령을 실행하고 성공 결과를 확인해야 한다.

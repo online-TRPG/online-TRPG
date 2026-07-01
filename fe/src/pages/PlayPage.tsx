@@ -41,6 +41,13 @@ import type {
   VttMapInteractionResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  normalizeSrdCharacterClassKey,
+  resolveAvailableAbilityScoreImprovementLevels,
+  resolveCharacterSpellSelectionRequirements,
+  resolveMaximumCastableSpellLevel,
+  resolveSubclassChoiceLevel,
+} from '@trpg/srd-data/rules';
 import type { BattleMapSelection } from '../features/sessionPlay/components/SessionBattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
@@ -1051,8 +1058,6 @@ type QuickCreateAbilities = NonNullable<CharacterPayload['abilities']>;
 
 const DEFAULT_QUICK_CREATE_ANCESTRY_KEY = 'human';
 const DEFAULT_QUICK_CREATE_CLASS_KEY = 'wizard';
-const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
-const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
 const HIT_DIE_AVERAGE_BY_KEY: Readonly<Record<string, number>> = {
   d6: 4,
   d8: 5,
@@ -1074,11 +1079,6 @@ const QUICK_CREATE_POINT_BUY_BY_CLASS_KEY: Readonly<
   sorcerer: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
   warlock: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
   wizard: { str: 8, dex: 14, con: 13, int: 15, wis: 12, cha: 10 },
-};
-const QUICK_CREATE_STANDARD_ASI_LEVELS = [4, 8, 12, 16, 19] as const;
-const QUICK_CREATE_CLASS_ASI_LEVELS: Readonly<Record<string, readonly number[]>> = {
-  fighter: [6, 14],
-  rogue: [10],
 };
 const QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY: Readonly<
   Record<string, ReadonlyArray<keyof QuickCreateAbilities>>
@@ -1111,20 +1111,20 @@ const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
   ['wizard', 'preset_wizard'],
 ]);
 const QUICK_CREATE_SUBCLASS_BY_CLASS_KEY: Readonly<
-  Record<string, { choiceLevel: number; subclassName: string }>
+  Record<string, { subclassName: string }>
 > = {
-  barbarian: { choiceLevel: 3, subclassName: 'berserker' },
-  bard: { choiceLevel: 3, subclassName: 'lore' },
-  cleric: { choiceLevel: 1, subclassName: 'life' },
-  druid: { choiceLevel: 2, subclassName: 'land' },
-  fighter: { choiceLevel: 3, subclassName: 'champion' },
-  monk: { choiceLevel: 3, subclassName: 'open_hand' },
-  paladin: { choiceLevel: 3, subclassName: 'devotion' },
-  ranger: { choiceLevel: 3, subclassName: 'hunter' },
-  rogue: { choiceLevel: 3, subclassName: 'thief' },
-  sorcerer: { choiceLevel: 1, subclassName: 'draconic_bloodline' },
-  warlock: { choiceLevel: 1, subclassName: 'fiend' },
-  wizard: { choiceLevel: 2, subclassName: 'evocation' },
+  barbarian: { subclassName: 'berserker' },
+  bard: { subclassName: 'lore' },
+  cleric: { subclassName: 'life' },
+  druid: { subclassName: 'land' },
+  fighter: { subclassName: 'champion' },
+  monk: { subclassName: 'open_hand' },
+  paladin: { subclassName: 'devotion' },
+  ranger: { subclassName: 'hunter' },
+  rogue: { subclassName: 'thief' },
+  sorcerer: { subclassName: 'draconic_bloodline' },
+  warlock: { subclassName: 'fiend' },
+  wizard: { subclassName: 'evocation' },
 };
 const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   Record<string, { armorClass: number; speed: number }>
@@ -1143,38 +1143,7 @@ function getQuickCreateCatalogSpellLevel(entry: RuleCatalogReferenceDto): number
 }
 
 function getQuickCreateMaximumSlotSpellLevel(classKey: string, level: number) {
-  const normalizedClassKey = classKey.trim().toLowerCase();
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  if (['bard', 'cleric', 'druid', 'sorcerer', 'wizard'].includes(normalizedClassKey)) {
-    if (normalizedLevel >= 17) return 9;
-    if (normalizedLevel >= 15) return 8;
-    if (normalizedLevel >= 13) return 7;
-    if (normalizedLevel >= 11) return 6;
-    if (normalizedLevel >= 9) return 5;
-    if (normalizedLevel >= 7) return 4;
-    if (normalizedLevel >= 5) return 3;
-    if (normalizedLevel >= 3) return 2;
-    return 1;
-  }
-  if (normalizedClassKey === 'warlock') {
-    if (normalizedLevel >= 17) return 9;
-    if (normalizedLevel >= 15) return 8;
-    if (normalizedLevel >= 13) return 7;
-    if (normalizedLevel >= 11) return 6;
-    if (normalizedLevel >= 9) return 5;
-    if (normalizedLevel >= 7) return 4;
-    if (normalizedLevel >= 5) return 3;
-    if (normalizedLevel >= 3) return 2;
-    return 1;
-  }
-  if (normalizedClassKey === 'paladin' || normalizedClassKey === 'ranger') {
-    if (normalizedLevel >= 17) return 5;
-    if (normalizedLevel >= 13) return 4;
-    if (normalizedLevel >= 9) return 3;
-    if (normalizedLevel >= 5) return 2;
-    if (normalizedLevel >= 2) return 1;
-  }
-  return 0;
+  return resolveMaximumCastableSpellLevel(classKey, level);
 }
 
 function getQuickCreateCatalogSpellIds(
@@ -1224,50 +1193,6 @@ function getQuickCreateFallbackSlotSpellIds(
       ...level5Spells,
       ...(quickCreatePools?.level1SlotSpells ?? []),
     ]),
-  );
-}
-
-function getQuickCreateWizardSpellbookCount(level: number) {
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  return WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
-    (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL;
-}
-
-function getQuickCreateAbilityModifier(score: number | null | undefined) {
-  return Math.floor(((score ?? 10) - 10) / 2);
-}
-
-function getQuickCreatePreparedSpellAbilityKey(classKey: string | null | undefined) {
-  const normalized = (classKey ?? '').trim().toLowerCase();
-  if (normalized === 'wizard') return 'int' as const;
-  if (normalized === 'cleric' || normalized === 'druid') return 'wis' as const;
-  if (normalized === 'paladin') return 'cha' as const;
-  return null;
-}
-
-function getQuickCreatePreparedSpellLimit(
-  classKey: string | null | undefined,
-  level: number,
-  abilities: QuickCreateAbilities,
-) {
-  const abilityKey = getQuickCreatePreparedSpellAbilityKey(classKey);
-  if (!abilityKey) return null;
-  const normalizedClassKey = (classKey ?? '').trim().toLowerCase();
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  const levelBase = normalizedClassKey === 'paladin' ? Math.floor(normalizedLevel / 2) : normalizedLevel;
-  return Math.max(1, levelBase + getQuickCreateAbilityModifier(abilities[abilityKey]));
-}
-
-function usesQuickCreateDynamicPreparedSpellPool(
-  classKey: string,
-  progression: NonNullable<ClassDefinitionResponseDto['spellcastingProgression']>[number] | null,
-  slotSpellPool: string[],
-) {
-  const normalizedClassKey = classKey.trim().toLowerCase();
-  return (
-    ['cleric', 'druid', 'paladin'].includes(normalizedClassKey) &&
-    Boolean(progression) &&
-    slotSpellPool.length > 0
   );
 }
 
@@ -1334,9 +1259,7 @@ function getDefaultQuickCreateStartingSpells(
   ruleCatalog: RuleCatalogReferenceDto[],
   spellPools: StaticFeSpellPools | null,
 ) {
-  const classKey = klass.key.trim().toLowerCase();
-  const progression =
-    klass.spellcastingProgression?.find((entry) => entry.classLevel === level) ?? null;
+  const classKey = normalizeSrdCharacterClassKey(klass.key);
   const maxSlotSpellLevel = getQuickCreateMaximumSlotSpellLevel(classKey, level);
   const catalogCantrips = getQuickCreateCatalogSpellIds(ruleCatalog, 'cantrip', 0);
   const catalogSlotSpells = getQuickCreateCatalogSpellIds(ruleCatalog, 'slot', maxSlotSpellLevel);
@@ -1346,25 +1269,21 @@ function getDefaultQuickCreateStartingSpells(
   const slotSpellPool = catalogSlotSpells.length
     ? catalogSlotSpells
     : getQuickCreateFallbackSlotSpellIds(classKey, level, spellPools);
-  const preparedSpellLimit = maxSlotSpellLevel > 0
-    ? getQuickCreatePreparedSpellLimit(classKey, level, abilities)
-    : null;
-  const usesDynamicPreparedPool = usesQuickCreateDynamicPreparedSpellPool(
+  const requirements = resolveCharacterSpellSelectionRequirements({
     classKey,
-    progression,
-    slotSpellPool,
-  );
-  const cantripCount = Math.min(
-    progression?.cantripsKnown ?? klass.startingCantripCount,
-    classKey === 'paladin' || classKey === 'ranger' ? 0 : cantripPool.length,
-  );
-  const requiredKnownSpellCount = usesDynamicPreparedPool
-    ? 0
-    : (progression?.spellsKnown ??
-        (classKey === 'wizard'
-          ? getQuickCreateWizardSpellbookCount(level)
-          : klass.startingSpellCount));
-  const slotSpellCount = Math.min(requiredKnownSpellCount, slotSpellPool.length);
+    level,
+    abilities,
+    executableSpellPools: {
+      cantrips: cantripPool,
+      slotSpells: slotSpellPool,
+    },
+  });
+  const preparedSpellLimit = maxSlotSpellLevel > 0
+    ? requirements.preparedSpellCount
+    : null;
+  const usesDynamicPreparedPool = requirements.usesDynamicPreparedPool;
+  const cantripCount = requirements.cantripCount;
+  const slotSpellCount = requirements.knownOrSpellbookSpellCount;
   const preparedSpellCount = preparedSpellLimit === null
     ? 0
     : Math.min(preparedSpellLimit, slotSpellPool.length);
@@ -1426,16 +1345,7 @@ function applyRaceBonuses(
 }
 
 function getQuickCreateAsiLevels(classKey: string, level: number): number[] {
-  const normalizedClassKey = classKey.trim().toLowerCase();
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  return Array.from(
-    new Set([
-      ...QUICK_CREATE_STANDARD_ASI_LEVELS,
-      ...(QUICK_CREATE_CLASS_ASI_LEVELS[normalizedClassKey] ?? []),
-    ]),
-  )
-    .filter((asiLevel) => asiLevel <= normalizedLevel)
-    .sort((left, right) => left - right);
+  return resolveAvailableAbilityScoreImprovementLevels(classKey, level);
 }
 
 function buildQuickCreateAsiChoices(
@@ -1444,7 +1354,7 @@ function buildQuickCreateAsiChoices(
   abilities: QuickCreateAbilities,
 ): Array<keyof QuickCreateAbilities> {
   const priority =
-    QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY[classKey.trim().toLowerCase()] ??
+    QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY[normalizeSrdCharacterClassKey(classKey)] ??
     QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY.wizard;
   const working = { ...abilities };
   const selected = new Set<keyof QuickCreateAbilities>();
@@ -1479,7 +1389,7 @@ function getDefaultQuickCreateFeatureSelections(params: {
   proficientSkills: string[];
   asiChoices: Array<keyof QuickCreateAbilities>;
 }): string[] {
-  const classKey = params.classKey.trim().toLowerCase();
+  const classKey = normalizeSrdCharacterClassKey(params.classKey);
   const features: string[] = [];
 
   if ((params.raceKey ?? '').trim().toLowerCase() === 'dragonborn') {
@@ -3561,8 +3471,7 @@ export function PlayPage({
       className: toStoredClassName(selectedQuickCreateClass.key),
       subclassName:
         quickCreateLevel >=
-        (QUICK_CREATE_SUBCLASS_BY_CLASS_KEY[selectedQuickCreateClass.key]?.choiceLevel ??
-          Number.POSITIVE_INFINITY)
+        (resolveSubclassChoiceLevel(selectedQuickCreateClass.key) ?? Number.POSITIVE_INFINITY)
           ? QUICK_CREATE_SUBCLASS_BY_CLASS_KEY[selectedQuickCreateClass.key]?.subclassName ?? null
           : null,
       avatarType: quickCreatePresetId ? 'PRESET' : 'DEFAULT',

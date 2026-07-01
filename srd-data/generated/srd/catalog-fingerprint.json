@@ -1,7 +1,12 @@
 {
   "schemaVersion": "srd-catalog-fingerprint-v1",
-  "sha256": "fcc890ed3d0720c0cc08e55c262ce2b8818696acedf5ca6d14f155a7b9fd4182",
+  "sha256": "1a82e280472d5db2a6928537aac1c383ae8da7e79738ab59b10c1d36a8860081",
   "files": [
+    {
+      "scope": "srd",
+      "path": "classes.json",
+      "sha256": "5c30f02959e400488e8469c29e7f361a606d0bc402122f151db6b04f56060e71"
+    },
     {
       "scope": "srd",
       "path": "classes.jsonl",

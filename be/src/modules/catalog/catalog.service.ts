@@ -3,9 +3,9 @@ import {
   ClassDefinitionResponseDto,
   ItemResponseDto,
   RuleCatalogReferenceDto,
-  SPELLCASTING_PROGRESSION,
   StartingEquipmentDto,
 } from "@trpg/shared-types";
+import { getSrdClassDefinition } from "@trpg/srd-data/rules";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 
@@ -73,7 +73,7 @@ export class CatalogService {
       startingSpellCount: c.startingSpellCount,
       skillChoices: JSON.parse(c.skillChoicesJson) as string[],
       skillChoiceCount: c.skillChoiceCount,
-      spellcastingProgression: [...(SPELLCASTING_PROGRESSION[c.key] ?? [])],
+      spellcastingProgression: [...(getSrdClassDefinition(c.key)?.spellcastingProgression ?? [])],
     }));
   }
 

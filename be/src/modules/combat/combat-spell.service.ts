@@ -1,4 +1,10 @@
 import { Injectable } from "@nestjs/common";
+import {
+  normalizeSrdCharacterClassKey,
+  resolveAbilityModifier,
+  resolvePreparedSpellAbility,
+  resolveSpellcastingAbility,
+} from "@trpg/srd-data/rules";
 import { conflict, notFound } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
@@ -74,7 +80,9 @@ export class CombatSpellService {
     const preparedSpells = Array.isArray(spells?.preparedSpells)
       ? spells.preparedSpells.map((value) => this.normalizeSpellId(value))
       : null;
-    if (preparedSpells && baseSpellLevel > 0) {
+    const classKey = normalizeSrdCharacterClassKey(sessionCharacter.character.className);
+    const requiresPreparedSpell = resolvePreparedSpellAbility(classKey) !== null;
+    if (requiresPreparedSpell && preparedSpells && baseSpellLevel > 0) {
       if (knownSpells.includes(spellId) && preparedSpells.includes(spellId)) return;
       if (knownSpells.includes(spellId)) {
         throw conflict("COMBAT_409", "준비되지 않은 주문입니다.", { reason: "SPELL_NOT_PREPARED", spellId });
@@ -285,8 +293,9 @@ export class CombatSpellService {
 
   resolveSpellcastingAbilityModifierForCharacter(sessionCharacter: SpellSessionCharacter): number {
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
-    const abilityKey = this.resolveSpellcastingAbilityKey(sessionCharacter.character.className);
-    return this.getAbilityModifier(abilities[abilityKey] ?? 10);
+    const classKey = normalizeSrdCharacterClassKey(sessionCharacter.character.className);
+    const abilityKey = resolveSpellcastingAbility(classKey) ?? "int";
+    return resolveAbilityModifier(abilities[abilityKey] ?? 10);
   }
 
   async resolveCombatSpellSaveDc(sessionCharacterId: string): Promise<number> {
@@ -534,26 +543,6 @@ export class CombatSpellService {
 
   private toOptionalPositiveInteger(value: unknown): number | undefined {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
-  }
-
-  private getAbilityModifier(score: number | null | undefined): number {
-    return Math.floor(((score ?? 10) - 10) / 2);
-  }
-
-  private resolveSpellcastingAbilityKey(className: string): "int" | "wis" | "cha" {
-    const classKey = className.trim().toLowerCase();
-    if (classKey === "cleric" || classKey === "druid" || classKey === "ranger") {
-      return "wis";
-    }
-    if (
-      classKey === "bard" ||
-      classKey === "paladin" ||
-      classKey === "sorcerer" ||
-      classKey === "warlock"
-    ) {
-      return "cha";
-    }
-    return "int";
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

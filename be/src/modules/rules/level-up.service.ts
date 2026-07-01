@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { resolveCrossedAbilityScoreImprovementLevels } from "@trpg/srd-data/rules";
 import { RuleCatalogEntry } from "./rule-catalog.types";
 
 export type HitDie = "d6" | "d8" | "d10" | "d12";
@@ -62,8 +63,6 @@ const HIT_DIE_STATS: Record<HitDie, { max: number; average: number }> = {
   d10: { max: 10, average: 6 },
   d12: { max: 12, average: 7 },
 };
-
-const ASI_OR_FEAT_LEVELS = new Set([4, 8, 12, 14, 16, 19]);
 
 @Injectable()
 export class LevelUpService {
@@ -221,13 +220,7 @@ export class LevelUpService {
     currentLevel: number,
     targetLevel: number,
   ): number[] {
-    const levels: number[] = [];
-    for (let level = currentLevel + 1; level <= targetLevel; level += 1) {
-      if (ASI_OR_FEAT_LEVELS.has(level) || (classKey === "fighter" && level === 6)) {
-        levels.push(level);
-      }
-    }
-    return levels;
+    return resolveCrossedAbilityScoreImprovementLevels(classKey, currentLevel, targetLevel);
   }
 
   private normalizeClassKey(classKey: string): string {

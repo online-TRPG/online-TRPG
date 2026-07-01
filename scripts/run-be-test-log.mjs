@@ -36,8 +36,8 @@ console.log(`Writing full test log to ${logPath}`);
 
 const buildCode = await run(
   npmCommand,
-  ["run", "--silent", "build", "-w", "@trpg/shared-types"],
-  rootDir,
+  ["run", "--silent", "build:test-deps"],
+  beDir,
 );
 
 let exitCode = buildCode;

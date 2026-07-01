@@ -22,14 +22,10 @@ import {
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
-  getCantripsKnownLimit,
-  getKnownSpellsLimit,
-  getSpellcastingProgression,
   InventoryItemDto,
   LevelUpCharacterDto,
   normalizeInventoryItemsDisplay,
   normalizeSkillToKo,
-  normalizeSpellcastingClassKey,
   POINT_BUY_COST,
   POINT_BUY_TOTAL,
   RaceAbilityIncreaseDto,
@@ -41,6 +37,18 @@ import {
   UpdateCharacterEquipmentDto,
   UpdatePreparedSpellsDto,
 } from "@trpg/shared-types";
+import {
+  getCantripsKnownLimit,
+  getKnownSpellsLimit,
+  getSrdClassSpellcastingProgression,
+  normalizeSrdCharacterClassKey,
+  resolveAvailableAbilityScoreImprovementLevels,
+  resolveCharacterSpellSelectionRequirements,
+  resolveKnownSpellDelta,
+  resolveMaximumCastableSpellLevel,
+  resolvePreparedSpellLimit as resolveSrdPreparedSpellLimit,
+  resolveSubclassChoiceLevel,
+} from "@trpg/srd-data/rules";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
 import { isProvidedScenarioId } from "../scenarios/provided-scenario.constants";
 import { PrismaService } from "../../database/prisma.service";
@@ -93,8 +101,6 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
-const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
-const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
 const ALLOWED_FEAT_IDS: ReadonlySet<string> = new Set(["feat.alert"]);
 const ALLOWED_FIGHTING_STYLE_IDS: ReadonlySet<string> = new Set([
   "archery",
@@ -140,11 +146,7 @@ const ALLOWED_FAVORED_HUMANOID_IDS: ReadonlySet<string> = new Set([
 const ALLOWED_ASI_ABILITY_KEYS: ReadonlySet<string> = new Set([...ABILITY_KEYS]);
 
 function getAsiChoiceLevelsForClass(className: string): number[] {
-  const classKey = className.trim().toLowerCase();
-  const classSpecificLevels =
-    classKey === "fighter" ? [6, 14] : classKey === "rogue" ? [10] : [];
-  return Array.from(new Set([4, 8, 12, 16, 19, ...classSpecificLevels]))
-    .sort((left, right) => left - right);
+  return resolveAvailableAbilityScoreImprovementLevels(className, 20);
 }
 
 @Injectable()
@@ -617,7 +619,8 @@ export class CharactersService {
 
     const abilities = JSON.parse(existing.abilitiesJson) as AbilityScoresDto;
     const race = await this.findRaceForAncestry(existing.ancestry);
-    const klass = await this.catalogService.findClassByKey(existing.className.toLowerCase());
+    const classKey = normalizeSrdCharacterClassKey(existing.className);
+    const klass = await this.catalogService.findClassByKey(classKey);
     if (!klass) {
       throw new BadRequestException("시드된 클래스가 아닌 캐릭터는 레벨업 계산을 적용할 수 없습니다.");
     }
@@ -625,7 +628,7 @@ export class CharactersService {
     let resolution;
     try {
       resolution = this.levelUpService.resolveLevelUp({
-        classKey: existing.className,
+        classKey,
         currentLevel: existing.level,
         targetLevel: dto.targetLevel,
         hitDie: klass.hitDie as HitDie,
@@ -633,16 +636,14 @@ export class CharactersService {
         currentMaxHp: existing.maxHp,
         hpMode: dto.hpMode ?? "average",
         rolledHpByLevel: dto.rolledHpByLevel ?? {},
-        subclassChoiceLevel: this.ruleCatalogService.getSubclassChoiceLevel(
-          existing.className,
-        ),
+        subclassChoiceLevel: resolveSubclassChoiceLevel(classKey),
         classFeatures: this.ruleCatalogService.listClassFeaturesForLevel(
-          existing.className,
+          classKey,
           dto.targetLevel,
         ),
         subclassFeatures: existing.subclassName
           ? this.ruleCatalogService.listSubclassFeatures(
-              existing.className,
+              classKey,
               existing.subclassName,
               dto.targetLevel,
             )
@@ -736,7 +737,7 @@ export class CharactersService {
       existing.armorClass,
       existing.offhandWeaponId ?? null,
     );
-    const normalizedClassName = existing.className.trim().toLowerCase();
+    const normalizedClassName = normalizeSrdCharacterClassKey(existing.className);
     const canRecalculateArmorClass =
       inventory.some((item) => this.isArmorInventoryItem(item)) ||
       normalizedClassName.includes("barbarian") ||
@@ -923,7 +924,7 @@ export class CharactersService {
     abilities: AbilityScoresDto;
     featureIds: string[];
   }): AbilityScoresDto {
-    const classKey = params.className.trim().toLowerCase();
+    const classKey = normalizeSrdCharacterClassKey(params.className);
     if (
       params.fromLevel < 20 &&
       params.toLevel >= 20 &&
@@ -1131,8 +1132,9 @@ export class CharactersService {
       availableSpellCount: knownSpellPool.size,
     });
 
-    if (!this.isPreparedSpellcaster(params.className)) {
-      if (params.preparedSpells !== undefined) {
+    if (!this.isPreparedSpellcaster(params.className, params.level)) {
+      const requestedPreparedSpells = this.normalizeUniqueSpellSelection(params.preparedSpells);
+      if (requestedPreparedSpells.length > 0) {
         throw new BadRequestException({
           code: "PREPARED_SPELLS_NOT_SUPPORTED",
           message: "이 직업은 준비 주문 모델을 사용하지 않습니다.",
@@ -1183,7 +1185,8 @@ export class CharactersService {
     className: string,
     level: number,
   ): StartingSpellsDto | null {
-    const progression = getSpellcastingProgression(className, level);
+    const classKey = normalizeSrdCharacterClassKey(className);
+    const progression = getSrdClassSpellcastingProgression(classKey, level);
     if (!progression) {
       return null;
     }
@@ -1191,7 +1194,7 @@ export class CharactersService {
     return {
       cantrips: [],
       spells: [],
-      ...(this.isPreparedSpellcaster(className) ? { preparedSpells: [] } : {}),
+      ...(this.isPreparedSpellcaster(classKey, level) ? { preparedSpells: [] } : {}),
     };
   }
 
@@ -1244,9 +1247,14 @@ export class CharactersService {
     forgottenCantrips: string[];
     nextCantrips: string[];
   }): void {
-    const currentLimit = getCantripsKnownLimit(params.className, params.currentLevel) ?? 0;
-    const targetLimit = getCantripsKnownLimit(params.className, params.targetLevel);
-    if (targetLimit === null) {
+    const classKey = normalizeSrdCharacterClassKey(params.className);
+    const spellDelta = resolveKnownSpellDelta({
+      classKey,
+      currentLevel: params.currentLevel,
+      targetLevel: params.targetLevel,
+    });
+    const targetLimit = getCantripsKnownLimit(classKey, params.targetLevel);
+    if (!spellDelta.targetHasCantripProgression || targetLimit === null) {
       if (params.requestedCantrips.length || params.forgottenCantrips.length) {
         throw new BadRequestException({
           code: "LEVEL_UP_CANTRIPS_NOT_SUPPORTED",
@@ -1257,7 +1265,7 @@ export class CharactersService {
     }
 
     const levelDelta = params.targetLevel - params.currentLevel;
-    const learnedAllowance = Math.max(0, targetLimit - currentLimit);
+    const learnedAllowance = spellDelta.cantripDelta;
     if (params.forgottenCantrips.length > levelDelta) {
       throw new BadRequestException({
         code: "LEVEL_UP_CANTRIP_REPLACEMENT_LIMIT_EXCEEDED",
@@ -1299,38 +1307,43 @@ export class CharactersService {
     nextKnownSpells: string[];
     availableSpellCount: number;
   }): void {
-    const classKey = normalizeSpellcastingClassKey(params.className);
+    const classKey = normalizeSrdCharacterClassKey(params.className);
     const levelDelta = params.targetLevel - params.currentLevel;
-    if (classKey === "wizard") {
+    const spellDelta = resolveKnownSpellDelta({
+      classKey,
+      currentLevel: params.currentLevel,
+      targetLevel: params.targetLevel,
+    });
+    if (!spellDelta.canReplaceKnownSpells) {
       if (params.forgottenKnownSpells.length) {
         throw new BadRequestException({
-          code: "LEVEL_UP_WIZARD_SPELL_REPLACEMENT_NOT_SUPPORTED",
-          message: "위저드 주문책 주문은 레벨업으로 제거하지 않습니다.",
+          code: classKey === "wizard"
+            ? "LEVEL_UP_WIZARD_SPELL_REPLACEMENT_NOT_SUPPORTED"
+            : "LEVEL_UP_SPELL_REPLACEMENT_NOT_SUPPORTED",
+          message: classKey === "wizard"
+            ? "위저드 주문책 주문은 레벨업으로 제거하지 않습니다."
+            : "이 직업은 known spell 교체 모델을 사용하지 않습니다.",
         });
       }
-      if (params.requestedKnownSpells.length > levelDelta * 2) {
+    }
+
+    if (classKey === "wizard") {
+      if (params.requestedKnownSpells.length > spellDelta.knownSpellDelta) {
         throw new BadRequestException({
           code: "LEVEL_UP_SPELL_LEARN_LIMIT_EXCEEDED",
           message: "위저드는 레벨당 주문책 주문 두 개를 추가할 수 있습니다.",
-          learnLimit: levelDelta * 2,
+          learnLimit: spellDelta.knownSpellDelta,
         });
       }
       return;
     }
 
-    const currentLimit = getKnownSpellsLimit(params.className, params.currentLevel) ?? 0;
-    const targetLimit = getKnownSpellsLimit(params.className, params.targetLevel);
-    if (targetLimit === null) {
-      if (params.forgottenKnownSpells.length) {
-        throw new BadRequestException({
-          code: "LEVEL_UP_SPELL_REPLACEMENT_NOT_SUPPORTED",
-          message: "이 직업은 known spell 교체 모델을 사용하지 않습니다.",
-        });
-      }
+    const targetLimit = getKnownSpellsLimit(classKey, params.targetLevel);
+    if (!spellDelta.targetHasKnownSpellProgression || targetLimit === null) {
       return;
     }
 
-    const learnedAllowance = Math.max(0, targetLimit - currentLimit);
+    const learnedAllowance = spellDelta.knownSpellDelta;
     if (params.forgottenKnownSpells.length > levelDelta) {
       throw new BadRequestException({
         code: "LEVEL_UP_SPELL_REPLACEMENT_LIMIT_EXCEEDED",
@@ -1386,26 +1399,19 @@ export class CharactersService {
   private resolvePreparedSpellLimit(
     character: { className: string; level: number; abilities: AbilityScoresDto },
   ): number | null {
-    const className = character.className.trim().toLowerCase().replace(/[\s-]+/g, "_");
-    const level = Math.max(1, Math.min(20, Math.floor(character.level)));
-    if (className.includes("wizard")) {
-      return Math.max(1, level + this.getAbilityModifier(character.abilities.int));
-    }
-    if (className.includes("cleric") || className.includes("druid")) {
-      return Math.max(1, level + this.getAbilityModifier(character.abilities.wis));
-    }
-    if (className.includes("paladin")) {
-      return Math.max(1, Math.floor(level / 2) + this.getAbilityModifier(character.abilities.cha));
-    }
-    return null;
+    return resolveSrdPreparedSpellLimit({
+      classKey: character.className,
+      level: character.level,
+      abilities: character.abilities,
+    });
   }
 
-  private isPreparedSpellcaster(className: string): boolean {
-    const normalized = className.trim().toLowerCase().replace(/[\s-]+/g, "_");
-    return normalized === "wizard" ||
-      normalized === "cleric" ||
-      normalized === "druid" ||
-      normalized === "paladin";
+  private isPreparedSpellcaster(className: string, level = 1): boolean {
+    return this.resolvePreparedSpellLimit({
+      className,
+      level,
+      abilities: defaultAbilityScores,
+    }) !== null;
   }
 
   async deleteCharacter(userId: string, characterId: string): Promise<void> {
@@ -1718,7 +1724,8 @@ export class CharactersService {
     className: string,
     skills: string[],
   ): Promise<string[]> {
-    const klass = await this.catalogService.findClassByKey(className.toLowerCase());
+    const classKey = normalizeSrdCharacterClassKey(className);
+    const klass = await this.catalogService.findClassByKey(classKey);
     if (!klass || klass.skillChoiceCount === 0) {
       return skills;
     }
@@ -2086,7 +2093,8 @@ export class CharactersService {
     dtoMaxHp: number | undefined,
     maxHpBonus = 0,
   ): Promise<{ proficiencyBonus: number; maxHp: number }> {
-    const klass = await this.catalogService.findClassByKey(className.toLowerCase());
+    const classKey = normalizeSrdCharacterClassKey(className);
+    const klass = await this.catalogService.findClassByKey(classKey);
     if (!klass) {
       return {
         proficiencyBonus: dtoProf ?? 2,
@@ -2132,7 +2140,7 @@ export class CharactersService {
     className: string,
     level: number,
   ): number {
-    const normalizedClassName = className.trim().toLowerCase();
+    const normalizedClassName = normalizeSrdCharacterClassKey(className);
     const normalizedLevel = Math.max(Math.floor(level), 0);
     let bonus = 0;
 
@@ -2161,39 +2169,23 @@ export class CharactersService {
     abilities: AbilityScoresDto,
     startingSpells: StartingSpellsDto | undefined,
   ): Promise<string | null> {
-    const klass = await this.catalogService.findClassByKey(className.toLowerCase());
+    const classKey = normalizeSrdCharacterClassKey(className);
+    const klass = await this.catalogService.findClassByKey(classKey);
     if (!klass) return null;
 
-    const progressionCantripCount = getCantripsKnownLimit(className, level);
-    const needCantrips = progressionCantripCount === null
-      ? klass.startingCantripCount
-      : Math.min(
-          progressionCantripCount,
-          this.getExecutableCantripIds().size,
-        );
-    const classKey = normalizeSpellcastingClassKey(className);
-    const spellcastingProgression = getSpellcastingProgression(className, level);
-    const executableSlotSpellPool = this.getExecutableSlotSpellPool(className, level);
-    const executableSlotSpellPoolSize = executableSlotSpellPool.size;
-    const usesDynamicPreparedPool =
-      this.isPreparedSpellcaster(className) &&
-      classKey !== "wizard" &&
-      spellcastingProgression !== null &&
-      executableSlotSpellPoolSize > 0;
-    const needSpells = usesDynamicPreparedPool
-      ? 0
-      : spellcastingProgression?.spellsKnown !== null &&
-          spellcastingProgression?.spellsKnown !== undefined
-        ? Math.min(
-            spellcastingProgression.spellsKnown,
-            executableSlotSpellPoolSize,
-          )
-        : classKey === "wizard"
-          ? Math.min(
-              this.getWizardStartingSpellbookSpellCount(level),
-              executableSlotSpellPoolSize,
-            )
-          : klass.startingSpellCount;
+    const executableSlotSpellPool = this.getExecutableSlotSpellPool(classKey, level);
+    const requirements = resolveCharacterSpellSelectionRequirements({
+      classKey,
+      level,
+      abilities,
+      executableSpellPools: {
+        cantrips: Array.from(this.getExecutableCantripIds()),
+        slotSpells: Array.from(executableSlotSpellPool),
+      },
+    });
+    const needCantrips = requirements.cantripCount;
+    const needSpells = requirements.knownOrSpellbookSpellCount;
+    const usesDynamicPreparedPool = requirements.usesDynamicPreparedPool;
 
     if (needCantrips === 0 && needSpells === 0 && !usesDynamicPreparedPool) {
       return null;
@@ -2240,7 +2232,7 @@ export class CharactersService {
     );
     this.assertExecutableStartingSpellPool(spells, "주문", executableSlotSpellPool);
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
-    const preparedSpells = startingSpells.preparedSpells
+    const rawPreparedSpells = startingSpells.preparedSpells
       ? Array.from(
           new Set(
             startingSpells.preparedSpells
@@ -2249,7 +2241,11 @@ export class CharactersService {
           ),
         )
       : undefined;
-    const preparedSpellLimit = this.resolvePreparedSpellLimit({ className, level, abilities });
+    const preparedSpellLimit = requirements.preparedSpellCount;
+    const preparedSpells =
+      rawPreparedSpells && (rawPreparedSpells.length > 0 || preparedSpellLimit !== null)
+        ? rawPreparedSpells
+        : undefined;
     if (preparedSpellLimit !== null && !preparedSpells) {
       throw new BadRequestException({
         code: "PREPARED_SPELLS_REQUIRED",
@@ -2291,8 +2287,8 @@ export class CharactersService {
     selection: number[] | undefined,
     itemSelections: Record<string, string> | undefined,
   ): Promise<InventoryItemDto[] | null> {
-    const lower = className.toLowerCase();
-    const klass = await this.catalogService.findClassByKey(lower);
+    const classKey = normalizeSrdCharacterClassKey(className);
+    const klass = await this.catalogService.findClassByKey(classKey);
     if (!klass) {
       return null;
     }
@@ -2444,7 +2440,7 @@ export class CharactersService {
     const dexMod = this.getAbilityModifier(abilities.dex);
     const conMod = this.getAbilityModifier(abilities.con);
     const wisMod = this.getAbilityModifier(abilities.wis);
-    const normalizedClass = className.trim().toLowerCase();
+    const normalizedClass = normalizeSrdCharacterClassKey(className);
     const shieldBonus = hasEquippedShield || inventory.some(
       (item) =>
         this.isShieldInventoryItem(item) &&
@@ -2647,44 +2643,7 @@ export class CharactersService {
   }
 
   private getMaximumSlotSpellLevelForClassLevel(className: string, level: number): number {
-    const classKey = normalizeSpellcastingClassKey(className);
-    const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-    if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
-      if (normalizedLevel >= 17) return 9;
-      if (normalizedLevel >= 15) return 8;
-      if (normalizedLevel >= 13) return 7;
-      if (normalizedLevel >= 11) return 6;
-      if (normalizedLevel >= 9) return 5;
-      if (normalizedLevel >= 7) return 4;
-      if (normalizedLevel >= 5) return 3;
-      if (normalizedLevel >= 3) return 2;
-      return 1;
-    }
-    if (classKey === "warlock") {
-      if (normalizedLevel >= 17) return 9;
-      if (normalizedLevel >= 15) return 8;
-      if (normalizedLevel >= 13) return 7;
-      if (normalizedLevel >= 11) return 6;
-      if (normalizedLevel >= 9) return 5;
-      if (normalizedLevel >= 7) return 4;
-      if (normalizedLevel >= 5) return 3;
-      if (normalizedLevel >= 3) return 2;
-      return 1;
-    }
-    if (classKey === "paladin" || classKey === "ranger") {
-      if (normalizedLevel >= 17) return 5;
-      if (normalizedLevel >= 13) return 4;
-      if (normalizedLevel >= 9) return 3;
-      if (normalizedLevel >= 5) return 2;
-      if (normalizedLevel >= 2) return 1;
-    }
-    return 0;
-  }
-
-  private getWizardStartingSpellbookSpellCount(level: number): number {
-    const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-    return WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
-      (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL;
+    return resolveMaximumCastableSpellLevel(className, level);
   }
 
   private async resolveCharacterFeatureSnapshot(params: {
@@ -2846,7 +2805,7 @@ export class CharactersService {
     proficientSkills: string[];
     requireMissingSelections: boolean;
   }): void {
-    const classKey = params.className.trim().toLowerCase();
+    const classKey = normalizeSrdCharacterClassKey(params.className);
     const normalizedFeatures = params.requestedFeatures.map((feature) =>
       feature.trim().toLowerCase(),
     );
@@ -2997,7 +2956,7 @@ export class CharactersService {
     invalidCode: string;
   }): string | null {
     const subclassName = params.subclassName?.trim() || null;
-    const choiceLevel = this.ruleCatalogService.getSubclassChoiceLevel(params.className);
+    const choiceLevel = resolveSubclassChoiceLevel(params.className);
     if (choiceLevel !== null && params.level >= choiceLevel && !subclassName) {
       throw new BadRequestException({
         code: params.requiredCode,
