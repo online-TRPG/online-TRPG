@@ -35,6 +35,9 @@ Rules:
 - `spellsByLevel` keys must be spell levels 1 through 9.
 - Each spell id may appear at most once per class.
 - Do not fill this file from guesses or UI fallback pools.
+- Do not add character creation, level-up, prepared-spell, or spell progression
+  calculations here. Those rules live in `@trpg/srd-data/rules` and derive from
+  generated SRD class data plus explicit executable pools.
 
 `srd-data/scripts/generate-canonical-artifacts.mjs` requires this source file, validates
 the structural checks above, and then writes it to

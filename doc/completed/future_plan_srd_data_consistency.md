@@ -1848,7 +1848,7 @@ FE/BE 소비 경로:
 
 - `doc/README.md`
 - `doc/future_plan.md`
-- `doc/future_plan_srd_data_consistency.md`
+- `doc/completed/future_plan_srd_data_consistency.md`
 - `doc/rules/ARCHITECTURE_RULES.md`
 - `doc/rules/README.md`
 - `package-lock.json`

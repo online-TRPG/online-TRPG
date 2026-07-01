@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { resolveCharacterSpellSelectionRequirements } from "@trpg/srd-data/rules";
 import { seedClasses } from "./classes";
 
 describe("class seed", () => {
@@ -20,18 +21,33 @@ describe("class seed", () => {
 
     await seedClasses(prisma);
 
-    const spellcastingClasses = new Set(["bard", "cleric", "druid", "sorcerer", "warlock", "wizard"]);
-    const seededSpellcasters = classUpserts.filter((upsert) => spellcastingClasses.has(upsert.where.key));
-
-    expect(seededSpellcasters.map((upsert) => upsert.where.key).sort()).toEqual(
-      Array.from(spellcastingClasses).sort(),
+    const seededSpellCounts = Object.fromEntries(
+      classUpserts.map((upsert) => [
+        upsert.where.key,
+        {
+          cantrips: upsert.create.startingCantripCount,
+          spells: upsert.create.startingSpellCount,
+        },
+      ]),
     );
-    expect(seededSpellcasters.every((upsert) => upsert.create.startingCantripCount <= 3)).toBe(true);
+    const expectedSpellCounts = Object.fromEntries(
+      classUpserts.map((upsert) => {
+        const expected = resolveCharacterSpellSelectionRequirements({
+          classKey: upsert.where.key,
+          level: 1,
+        });
+        return [
+          upsert.where.key,
+          {
+            cantrips: expected.cantripCount,
+            spells: expected.knownOrSpellbookSpellCount,
+          },
+        ];
+      }),
+    );
+
     expect(
-      seededSpellcasters
-        .filter((upsert) => upsert.where.key !== "wizard")
-        .every((upsert) => upsert.create.startingSpellCount <= 3),
-    ).toBe(true);
-    expect(classUpserts.find((upsert) => upsert.where.key === "wizard")?.create.startingSpellCount).toBe(6);
+      seededSpellCounts,
+    ).toEqual(expectedSpellCounts);
   });
 });

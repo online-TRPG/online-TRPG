@@ -17,6 +17,7 @@ import { P5_SPELL_DEFINITIONS } from "./p5-spell-definitions";
 import { P6_MONSTER_ABILITY_DEFINITIONS } from "./p6-monster-definitions";
 import { P6_SPELL_DEFINITIONS } from "./p6-spell-definitions";
 import canonicalClassFeatures from "@trpg/srd-data/generated/srd/class-features.json";
+import { resolveSubclassChoiceLevel } from "@trpg/srd-data/rules";
 
 type ClassFeatureRuntimeOverride = {
   id: string;
@@ -2749,11 +2750,7 @@ export class RuleCatalogService {
   }
 
   getSubclassChoiceLevel(classKey: string): number | null {
-    const normalizedClassKey = this.normalizeClassKey(classKey);
-    const levels = this.listEntries("subclass_features")
-      .filter((entry) => entry.levelRequirement.classKey === normalizedClassKey)
-      .map((entry) => entry.levelRequirement.minClassLevel ?? 1);
-    return levels.length ? Math.min(...levels) : null;
+    return resolveSubclassChoiceLevel(classKey);
   }
 
   listMonsterAbilities(monsterId: string): RuleCatalogEntry[] {

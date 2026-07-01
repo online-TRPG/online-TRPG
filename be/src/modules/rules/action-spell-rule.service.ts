@@ -1,5 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { ActionOutcome, DiceAdvantageState, DiceRollResponseDto } from "@trpg/shared-types";
+import {
+  normalizeSrdCharacterClassKey,
+  resolveAbilityModifier,
+  resolvePreparedSpellAbility,
+  resolveSpellcastingAbility,
+} from "@trpg/srd-data/rules";
 import { AoeDamageService, AoeDamageTarget } from "./aoe-damage.service";
 import { ParsedCommand } from "./command-parser.service";
 import {
@@ -1067,7 +1073,9 @@ export class ActionSpellRuleService {
     }
 
     const preparedSpells = Array.isArray(spellInventory.preparedSpells) ? spellInventory.preparedSpells.map((value) => this.normalizeRuleToken(value)) : null;
-    if (spellLevel > 0 && preparedSpells && !preparedSpells.includes(spellId)) {
+    const classKey = normalizeSrdCharacterClassKey(actor.character.className);
+    const requiresPreparedSpell = resolvePreparedSpellAbility(classKey) !== null;
+    if (spellLevel > 0 && requiresPreparedSpell && preparedSpells && !preparedSpells.includes(spellId)) {
       return "spell_not_prepared";
     }
 
@@ -1076,18 +1084,9 @@ export class ActionSpellRuleService {
 
   private resolveSpellcastingAbilityModifier(actor: SessionCharacterForRules): number {
     const abilities = this.parseJson<Record<string, number>>(actor.character.abilitiesJson, {});
-    const classKey = actor.character.className.trim().toLowerCase();
-    let abilityKey = "int";
-    if (classKey === "cleric" || classKey === "druid" || classKey === "ranger") {
-      abilityKey = "wis";
-    } else if (classKey === "bard" || classKey === "paladin" || classKey === "sorcerer" || classKey === "warlock") {
-      abilityKey = "cha";
-    }
-    return this.toAbilityModifier(abilities[abilityKey] ?? 10);
-  }
-
-  private toAbilityModifier(score: number): number {
-    return Math.floor((score - 10) / 2);
+    const classKey = normalizeSrdCharacterClassKey(actor.character.className);
+    const abilityKey = resolveSpellcastingAbility(classKey) ?? "int";
+    return resolveAbilityModifier(abilities[abilityKey] ?? 10);
   }
 
   private resolveSpellDamageDice(spellDefinition: RuleCatalogEntry | null, characterLevel: number): string | null {
@@ -1764,23 +1763,10 @@ export class ActionSpellRuleService {
   }
 
   private resolveSpellSaveDc(actor: SessionCharacterForRules): number {
-    const className = this.normalizeRuleToken(actor.character.className);
-    const ability =
-      className.includes("wizard")
-        ? "int"
-        : className.includes("cleric") ||
-            className.includes("druid") ||
-            className.includes("ranger")
-          ? "wis"
-          : "cha";
-    const abilities = this.parseJson<Record<string, number>>(
-      actor.character.abilitiesJson,
-      {},
-    );
     return (
       8 +
       actor.character.proficiencyBonus +
-      Math.floor(((abilities[ability] ?? 10) - 10) / 2)
+      this.resolveSpellcastingAbilityModifier(actor)
     );
   }
 
