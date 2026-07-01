@@ -36,8 +36,10 @@ await copyFile(
   path.join(publicRulebookDir, 'dnd5e.json'),
 );
 
-const classes = await readJsonLines('classes.jsonl');
-await writeJson(path.join(publicSrdDir, 'classes.json'), classes);
+await copyFile(
+  path.join(generatedDir, 'classes.json'),
+  path.join(publicSrdDir, 'classes.json'),
+);
 await copyFile(
   path.join(generatedDir, 'class-features.json'),
   path.join(publicSrdDir, 'class-features.json'),

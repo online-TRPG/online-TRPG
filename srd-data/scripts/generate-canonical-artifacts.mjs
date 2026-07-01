@@ -295,6 +295,7 @@ await writeJson(
     },
   }),
 );
+await writeJson('classes.json', classes);
 await writeJson('fe-spell-pools.json', feSpellPools);
 await writeJson('fe-usable-items.json', feUsableItems);
 await writeJson('item-labels.json', buildItemLabelMap(equipmentItems, magicItems));

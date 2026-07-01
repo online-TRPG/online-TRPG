@@ -15,6 +15,7 @@ const requiredFiles = [
   'backend_engine_p0_contracts.json',
   'catalog-fingerprint.json',
   'class-features.json',
+  'classes.json',
   'fe-spell-pools.json',
   'fe-usable-items.json',
   'item-labels.json',
@@ -87,6 +88,7 @@ const mvpSpellIds = [
 
 const srdSpells = await readJsonLines(path.join(generatedDir, 'spells.jsonl'));
 const srdClasses = await readJsonLines(path.join(generatedDir, 'classes.jsonl'));
+const srdClassesJson = await readJson(path.join(generatedDir, 'classes.json'));
 const spells = await readJsonLines(path.join(engineDir, 'spells.jsonl'));
 const spellsById = new Map(spells.map((spell) => [spell.id, spell]));
 const classes = await readJsonLines(path.join(engineDir, 'classes.jsonl'));
@@ -101,6 +103,10 @@ const catalogFingerprint = JSON.parse(
 );
 const spellClassLists = await readJson(path.join(generatedDir, 'spell-class-lists.json'));
 const spellClassListsSource = await readJson(path.join(packageRoot, 'sources', 'spell-class-lists.json'));
+
+if (JSON.stringify(srdClassesJson) !== JSON.stringify(srdClasses)) {
+  throw new Error('Generated classes.json is not synced with classes.jsonl.');
+}
 
 if (!Array.isArray(classFeatures) || classFeatures.length === 0) {
   throw new Error('Generated class feature manifest is empty.');

@@ -12,6 +12,10 @@ import type {
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  normalizeSrdCharacterClassKey,
+  resolvePreparedSpellAbility,
+} from '@trpg/srd-data/rules';
 import { SessionBattleMap } from './SessionBattleMap';
 import type { BattleMapSelection } from './SessionBattleMap';
 import { GameIcon } from '../../../components/GameIcon';
@@ -519,8 +523,6 @@ const mvpSpellLevelById: Record<string, number> = {
   ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.level])),
 };
 
-const preparedSpellClassKeys = new Set(['cleric', 'druid', 'paladin', 'wizard']);
-
 const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'all', label: '전체' },
   { id: 'cantrip', label: '소마법' },
@@ -656,10 +658,6 @@ function getMonsterActionSummaryLabels(action: CombatMonsterAction) {
   return labels;
 }
 
-function normalizeClassKey(value: string | null | undefined) {
-  return (value ?? '').trim().toLowerCase().replace(/\s+/g, '-');
-}
-
 function hasCharacterFeature(character: SessionCharacterResponseDto, featureId: string) {
   return character.features.some((feature) => feature === featureId);
 }
@@ -670,7 +668,7 @@ function getClassAbilityButtons(
 ): CombatAbilityButton[] {
   if (!character) return [];
 
-  const classKey = normalizeClassKey(character.className);
+  const classKey = normalizeSrdCharacterClassKey(character.className);
   const buttons: CombatAbilityButton[] = [];
 
   if (hasCharacterFeature(character, 'race.dragonborn.trait.base_traits')) {
@@ -921,7 +919,7 @@ function hasMvpSpell(
   const preparedSpells = character.spells?.preparedSpells;
   if (
     spellLevel &&
-    preparedSpellClassKeys.has(normalizeClassKey(character.className)) &&
+    resolvePreparedSpellAbility(normalizeSrdCharacterClassKey(character.className)) !== null &&
     preparedSpells
   ) {
     return preparedSpells.map(normalizeSpellId).includes(spellId);

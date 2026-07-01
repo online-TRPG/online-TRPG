@@ -22,6 +22,9 @@ Rules:
 - Overrides must be keyed by canonical ids or explicit non-SRD runtime ids.
 - Do not duplicate SRD names, levels, spell ownership, race traits, item labels, or
   monster stats here when generated SRD data can provide them.
+- Do not add character creation, level-up, prepared-spell, known-spell, cantrip, or
+  spell slot progression calculations here. Update `@trpg/srd-data/rules` when a
+  character rule interpretation changes.
 - FE-only overrides are limited to presentation or UX selection pools.
 - BE-only runtime metadata remains in BE runtime definitions, but ids must be checked
   against canonical generated SRD artifacts or the explicit non-SRD allowlists above.

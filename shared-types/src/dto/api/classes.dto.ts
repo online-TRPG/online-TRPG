@@ -1,5 +1,11 @@
 import { ApiProperty } from "@nestjs/swagger";
-import type { SpellcastingProgressionEntry } from "../../constants/spellcasting-progression";
+
+// API response shape only. SRD spell progression data and calculations live in @trpg/srd-data/rules.
+export type SpellcastingProgressionEntry = {
+  classLevel: number;
+  cantripsKnown: number | null;
+  spellsKnown: number | null;
+};
 
 export class ItemResponseDto {
   @ApiProperty()

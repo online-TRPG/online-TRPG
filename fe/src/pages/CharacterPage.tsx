@@ -51,6 +51,18 @@ import type {
   StartingSpellsDto,
   UpdatePreparedSpellsDto,
 } from '@trpg/shared-types';
+import {
+  getSrdClassDefinition,
+  normalizeSrdCharacterClassKey,
+  resolveAvailableAbilityScoreImprovementLevels,
+  resolveCharacterSpellSelectionRequirements,
+  resolveCrossedAbilityScoreImprovementLevels,
+  resolveKnownSpellDelta,
+  resolveMaximumCastableSpellLevel,
+  resolvePreparedSpellAbility,
+  resolvePreparedSpellLimit as resolveSrdPreparedSpellLimit,
+  resolveSubclassChoiceLevel,
+} from '@trpg/srd-data/rules';
 import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
 import { getUserFacingItemName } from '../features/sessionPlay/utils/displayNames';
 import {
@@ -87,9 +99,6 @@ const POINT_BUY_COST: Readonly<Record<number, number>> = {
   14: 7,
   15: 9,
 };
-const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
-const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
-
 // shared-types/src/constants/skills.ts 와 동기화 유지 — BE seed (be/src/database/seed/classes.ts ALL_SKILLS) 가 정답.
 // 영문 코드/한국어 어느 쪽 입력도 한국어 정규형으로 normalize 한다.
 const DND5E_SKILLS_INLINE: ReadonlyArray<{ code: string; ko: string }> = [
@@ -170,8 +179,6 @@ type CharacterCreateStepKey =
   | 'spells'
   | 'review';
 
-const ASI_LEVELS = [4, 8, 12, 14, 16, 19] as const;
-
 type CharacterFeaturePreviewSource = 'race' | 'class' | 'subclass' | 'choice' | 'asi';
 type CharacterFeaturePreviewItem = {
   id: string;
@@ -195,22 +202,11 @@ function getCrossedAsiLevels(
   currentLevel: number,
   targetLevel: number
 ): number[] {
-  return getAsiLevelsForClass(classKey)
-    .filter((level) => level > currentLevel && level <= targetLevel)
-    .sort((left, right) => left - right);
-}
-
-function getAsiLevelsForClass(classKey: string): number[] {
-  const normalizedClassKey = normalizeClassValue(classKey).toLowerCase();
-  const classSpecificLevels =
-    normalizedClassKey === 'fighter' ? [6, 14] : normalizedClassKey === 'rogue' ? [10] : [];
-  return Array.from(new Set([...ASI_LEVELS, ...classSpecificLevels])).sort(
-    (left, right) => left - right
-  );
+  return resolveCrossedAbilityScoreImprovementLevels(classKey, currentLevel, targetLevel);
 }
 
 function getCreationAsiLevels(classKey: string, level: number): number[] {
-  return getAsiLevelsForClass(classKey).filter((asiLevel) => asiLevel <= normalizeLevel(level));
+  return resolveAvailableAbilityScoreImprovementLevels(classKey, normalizeLevel(level));
 }
 
 interface InventoryDraftItem {
@@ -252,17 +248,6 @@ type ImplementedSpellOption = { id: string; label: string; level?: number | null
 
 const defaultAncestry = 'Human';
 
-const implementedSpellClasses = new Set([
-  'bard',
-  'cleric',
-  'druid',
-  'paladin',
-  'ranger',
-  'sorcerer',
-  'warlock',
-  'wizard',
-]);
-
 const implementedSubclassOptions: Record<string, Array<{ value: string; label: string }>> = {
   barbarian: [{ value: 'berserker', label: 'Berserker / 광전사' }],
   bard: [{ value: 'lore', label: 'College of Lore / 지식 학파' }],
@@ -278,21 +263,6 @@ const implementedSubclassOptions: Record<string, Array<{ value: string; label: s
   wizard: [{ value: 'evocation', label: 'Evocation / 방출학파' }],
 };
 
-const subclassChoiceLevelByClass: Readonly<Record<string, number>> = {
-  barbarian: 3,
-  bard: 3,
-  cleric: 1,
-  druid: 2,
-  fighter: 3,
-  monk: 3,
-  paladin: 3,
-  ranger: 3,
-  rogue: 3,
-  sorcerer: 1,
-  warlock: 1,
-  wizard: 2,
-};
-
 function getImplementedSpellOptions(
   className: string | null | undefined,
   kind: 'cantrip' | 'slot',
@@ -301,21 +271,19 @@ function getImplementedSpellOptions(
   spellCatalogById?: Map<string, StaticSpellCatalogEntry>,
   spellPools?: StaticFeSpellPools | null
 ): ImplementedSpellOption[] {
-  const classKey = normalizeClassValue(className ?? '').toLowerCase();
-  if (!implementedSpellClasses.has(classKey)) return [];
-  const maxSpellLevel = getMaximumImplementedSpellLevel(classKey, level);
+  const classKey = normalizeSrdCharacterClassKey(className ?? '');
+  if (!hasSrdSpellcastingProgression(classKey)) return [];
+  const maxSpellLevel = resolveImplementedSpellMaxLevel(classKey, level);
   const catalogOptions = getCatalogSpellOptions(ruleCatalog, kind, maxSpellLevel, spellCatalogById);
   if (catalogOptions.length) {
-    return classKey === 'paladin' || classKey === 'ranger'
-      ? kind === 'cantrip'
-        ? []
-        : catalogOptions
-    : catalogOptions;
+    return kind === 'cantrip' && !shouldOfferCantripOptions(classKey, level)
+      ? []
+      : catalogOptions;
   }
   if (kind === 'cantrip') {
-    return classKey === 'paladin' || classKey === 'ranger'
-      ? []
-      : toFallbackSpellOptions(spellPools?.characterBuilder.cantrips ?? [], spellCatalogById, 0);
+    return shouldOfferCantripOptions(classKey, level)
+      ? toFallbackSpellOptions(spellPools?.characterBuilder.cantrips ?? [], spellCatalogById, 0)
+      : [];
   }
   const slotSpellsByLevel = spellPools?.characterBuilder.slotSpellsByLevel ?? {};
   return [
@@ -344,38 +312,19 @@ function toFallbackSpellOptions(
   });
 }
 
-function getMaximumImplementedSpellLevel(classKey: string, level: number) {
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  if (['bard', 'cleric', 'druid', 'sorcerer', 'wizard'].includes(classKey)) {
-    if (normalizedLevel >= 17) return 9;
-    if (normalizedLevel >= 15) return 8;
-    if (normalizedLevel >= 13) return 7;
-    if (normalizedLevel >= 11) return 6;
-    if (normalizedLevel >= 9) return 5;
-    if (normalizedLevel >= 7) return 4;
-    if (normalizedLevel >= 5) return 3;
-    if (normalizedLevel >= 3) return 2;
-    return 1;
-  }
-  if (classKey === 'warlock') {
-    if (normalizedLevel >= 17) return 9;
-    if (normalizedLevel >= 15) return 8;
-    if (normalizedLevel >= 13) return 7;
-    if (normalizedLevel >= 11) return 6;
-    if (normalizedLevel >= 9) return 5;
-    if (normalizedLevel >= 7) return 4;
-    if (normalizedLevel >= 5) return 3;
-    if (normalizedLevel >= 3) return 2;
-    return 1;
-  }
-  if (classKey === 'paladin' || classKey === 'ranger') {
-    if (normalizedLevel >= 17) return 5;
-    if (normalizedLevel >= 13) return 4;
-    if (normalizedLevel >= 9) return 3;
-    if (normalizedLevel >= 5) return 2;
-    if (normalizedLevel >= 2) return 1;
-  }
-  return 0;
+function hasSrdSpellcastingProgression(classKey: string) {
+  return Boolean(getSrdClassDefinition(classKey)?.spellcastingProgression?.length);
+}
+
+function shouldOfferCantripOptions(classKey: string, level: number) {
+  return resolveCharacterSpellSelectionRequirements({
+    classKey,
+    level,
+  }).cantripCount > 0;
+}
+
+function resolveImplementedSpellMaxLevel(classKey: string, level: number) {
+  return resolveMaximumCastableSpellLevel(classKey, level);
 }
 
 function getCatalogSpellOptions(
@@ -435,58 +384,38 @@ function getImplementedSpellLabel(
 }
 
 function getPreparedSpellAbilityKey(className: string | null | undefined): AbilityKey | null {
-  const classKey = normalizeClassValue(className ?? '').toLowerCase();
-  if (classKey === 'wizard') return 'int';
-  if (classKey === 'cleric' || classKey === 'druid') return 'wis';
-  if (classKey === 'paladin') return 'cha';
-  return null;
+  return resolvePreparedSpellAbility(className ?? '') as AbilityKey | null;
 }
 
 function usesDynamicPreparedSpellPool(
   className: string | null | undefined,
   level: number,
-  klass: ClassDefinitionResponseDto | null | undefined,
   ruleCatalog: RuleCatalogReferenceDto[] = [],
   spellPools?: StaticFeSpellPools | null
 ) {
-  const classKey = normalizeClassValue(className ?? '').toLowerCase();
-  return (
-    Boolean(getPreparedSpellAbilityKey(className)) &&
-    classKey !== 'wizard' &&
-    Boolean(getSpellcastingProgressionEntry(klass, level)) &&
-    getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools).length > 0
-  );
+  return resolveCharacterSpellSelectionRequirements({
+    classKey: className,
+    level,
+    executableSpellPools: {
+      slotSpells: getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools)
+        .map((spell) => spell.id),
+    },
+  }).usesDynamicPreparedPool;
 }
 
-function getAbilityModifier(score: number | null | undefined) {
-  return Math.floor(((score ?? 10) - 10) / 2);
-}
-
-function getPreparedSpellLimit(
+function resolveCharacterPreparedSpellLimit(
   className: string | null | undefined,
   level: number | null | undefined,
   abilities: Partial<Record<AbilityKey, number>> | null | undefined
 ) {
-  const abilityKey = getPreparedSpellAbilityKey(className);
-  if (!abilityKey) return null;
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level ?? 1)));
-  const abilityModifier = getAbilityModifier(abilities?.[abilityKey]);
-  const classKey = normalizeClassValue(className ?? '').toLowerCase();
-  const levelBase = classKey === 'paladin' ? Math.floor(normalizedLevel / 2) : normalizedLevel;
-  return Math.max(1, levelBase + abilityModifier);
+  return resolveSrdPreparedSpellLimit({
+    classKey: className,
+    level,
+    abilities,
+  });
 }
 
-function getSpellcastingProgressionEntry(
-  klass: ClassDefinitionResponseDto | null | undefined,
-  level: number
-) {
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  return (
-    klass?.spellcastingProgression?.find((entry) => entry.classLevel === normalizedLevel) ?? null
-  );
-}
-
-function getMvpStartingSlotSpellCount(
+function resolveStartingSlotSpellCount(
   klass: ClassDefinitionResponseDto | null | undefined,
   className: string | null | undefined,
   level: number,
@@ -494,27 +423,14 @@ function getMvpStartingSlotSpellCount(
   spellPools?: StaticFeSpellPools | null
 ) {
   if (!klass) return 0;
-  const classKey = normalizeClassValue(className ?? '').toLowerCase();
-  const progression = getSpellcastingProgressionEntry(klass, level);
-  if (
-    usesDynamicPreparedSpellPool(className, level, klass, ruleCatalog, spellPools)
-  ) {
-    return 0;
-  }
-  if (typeof progression?.spellsKnown === 'number') {
-    return Math.min(
-      progression.spellsKnown,
-      getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools).length
-    );
-  }
-  const seededCount =
-    classKey === 'wizard'
-      ? getWizardStartingSpellbookSpellCount(level)
-      : klass.startingSpellCount;
-  return Math.min(
-    seededCount,
-    getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools).length
-  );
+  return resolveCharacterSpellSelectionRequirements({
+    classKey: className,
+    level,
+    executableSpellPools: {
+      slotSpells: getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools)
+        .map((spell) => spell.id),
+    },
+  }).knownOrSpellbookSpellCount;
 }
 
 function buildSpellSelectionDetail(
@@ -613,26 +529,20 @@ function buildRuntimeTagSummary(tags: string[]) {
   return `주요 효과: ${usefulTags.join(', ')}`;
 }
 
-function getWizardStartingSpellbookSpellCount(level: number) {
-  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
-  return (
-    WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
-    (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL
-  );
-}
-
-function getMvpStartingCantripCount(
+function resolveStartingCantripCount(
   klass: ClassDefinitionResponseDto | null | undefined,
   className: string | null | undefined,
   level: number,
   ruleCatalog: RuleCatalogReferenceDto[] = []
 ) {
   if (!klass) return 0;
-  const progression = getSpellcastingProgressionEntry(klass, level);
-  return Math.min(
-    progression?.cantripsKnown ?? klass.startingCantripCount,
-    getImplementedSpellOptions(className, 'cantrip', level, ruleCatalog).length
-  );
+  return resolveCharacterSpellSelectionRequirements({
+    classKey: className,
+    level,
+    executableSpellPools: {
+      cantrips: getImplementedSpellOptions(className, 'cantrip', level, ruleCatalog).map((spell) => spell.id),
+    },
+  }).cantripCount;
 }
 
 // 직업별 기본 초상화 프리셋입니다. 사용자가 이미지를 올리기 전 기본 이미지로 씁니다.
@@ -1813,7 +1723,7 @@ function getFeatureChoiceContext(params: {
 }): FeatureChoiceContext {
   return {
     ancestryKey: params.ancestry.trim().toLowerCase().replace(/_/g, '-'),
-    classKey: normalizeClassValue(params.className).toLowerCase(),
+    classKey: normalizeSrdCharacterClassKey(params.className),
     level: normalizeLevel(params.level ?? 1),
     features: params.features ?? [],
     proficientSkills: params.proficientSkills ?? [],
@@ -1874,7 +1784,7 @@ function replaceFeatureTags(
 }
 
 function buildClassFeaturesForSubmit(className: string, features: string[] | undefined) {
-  const classKey = normalizeClassValue(className).toLowerCase();
+  const classKey = normalizeSrdCharacterClassKey(className);
   const baseFeatures = classFeatureIdsByClassKey[classKey] ?? [];
   const unmanagedFeatures = (features ?? []).filter(
     (feature) =>
@@ -2342,9 +2252,9 @@ export function CharacterPage({
 
   // className → ClassDefinition(시드) 룩업. 매칭되면 시작 장비 강제.
   const selectedClass = useMemo<ClassDefinitionResponseDto | null>(() => {
-    const className = (formState.className ?? '').trim().toLowerCase();
-    if (!className) return null;
-    return classDefinitions.find((c) => c.key === className) ?? null;
+    const classKey = normalizeSrdCharacterClassKey(formState.className ?? '');
+    if (!classKey) return null;
+    return classDefinitions.find((c) => c.key === classKey) ?? null;
   }, [formState.className, classDefinitions]);
   const resolvedStartingEquipmentSummary = useMemo(() => {
     if (!selectedClass) return [];
@@ -2378,11 +2288,11 @@ export function CharacterPage({
     itemKoNameByKey,
     selectedClass,
   ]);
-  const selectedCreateClassKey = normalizeClassValue(formState.className ?? '').toLowerCase();
+  const selectedCreateClassKey = normalizeSrdCharacterClassKey(formState.className ?? '');
   const selectedCreateSubclassOptions =
     implementedSubclassOptions[selectedCreateClassKey] ?? [];
   const selectedCreateSubclassChoiceLevel =
-    subclassChoiceLevelByClass[selectedCreateClassKey] ?? null;
+    resolveSubclassChoiceLevel(selectedCreateClassKey);
   const isCreateSubclassRequired =
     selectedCreateSubclassChoiceLevel !== null &&
     (formState.level ?? 1) >= selectedCreateSubclassChoiceLevel;
@@ -2406,7 +2316,7 @@ export function CharacterPage({
     () => attachSpellDetails(cantripOptions, ruleCatalog, spellCatalogById),
     [cantripOptions, ruleCatalog, spellCatalogById]
   );
-  const selectedStartingCantripCount = getMvpStartingCantripCount(
+  const selectedStartingCantripCount = resolveStartingCantripCount(
     selectedClass,
     formState.className,
     formState.level ?? 1,
@@ -2428,16 +2338,12 @@ export function CharacterPage({
     () => attachSpellDetails(slotSpellOptions, ruleCatalog, spellCatalogById),
     [slotSpellOptions, ruleCatalog, spellCatalogById]
   );
-  const selectedStartingSlotSpellCount = getMvpStartingSlotSpellCount(
+  const selectedStartingSlotSpellCount = resolveStartingSlotSpellCount(
     selectedClass,
     formState.className,
     formState.level ?? 1,
     ruleCatalog,
     spellPools
-  );
-  const startingPreparedSpellLimit = useMemo(
-    () => getPreparedSpellLimit(formState.className, formState.level, formState.abilities),
-    [formState.abilities, formState.className, formState.level]
   );
   const selectedStartingSlotSpells = useMemo(
     () =>
@@ -2450,7 +2356,6 @@ export function CharacterPage({
   const isStartingDynamicPreparedCaster = usesDynamicPreparedSpellPool(
     formState.className,
     formState.level ?? 1,
-    selectedClass,
     ruleCatalog,
     spellPools
   );
@@ -2480,6 +2385,19 @@ export function CharacterPage({
     selectedStartingSlotSpells,
     slotSpellOptions,
     spellCatalogById,
+  ]);
+  const startingPreparedSpellLimit = useMemo(() => {
+    const rawLimit = resolveCharacterPreparedSpellLimit(
+      formState.className,
+      formState.level,
+      formState.abilities
+    );
+    return rawLimit === null ? null : Math.min(rawLimit, startingPreparedSpellOptions.length);
+  }, [
+    formState.abilities,
+    formState.className,
+    formState.level,
+    startingPreparedSpellOptions.length,
   ]);
 
   // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
@@ -2762,9 +2680,7 @@ export function CharacterPage({
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId]
   );
-  const selectedCharacterClassKey = normalizeClassValue(selectedCharacter?.className ?? '').toLowerCase();
-  const selectedCharacterClassDefinition =
-    classDefinitions.find((klass) => klass.key === selectedCharacterClassKey) ?? null;
+  const selectedCharacterClassKey = normalizeSrdCharacterClassKey(selectedCharacter?.className ?? '');
   const selectedCharacterClassInfo = useMemo(
     () =>
       selectedCharacter
@@ -2776,41 +2692,30 @@ export function CharacterPage({
     ? (implementedSubclassOptions[selectedCharacterClassKey] ?? [])
     : [];
   const selectedSubclassChoiceLevel =
-    subclassChoiceLevelByClass[selectedCharacterClassKey] ?? null;
+    resolveSubclassChoiceLevel(selectedCharacterClassKey);
   const isSelectedCharacterPreparedCaster =
     getPreparedSpellAbilityKey(selectedCharacter?.className) !== null;
   const isSelectedCharacterWizard = selectedCharacterClassKey === 'wizard';
   const selectedCurrentCantrips = selectedCharacter?.spells?.cantrips ?? [];
-  const currentSpellcastingProgression = selectedCharacter
-    ? getSpellcastingProgressionEntry(
-        selectedCharacterClassDefinition,
-        selectedCharacter.level
-      )
+  const selectedKnownSpellDelta = selectedCharacter
+    ? resolveKnownSpellDelta({
+        classKey: selectedCharacter.className,
+        currentLevel: selectedCharacter.level,
+        targetLevel: levelUpDraft.targetLevel,
+      })
     : null;
-  const targetSpellcastingProgression = getSpellcastingProgressionEntry(
-    selectedCharacterClassDefinition,
-    levelUpDraft.targetLevel
-  );
   const levelUpLevelDelta = selectedCharacter
     ? Math.max(0, levelUpDraft.targetLevel - selectedCharacter.level)
     : 0;
   const cantripLearnAllowance =
-    Math.max(
-      0,
-      (targetSpellcastingProgression?.cantripsKnown ?? 0) -
-        (currentSpellcastingProgression?.cantripsKnown ?? 0)
-    ) + levelUpDraft.forgottenCantrips.length;
+    (selectedKnownSpellDelta?.cantripDelta ?? 0) + levelUpDraft.forgottenCantrips.length;
+  const canReplaceSelectedKnownSpells =
+    selectedKnownSpellDelta?.canReplaceKnownSpells === true;
   const knownSpellLearnAllowance =
-    (isSelectedCharacterWizard
-      ? levelUpLevelDelta * 2
-      : Math.max(
-          0,
-          (targetSpellcastingProgression?.spellsKnown ?? 0) -
-            (currentSpellcastingProgression?.spellsKnown ?? 0)
-        )) + levelUpDraft.forgottenSpells.length;
+    (selectedKnownSpellDelta?.knownSpellDelta ?? 0) +
+    (canReplaceSelectedKnownSpells ? levelUpDraft.forgottenSpells.length : 0);
   const canSelectKnownSpellGrowth =
-    isSelectedCharacterWizard ||
-    typeof targetSpellcastingProgression?.spellsKnown === 'number';
+    selectedKnownSpellDelta?.targetHasKnownSpellProgression === true;
   const isLevelUpSubclassRequired = Boolean(
     selectedCharacter &&
       !selectedCharacter.subclassName &&
@@ -2852,7 +2757,7 @@ export function CharacterPage({
   const selectedLevelUpLearnableCantrips = useMemo(() => {
     if (
       !selectedCharacter ||
-      typeof targetSpellcastingProgression?.cantripsKnown !== 'number'
+      selectedKnownSpellDelta?.targetHasCantripProgression !== true
     ) return [];
     const known = new Set(selectedCurrentCantrips);
     return getImplementedSpellOptions(
@@ -2870,9 +2775,9 @@ export function CharacterPage({
     ruleCatalog,
     selectedCharacter,
     selectedCurrentCantrips,
+    selectedKnownSpellDelta?.targetHasCantripProgression,
     spellCatalogById,
     spellPools,
-    targetSpellcastingProgression?.cantripsKnown,
   ]);
   const selectedLevelUpLearnableCantripOptions = useMemo(
     () => attachSpellDetails(selectedLevelUpLearnableCantrips, ruleCatalog, spellCatalogById),
@@ -2993,7 +2898,7 @@ export function CharacterPage({
       ) as Record<AbilityKey, number>)
     : null;
   const selectedLevelUpPreparedSpellLimit = selectedCharacter
-    ? getPreparedSpellLimit(
+    ? resolveCharacterPreparedSpellLimit(
         selectedCharacter.className,
         levelUpDraft.targetLevel,
         levelUpAbilities
@@ -3224,7 +3129,7 @@ export function CharacterPage({
   const currentStatSelectionLabel = `${selectedRaceInfo?.label ?? '종족 미선택'} (${selectedClassInfo?.label ?? '직업 미선택'})`;
   const selectedCreateAncestryKey = formState.ancestry.trim().toLowerCase().replace(/_/g, '-');
   const featurePreviewItems = useMemo<CharacterFeaturePreviewItem[]>(() => {
-    const classKey = normalizeClassValue(formState.className).toLowerCase();
+    const classKey = normalizeSrdCharacterClassKey(formState.className);
     const level = normalizeLevel(formState.level ?? 1);
     const raceItems: CharacterFeaturePreviewItem[] = (selectedRaceInfo?.traitSummaries ?? []).map(
       (trait) => ({
@@ -3370,31 +3275,37 @@ export function CharacterPage({
     setStatsReferenceOpen(false);
     const defaults = createDefaultCharacter();
     const defaultScenario = getPreferredScenario(scenarios);
+    const defaultClassKey = normalizeSrdCharacterClassKey(defaults.className ?? '');
     const defaultClass = classDefinitions.find(
-      (c) => c.key === (defaults.className ?? '').toLowerCase()
+      (c) => c.key === defaultClassKey
     );
     const startingEquipmentSelection = defaultClass
       ? new Array(defaultClass.startingEquipment.slots.length).fill(0)
       : undefined;
-    const defaultStartingSlotSpellCount = getMvpStartingSlotSpellCount(
+    const defaultStartingSlotSpellCount = resolveStartingSlotSpellCount(
       defaultClass,
       defaultClass?.key,
       defaultScenario?.startLevel ?? defaults.level ?? 1,
       ruleCatalog,
       spellPools
     );
-    const defaultStartingCantripCount = getMvpStartingCantripCount(
+    const defaultStartingCantripCount = resolveStartingCantripCount(
       defaultClass,
       defaultClass?.key,
       defaultScenario?.startLevel ?? defaults.level ?? 1,
       ruleCatalog
+    );
+    const defaultPreparedSpellLimit = resolveCharacterPreparedSpellLimit(
+      defaultClass?.key,
+      defaultScenario?.startLevel ?? defaults.level ?? 1,
+      defaults.abilities
     );
     const startingSpells =
       defaultClass && (defaultStartingCantripCount > 0 || defaultStartingSlotSpellCount > 0)
         ? {
             cantrips: new Array(defaultStartingCantripCount).fill(''),
             spells: new Array(defaultStartingSlotSpellCount).fill(''),
-            ...(getPreparedSpellAbilityKey(defaultClass.key) ? { preparedSpells: [] } : {}),
+            ...(defaultPreparedSpellLimit !== null ? { preparedSpells: [] } : {}),
           }
         : undefined;
     setFormState({
@@ -3684,7 +3595,7 @@ export function CharacterPage({
       ...(levelUpDraft.forgottenCantrips.length
         ? { forgottenCantrips: levelUpDraft.forgottenCantrips }
         : {}),
-      ...(isSelectedCharacterPreparedCaster
+      ...(selectedLevelUpPreparedSpellLimit !== null
         ? { preparedSpells: levelUpDraft.preparedSpells.filter(Boolean) }
         : {}),
     });
@@ -3753,6 +3664,7 @@ export function CharacterPage({
   }
 
   function toggleForgottenSpell(spellId: string) {
+    if (!canReplaceSelectedKnownSpells) return;
     setLevelUpDraft((current) => {
       const isSelected = current.forgottenSpells.includes(spellId);
       if (!isSelected && current.forgottenSpells.length >= levelUpLevelDelta) {
@@ -3761,13 +3673,7 @@ export function CharacterPage({
       const forgottenSpells = isSelected
         ? current.forgottenSpells.filter((id) => id !== spellId)
         : [...current.forgottenSpells, spellId];
-      const baseAllowance = isSelectedCharacterWizard
-        ? levelUpLevelDelta * 2
-        : Math.max(
-            0,
-            (targetSpellcastingProgression?.spellsKnown ?? 0) -
-              (currentSpellcastingProgression?.spellsKnown ?? 0)
-          );
+      const baseAllowance = selectedKnownSpellDelta?.knownSpellDelta ?? 0;
       return {
         ...current,
         forgottenSpells,
@@ -3788,11 +3694,7 @@ export function CharacterPage({
       const forgottenCantrips = isSelected
         ? current.forgottenCantrips.filter((id) => id !== spellId)
         : [...current.forgottenCantrips, spellId];
-      const baseAllowance = Math.max(
-        0,
-        (targetSpellcastingProgression?.cantripsKnown ?? 0) -
-          (currentSpellcastingProgression?.cantripsKnown ?? 0)
-      );
+      const baseAllowance = selectedKnownSpellDelta?.cantripDelta ?? 0;
       return {
         ...current,
         forgottenCantrips,
@@ -3826,19 +3728,14 @@ export function CharacterPage({
   }
 
   function setForgottenSpells(nextSpellIds: string[]) {
+    if (!canReplaceSelectedKnownSpells) return;
     setLevelUpDraft((current) => {
       const forgottenSpells = nextSpellIds.slice(0, levelUpLevelDelta);
       const previousForgotten = new Set(current.forgottenSpells);
       const newlyForgotten = new Set(
         forgottenSpells.filter((spellId) => !previousForgotten.has(spellId))
       );
-      const baseAllowance = isSelectedCharacterWizard
-        ? levelUpLevelDelta * 2
-        : Math.max(
-            0,
-            (targetSpellcastingProgression?.spellsKnown ?? 0) -
-              (currentSpellcastingProgression?.spellsKnown ?? 0)
-          );
+      const baseAllowance = selectedKnownSpellDelta?.knownSpellDelta ?? 0;
 
       return {
         ...current,
@@ -3854,11 +3751,7 @@ export function CharacterPage({
   function setForgottenCantrips(nextCantripIds: string[]) {
     setLevelUpDraft((current) => {
       const forgottenCantrips = nextCantripIds.slice(0, levelUpLevelDelta);
-      const baseAllowance = Math.max(
-        0,
-        (targetSpellcastingProgression?.cantripsKnown ?? 0) -
-          (currentSpellcastingProgression?.cantripsKnown ?? 0)
-      );
+      const baseAllowance = selectedKnownSpellDelta?.cantripDelta ?? 0;
       return {
         ...current,
         forgottenCantrips,
@@ -4375,22 +4268,22 @@ export function CharacterPage({
                                   current,
                                   nextLevel - currentLevel
                                 );
-                                const currentClassKey = normalizeClassValue(
+                                const currentClassKey = normalizeSrdCharacterClassKey(
                                   current.className ?? ''
-                                ).toLowerCase();
+                                );
                                 const subclassChoiceLevel =
-                                  subclassChoiceLevelByClass[currentClassKey] ?? null;
+                                  resolveSubclassChoiceLevel(currentClassKey);
                                 const currentClass = classDefinitions.find(
                                   (klass) => klass.key === currentClassKey
                                 );
-                                const startingSlotSpellCount = getMvpStartingSlotSpellCount(
+                                const startingSlotSpellCount = resolveStartingSlotSpellCount(
                                   currentClass,
                                   current.className,
                                   nextLevel,
                                   ruleCatalog,
                                   spellPools
                                 );
-                                const startingCantripCount = getMvpStartingCantripCount(
+                                const startingCantripCount = resolveStartingCantripCount(
                                   currentClass,
                                   current.className,
                                   nextLevel,
@@ -4403,7 +4296,11 @@ export function CharacterPage({
                                     ? {
                                         cantrips: new Array(startingCantripCount).fill(''),
                                         spells: new Array(startingSlotSpellCount).fill(''),
-                                        ...(getPreparedSpellAbilityKey(current.className)
+                                        ...(resolveCharacterPreparedSpellLimit(
+                                          current.className,
+                                          nextLevel,
+                                          levelAdjustedAbilities
+                                        ) !== null
                                           ? { preparedSpells: [] }
                                           : {}),
                                       }
@@ -4534,8 +4431,9 @@ export function CharacterPage({
                                 // Point Buy 도입 후: 클래스 변경해도 abilities 는 사용자가 배분한 값 유지.
                                 // HP/AC/이동속도/숙련 보너스만 클래스 변경에 따라 재계산.
                                 // 시작 장비 선택은 슬롯 개수에 맞춰 모두 0(첫 옵션)으로 초기화.
+                                const nextClassKey = normalizeSrdCharacterClassKey(className);
                                 const nextClass = classDefinitions.find(
-                                  (c) => c.key === className.toLowerCase()
+                                  (c) => c.key === nextClassKey
                                 );
                                 const nextSelection = nextClass
                                   ? new Array(nextClass.startingEquipment.slots.length).fill(0)
@@ -4561,13 +4459,13 @@ export function CharacterPage({
                                 );
                                 const nextSpells =
                                   nextClass &&
-                                  (getMvpStartingCantripCount(
+                                  (resolveStartingCantripCount(
                                     nextClass,
                                     className,
                                     current.level ?? 1,
                                     ruleCatalog
                                   ) > 0 ||
-                                    getMvpStartingSlotSpellCount(
+                                    resolveStartingSlotSpellCount(
                                       nextClass,
                                       className,
                                       current.level ?? 1,
@@ -4576,7 +4474,7 @@ export function CharacterPage({
                                     ) > 0)
                                     ? {
                                         cantrips: new Array(
-                                          getMvpStartingCantripCount(
+                                          resolveStartingCantripCount(
                                             nextClass,
                                             className,
                                             current.level ?? 1,
@@ -4584,7 +4482,7 @@ export function CharacterPage({
                                           )
                                         ).fill(''),
                                         spells: new Array(
-                                          getMvpStartingSlotSpellCount(
+                                          resolveStartingSlotSpellCount(
                                             nextClass,
                                             className,
                                             current.level ?? 1,
@@ -4592,7 +4490,11 @@ export function CharacterPage({
                                             spellPools
                                           )
                                         ).fill(''),
-                                        ...(getPreparedSpellAbilityKey(className)
+                                        ...(resolveCharacterPreparedSpellLimit(
+                                          className,
+                                          current.level ?? 1,
+                                          nextAbilities
+                                        ) !== null
                                           ? { preparedSpells: [] }
                                           : {}),
                                       }
@@ -5638,7 +5540,7 @@ export function CharacterPage({
                                   ? [
                                       renderedCantripCount > 0 ? `캔트립 ${renderedCantripCount}개` : null,
                                       renderedSpellCount > 0
-                                        ? `${normalizeClassValue(formState.className).toLowerCase() === 'wizard' ? '주문책 주문' : '습득 주문'} ${renderedSpellCount}개`
+                                        ? `${selectedCreateClassKey === 'wizard' ? '주문책 주문' : '습득 주문'} ${renderedSpellCount}개`
                                         : null,
                                       renderedPreparedSpellCount > 0
                                         ? `준비 주문 ${renderedPreparedSpellCount}개`
@@ -5683,12 +5585,12 @@ export function CharacterPage({
                           {renderedSpellCount > 0 && (
                             <SpellSelectionGrid
                               title={
-                                normalizeClassValue(formState.className).toLowerCase() === 'wizard'
+                                selectedCreateClassKey === 'wizard'
                                   ? '주문책 주문'
                                   : '습득 주문'
                               }
                               helper={
-                                normalizeClassValue(formState.className).toLowerCase() === 'wizard'
+                                selectedCreateClassKey === 'wizard'
                                   ? '주문책에 기록되어 이후 준비할 수 있는 주문을 고릅니다.'
                                   : '이 캐릭터가 알고 있는 슬롯 주문을 고릅니다.'
                               }
@@ -5712,7 +5614,7 @@ export function CharacterPage({
                                     startingSpells: {
                                       ...base,
                                       spells,
-                                      ...(getPreparedSpellAbilityKey(current.className)
+                                      ...(startingPreparedSpellLimit !== null
                                         ? { preparedSpells }
                                         : {}),
                                     },
@@ -6161,7 +6063,7 @@ export function CharacterPage({
                       </select>
                     </div>
                   ) : null}
-                  {!isSelectedCharacterPreparedCaster &&
+                  {canReplaceSelectedKnownSpells &&
                   selectedKnownSlotSpells.length &&
                   levelUpLevelDelta ? (
                     <SpellSelectionGrid
@@ -6210,7 +6112,7 @@ export function CharacterPage({
                 </div>
               </section>
 
-              {isSelectedCharacterPreparedCaster && selectedPreparedCandidateSlotSpells.length ? (
+              {selectedLevelUpPreparedSpellLimit !== null && selectedPreparedCandidateSlotSpells.length ? (
                 <section className="fantasy-character-stats-section">
                   <h3>
                     준비 주문
