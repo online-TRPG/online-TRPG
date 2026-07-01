@@ -1,19 +1,20 @@
 import {
   getCantripsKnownLimit,
   getKnownSpellsLimit,
-  SPELLCASTING_PROGRESSION,
-} from "@trpg/shared-types";
+  getSrdClassDefinition,
+  resolvePreparedSpellLimit,
+} from "@trpg/srd-data/rules";
 
 describe("SRD spellcasting progression", () => {
   it("keeps a complete level progression for each P0 spellcasting class", () => {
-    expect(SPELLCASTING_PROGRESSION.bard).toHaveLength(20);
-    expect(SPELLCASTING_PROGRESSION.cleric).toHaveLength(20);
-    expect(SPELLCASTING_PROGRESSION.druid).toHaveLength(20);
-    expect(SPELLCASTING_PROGRESSION.paladin).toHaveLength(19);
-    expect(SPELLCASTING_PROGRESSION.ranger).toHaveLength(19);
-    expect(SPELLCASTING_PROGRESSION.sorcerer).toHaveLength(20);
-    expect(SPELLCASTING_PROGRESSION.warlock).toHaveLength(20);
-    expect(SPELLCASTING_PROGRESSION.wizard).toHaveLength(20);
+    expect(getSrdClassDefinition("bard")?.spellcastingProgression).toHaveLength(20);
+    expect(getSrdClassDefinition("cleric")?.spellcastingProgression).toHaveLength(20);
+    expect(getSrdClassDefinition("druid")?.spellcastingProgression).toHaveLength(20);
+    expect(getSrdClassDefinition("paladin")?.spellcastingProgression).toHaveLength(19);
+    expect(getSrdClassDefinition("ranger")?.spellcastingProgression).toHaveLength(19);
+    expect(getSrdClassDefinition("sorcerer")?.spellcastingProgression).toHaveLength(20);
+    expect(getSrdClassDefinition("warlock")?.spellcastingProgression).toHaveLength(20);
+    expect(getSrdClassDefinition("wizard")?.spellcastingProgression).toHaveLength(20);
   });
 
   it("exposes representative SRD cantrip and known-spell increases", () => {
@@ -24,6 +25,13 @@ describe("SRD spellcasting progression", () => {
     expect(getKnownSpellsLimit("warlock", 9)).toBe(10);
     expect(getKnownSpellsLimit("warlock", 10)).toBe(10);
     expect(getKnownSpellsLimit("cleric", 5)).toBeNull();
+  });
+
+  it("only exposes prepared spell limits once a prepared caster has spell slots", () => {
+    const abilities = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+    expect(resolvePreparedSpellLimit({ classKey: "paladin", level: 1, abilities })).toBeNull();
+    expect(resolvePreparedSpellLimit({ classKey: "paladin", level: 2, abilities })).toBe(1);
+    expect(resolvePreparedSpellLimit({ classKey: "cleric", level: 1, abilities })).toBe(1);
   });
 
   it("exposes P4 9 through 12 known-spell and cantrip progression", () => {

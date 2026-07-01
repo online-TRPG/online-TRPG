@@ -44,13 +44,13 @@ const skillSelections: Record<string, { choices: string[]; count: number }> = {
   wizard: { choices: ["비전학", "역사", "통찰", "조사", "의학", "종교"], count: 2 },
 };
 
-// 1레벨 시점 시작 캔트립/주문 수.
-// 위저드는 공식 주문책 규칙에 따라 1레벨 주문 6개로 시작하고, 레벨당 2개씩 추가된다.
+// Legacy DB seed adapter for 1레벨 시작 캔트립/주문 수.
+// 실제 SRD 규칙 계산의 주인은 @trpg/srd-data/rules 이며,
+// scripts/verify-rule-data-sync.mjs 가 이 테이블과 SRD rules 결과의 drift를 검사한다.
 // druid/cleric/paladin은 준비 주문이 매일 동적이라 startingSpellCount=0으로 저장한다.
-// 캐릭터 생성 runtime은 실행 주문 카탈로그 범위 안에서 직업별 공식 known/spellbook 규칙을 적용한다.
 const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   barbarian: { cantrips: 0, spells: 0 },
-  bard: { cantrips: 2, spells: 3 },
+  bard: { cantrips: 2, spells: 4 },
   cleric: { cantrips: 3, spells: 0 },
   druid: { cantrips: 2, spells: 0 },
   fighter: { cantrips: 0, spells: 0 },
@@ -58,7 +58,7 @@ const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   paladin: { cantrips: 0, spells: 0 },
   ranger: { cantrips: 0, spells: 0 },
   rogue: { cantrips: 0, spells: 0 },
-  sorcerer: { cantrips: 3, spells: 2 },
+  sorcerer: { cantrips: 4, spells: 2 },
   warlock: { cantrips: 2, spells: 2 },
   wizard: { cantrips: 3, spells: 6 },
 };

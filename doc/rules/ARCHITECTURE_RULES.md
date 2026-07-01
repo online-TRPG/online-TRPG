@@ -91,6 +91,10 @@ SRD 기반 직업, 특성, 주문, 종족, 장비, 몬스터 데이터는 `srd-d
 - id 기반 보강 입력은 `srd-data/overrides/README.md`의 허용 범위 안에서만 추가한다.
 - FE-only 보강은 아이콘, 색상, 카드 tone, UX grouping 같은 id 기반 presentation override로 제한한다.
 - BE-only 보강은 action cost, hook id, resource id, targeting 같은 canonical id 기반 runtime metadata로 제한한다.
+- 캐릭터 생성, 레벨업, 주문 진행, 준비 주문 한도 계산은 `@trpg/srd-data/rules`에서만 구현한다.
+- `shared-types`에는 SRD 룰 테이블이나 캐릭터 성장 계산식을 추가하지 않는다. DTO/타입 계약만 둔다.
+- FE는 선택 개수 preview와 form 제한을 위해 `@trpg/srd-data/rules`를 호출하고, BE는 같은 함수를 사용해 요청을 다시 검증한다.
+- FE/BE에 위저드 주문책 수, 직업별 cantrip/known spell progression, known spell 교체 가능 여부, 서브클래스 선택 레벨, ASI/Feat 선택 레벨, spell slot limit 해석, 주문 슬롯 레벨 상한 계산을 복사하지 않는다.
 - 새 SRD id나 runtime content id를 추가하거나 바꾼 뒤에는 `npm run verify:rule-data-sync`가 통과해야 한다.
 
 이유:

@@ -10,6 +10,12 @@
       "types": "./index.d.ts",
       "import": "./index.mjs"
     },
+    "./rules": {
+      "types": "./rules/index.d.ts",
+      "browser": "./rules/index.browser.mjs",
+      "import": "./rules/index.mjs",
+      "require": "./rules/index.cjs"
+    },
     "./generated/srd/*": "./generated/srd/*",
     "./generated/srd-engine/*": "./generated/srd-engine/*"
   },
@@ -17,6 +23,7 @@
     "generated",
     "index.mjs",
     "index.d.ts",
+    "rules",
     "overrides",
     "scripts",
     "sources"

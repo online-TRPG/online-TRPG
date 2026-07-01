@@ -549,6 +549,7 @@ export function getSrdEngineManifest() {
 }
 
 export const SRD_CATALOG_FINGERPRINT_FILES = [
+  { scope: 'srd', path: 'classes.json' },
   { scope: 'srd', path: 'classes.jsonl' },
   { scope: 'srd', path: 'races.jsonl' },
   { scope: 'srd', path: 'spells.jsonl' },
