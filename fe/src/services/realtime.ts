@@ -1,5 +1,5 @@
 import { io, Socket } from "socket.io-client";
-import { SOCKET_BASE_URL } from "./api";
+import { SOCKET_BASE_URL } from "./httpClient";
 import type {
   ActionAcceptedEventDto,
   CombatReactionPromptDto,

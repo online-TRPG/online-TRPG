@@ -17,7 +17,26 @@ import {
   RestActionDto,
   SubmitActionDto,
 } from "@trpg/shared-types";
+import { ActionQueueSubmissionService } from "./action-queue-submission.service";
+import { ActionSubmissionContextLoaderService } from "./action-submission-context-loader.service";
 import { ActionsService } from "./actions.service";
+import { InventoryItemActionCostRuntimeService } from "./inventory-item-action-cost-runtime.service";
+import { InventoryItemAttunementRuntimeService } from "./inventory-item-attunement-runtime.service";
+import { InventoryItemCharacterReaderService } from "./inventory-item-character-reader.service";
+import { InventoryItemConsumptionRuntimeService } from "./inventory-item-consumption-runtime.service";
+import { InventoryItemContextLoaderService } from "./inventory-item-context-loader.service";
+import { InventoryItemEffectApplicationService } from "./inventory-item-effect-application.service";
+import { InventoryItemEffectRuntimeService } from "./inventory-item-effect-runtime.service";
+import { InventoryItemMapRuntimeService } from "./inventory-item-map-runtime.service";
+import { InventoryItemResultPublisherService } from "./inventory-item-result-publisher.service";
+import { InventoryItemRuntimeFlagsService } from "./inventory-item-runtime-flags.service";
+import { InventoryItemRuntimeStateService } from "./inventory-item-runtime-state.service";
+import { InventoryItemSpellRuntimeService } from "./inventory-item-spell-runtime.service";
+import { InventoryItemUseResultRuntimeService } from "./inventory-item-use-result-runtime.service";
+import { InventoryPackUseRuntimeService } from "./inventory-pack-use-runtime.service";
+import { RestApprovalGuardService } from "./rest-approval-guard.service";
+import { RestApprovalRequestRecorderService } from "./rest-approval-request-recorder.service";
+import { RestApprovalResolutionService } from "./rest-approval-resolution.service";
 
 const baseDto: SubmitActionDto = {
   characterId: "session-character-1",
@@ -39,7 +58,7 @@ const buildSessionCharacter = (overrides: Partial<{ currentHp: number; ownerUser
 describe("ActionsService.submitAction turn permission", () => {
   const createService = () => {
     const prisma = {
-      sessionParticipant: { findUnique: jest.fn() },
+      sessionParticipant: { findUnique: jest.fn(), count: jest.fn() },
       sessionCharacter: { findUnique: jest.fn() },
       combat: { findFirst: jest.fn() },
       playerAction: { create: jest.fn() },
@@ -52,26 +71,58 @@ describe("ActionsService.submitAction turn permission", () => {
     const actionProcessor = { processNext: jest.fn() };
     const realtimeEvents = { emitActionAccepted: jest.fn(), emitTurnLogCreated: jest.fn() };
     const commandParser = { parse: jest.fn(() => ({ type: "freeform" })) };
-    const inventoryRuntime = {};
     const turnLogsService = { createTurnLog: jest.fn() };
-    const diceService = { roll: jest.fn() };
-    const conditionRuntime = {};
-    const mapRuntimeService = {};
-    const actionEconomy = {};
+    const actionQueueSubmission = new ActionQueueSubmissionService(
+      prisma as never,
+      actionProcessor as never,
+      realtimeEvents as never,
+    );
+    const actionSubmissionContextLoader =
+      new ActionSubmissionContextLoaderService(
+        prisma as never,
+        commandParser as never,
+      );
+    const inventoryItemActionCostRuntime = {};
+    const inventoryItemAttunementRuntime = {};
+    const inventoryItemCharacterReader = {};
+    const inventoryItemConsumptionRuntime = {};
+    const inventoryItemContextLoader = {};
+    const inventoryItemEffectApplication = {};
+    const inventoryItemEffectRuntime = {};
+    const inventoryItemMapRuntime = {};
+    const inventoryItemResultPublisher = {};
+    const inventoryItemRuntimeState = {};
+    const inventoryItemSpellRuntime = {};
+    const inventoryItemUseResultRuntime = {};
+    const inventoryPackUseRuntime = {};
+    const restApprovalGuard = {};
+    const restApprovalRequestRecorder = {};
+    const restApprovalResolution = {};
 
     return {
       service: new ActionsService(
         prisma as never,
         sessionsService as never,
-        actionProcessor as never,
         realtimeEvents as never,
-        commandParser as never,
-        inventoryRuntime as never,
         turnLogsService as never,
-        diceService as never,
-        conditionRuntime as never,
-        mapRuntimeService as never,
-        actionEconomy as never,
+        actionQueueSubmission as never,
+        actionSubmissionContextLoader as never,
+        inventoryItemActionCostRuntime as never,
+        inventoryItemAttunementRuntime as never,
+        inventoryItemCharacterReader as never,
+        inventoryItemConsumptionRuntime as never,
+        inventoryItemContextLoader as never,
+        inventoryItemEffectApplication as never,
+        inventoryItemEffectRuntime as never,
+        inventoryItemMapRuntime as never,
+        inventoryItemResultPublisher as never,
+        inventoryItemRuntimeState as never,
+        inventoryItemSpellRuntime as never,
+        inventoryItemUseResultRuntime as never,
+        inventoryPackUseRuntime as never,
+        restApprovalGuard as never,
+        restApprovalRequestRecorder as never,
+        restApprovalResolution as never,
       ),
       prisma,
       sessionsService,
@@ -178,26 +229,71 @@ describe("ActionsService.submitRestAction", () => {
     const actionProcessor = { processNext: jest.fn() };
     const realtimeEvents = { emitActionAccepted: jest.fn(), emitTurnLogCreated: jest.fn() };
     const commandParser = { parse: jest.fn(() => ({ type: "rest", restType: "short" })) };
-    const inventoryRuntime = {};
     const turnLogsService = { createTurnLog: jest.fn() };
-    const diceService = { roll: jest.fn() };
-    const conditionRuntime = {};
-    const mapRuntimeService = {};
-    const actionEconomy = {};
+    const actionQueueSubmission = new ActionQueueSubmissionService(
+      prisma as never,
+      actionProcessor as never,
+      realtimeEvents as never,
+    );
+    const actionSubmissionContextLoader =
+      new ActionSubmissionContextLoaderService(
+        prisma as never,
+        commandParser as never,
+      );
+    const inventoryItemActionCostRuntime = {};
+    const inventoryItemAttunementRuntime = {};
+    const inventoryItemCharacterReader = {};
+    const inventoryItemConsumptionRuntime = {};
+    const inventoryItemContextLoader = {};
+    const inventoryItemEffectApplication = {};
+    const inventoryItemEffectRuntime = {};
+    const inventoryItemMapRuntime = {};
+    const inventoryItemResultPublisher = {};
+    const inventoryItemRuntimeState = {};
+    const inventoryItemSpellRuntime = {};
+    const inventoryItemUseResultRuntime = {};
+    const inventoryPackUseRuntime = {};
+    const restApprovalRequestRecorder = new RestApprovalRequestRecorderService(
+      prisma as never,
+      realtimeEvents as never,
+      turnLogsService as never,
+    );
+    const restApprovalResolution = new RestApprovalResolutionService(
+      prisma as never,
+      actionProcessor as never,
+      realtimeEvents as never,
+      sessionsService as never,
+      turnLogsService as never,
+    );
+    const restApprovalGuard = new RestApprovalGuardService(
+      prisma as never,
+      restApprovalResolution as never,
+    );
 
     return {
       service: new ActionsService(
         prisma as never,
         sessionsService as never,
-        actionProcessor as never,
         realtimeEvents as never,
-        commandParser as never,
-        inventoryRuntime as never,
         turnLogsService as never,
-        diceService as never,
-        conditionRuntime as never,
-        mapRuntimeService as never,
-        actionEconomy as never,
+        actionQueueSubmission as never,
+        actionSubmissionContextLoader as never,
+        inventoryItemActionCostRuntime as never,
+        inventoryItemAttunementRuntime as never,
+        inventoryItemCharacterReader as never,
+        inventoryItemConsumptionRuntime as never,
+        inventoryItemContextLoader as never,
+        inventoryItemEffectApplication as never,
+        inventoryItemEffectRuntime as never,
+        inventoryItemMapRuntime as never,
+        inventoryItemResultPublisher as never,
+        inventoryItemRuntimeState as never,
+        inventoryItemSpellRuntime as never,
+        inventoryItemUseResultRuntime as never,
+        inventoryPackUseRuntime as never,
+        restApprovalGuard as never,
+        restApprovalRequestRecorder as never,
+        restApprovalResolution as never,
       ),
       prisma,
       sessionsService,
@@ -976,22 +1072,100 @@ describe("ActionsService.useInventoryItem P3 spell items", () => {
     const diceService = { roll: jest.fn() };
     const mapRuntimeService = { saveSystemVttMap: jest.fn() };
     const actionEconomy = { spendAction: jest.fn(), spendBonusAction: jest.fn() };
+    const inventoryItemActionCostRuntime = new InventoryItemActionCostRuntimeService(
+      prisma as never,
+      actionEconomy as never,
+    );
+    const inventoryItemCharacterReader = new InventoryItemCharacterReaderService(
+      prisma as never,
+    );
+    const inventoryItemContextLoader = new InventoryItemContextLoaderService(
+      prisma as never,
+    );
+    const inventoryItemEffectApplication = new InventoryItemEffectApplicationService(
+      prisma as never,
+    );
+    const conditionRuntime = {
+      parseConditionsJson: jest.fn(() => []),
+      applyCondition: jest.fn((conditions: unknown[], condition: unknown) => [
+        ...conditions,
+        condition,
+      ]),
+      createCondition: jest.fn((condition: unknown) => condition),
+    };
+    const inventoryItemEffectRuntime = new InventoryItemEffectRuntimeService(
+      diceService as never,
+      conditionRuntime as never,
+    );
+    const inventoryItemMapRuntime = new InventoryItemMapRuntimeService(
+      sessionsService as never,
+      mapRuntimeService as never,
+    );
+    const inventoryItemResultPublisher = new InventoryItemResultPublisherService(
+      realtimeEvents as never,
+      sessionsService as never,
+    );
+    const inventoryItemRuntimeFlags = new InventoryItemRuntimeFlagsService(
+      prisma as never,
+    );
+    const inventoryItemAttunementRuntime =
+      new InventoryItemAttunementRuntimeService(
+        inventoryItemCharacterReader as never,
+        inventoryItemRuntimeFlags as never,
+        turnLogsService as never,
+      );
+    const inventoryItemConsumptionRuntime =
+      new InventoryItemConsumptionRuntimeService(
+        { removeItem: jest.fn() } as never,
+        inventoryItemRuntimeFlags as never,
+      );
+    const inventoryItemSpellRuntime = new InventoryItemSpellRuntimeService(
+      prisma as never,
+      sessionsService as never,
+      mapRuntimeService as never,
+      turnLogsService as never,
+      diceService as never,
+    );
+    const inventoryItemRuntimeState = new InventoryItemRuntimeStateService();
+    const inventoryItemUseResultRuntime =
+      new InventoryItemUseResultRuntimeService(
+        inventoryItemCharacterReader as never,
+        turnLogsService as never,
+      );
+    const inventoryPackRuntime = {};
+    const inventoryPackUseRuntime = new InventoryPackUseRuntimeService(
+      prisma as never,
+      inventoryItemCharacterReader as never,
+      inventoryPackRuntime as never,
+    );
+    const actionSubmissionContextLoader = {};
+    const actionQueueSubmission = {};
+    const restApprovalRequestRecorder = {};
+    const restApprovalResolution = {};
+    const restApprovalGuard = {};
     const service = new ActionsService(
       prisma as never,
       sessionsService as never,
-      { processNext: jest.fn() } as never,
       realtimeEvents as never,
-      { parse: jest.fn() } as never,
-      { removeItem: jest.fn() } as never,
       turnLogsService as never,
-      diceService as never,
-      {
-        parseConditionsJson: jest.fn(() => []),
-        applyCondition: jest.fn((conditions, condition) => [...conditions, condition]),
-        createCondition: jest.fn((condition) => condition),
-      } as never,
-      mapRuntimeService as never,
-      actionEconomy as never,
+      actionQueueSubmission as never,
+      actionSubmissionContextLoader as never,
+      inventoryItemActionCostRuntime as never,
+      inventoryItemAttunementRuntime as never,
+      inventoryItemCharacterReader as never,
+      inventoryItemConsumptionRuntime as never,
+      inventoryItemContextLoader as never,
+      inventoryItemEffectApplication as never,
+      inventoryItemEffectRuntime as never,
+      inventoryItemMapRuntime as never,
+      inventoryItemResultPublisher as never,
+      inventoryItemRuntimeState as never,
+      inventoryItemSpellRuntime as never,
+      inventoryItemUseResultRuntime as never,
+      inventoryPackUseRuntime as never,
+      restApprovalGuard as never,
+      restApprovalRequestRecorder as never,
+      restApprovalResolution as never,
     );
     return {
       service,

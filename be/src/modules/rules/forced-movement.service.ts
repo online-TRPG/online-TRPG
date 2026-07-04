@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { conflict } from "../../common/exceptions/domain-error";
 import { TerrainEffectResolution, TerrainEffectService } from "./terrain-effect.service";
 
 const FEET_PER_GRID = 5;
@@ -67,6 +68,16 @@ export class ForcedMovementService {
   constructor(
     private readonly terrainEffects: TerrainEffectService = new TerrainEffectService(),
   ) {}
+
+  normalizeMode(value: string): ForcedMovementMode {
+    if (value === "push" || value === "pull" || value === "slide") {
+      return value;
+    }
+    throw conflict("COMBAT_409", "지원하지 않는 강제이동 방식입니다.", {
+      reason: "INVALID_FORCED_MOVEMENT_MODE",
+      mode: value,
+    });
+  }
 
   resolveForcedMovement(input: ForcedMovementInput): ForcedMovementResolution {
     this.assertPositiveInteger(input.grid.width, "grid.width");

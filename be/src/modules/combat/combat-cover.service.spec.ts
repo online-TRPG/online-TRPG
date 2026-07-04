@@ -1,4 +1,5 @@
 import { CoverPositionService } from "../rules/cover-position.service";
+import { TerrainEffectService } from "../rules/terrain-effect.service";
 import { CombatMovementService } from "./combat-movement.service";
 import { CombatCoverService } from "./combat-cover.service";
 
@@ -7,7 +8,7 @@ describe("CombatCoverService", () => {
     new CombatCoverService(
       new CoverPositionService(),
       {} as never,
-      new CombatMovementService(),
+      new CombatMovementService(new TerrainEffectService()),
     );
 
   const createMap = () => ({

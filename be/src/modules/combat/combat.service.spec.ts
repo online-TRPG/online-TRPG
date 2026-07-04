@@ -16,9 +16,35 @@ import {
 import { CombatService } from "./combat.service";
 import {
   PENDING_READY_ACTIONS_FLAG,
+  ReadyActionService,
   TRIGGERED_READY_ACTIONS_FLAG,
 } from "../rules/ready-action.service";
 import type { CoverLevel } from "../rules/rule-engine.types";
+import { AoeDamageService } from "../rules/aoe-damage.service";
+import { AoeTargetingService } from "../rules/aoe-targeting.service";
+import { ConcentrationRuntimeService } from "../rules/concentration-runtime.service";
+import { ConditionRuntimeService } from "../rules/condition-runtime.service";
+import { CoverPositionService } from "../rules/cover-position.service";
+import { ForcedMovementService } from "../rules/forced-movement.service";
+import { RuleCatalogService } from "../rules/rule-catalog.service";
+import { SpellScalingService } from "../rules/spell-scaling.service";
+import { SpellSlotService } from "../rules/spell-slot.service";
+import { TerrainEffectService } from "../rules/terrain-effect.service";
+import { CombatActionService } from "./combat-action.service";
+import { CombatAutoMonsterTurnSchedulerService } from "./combat-auto-monster-turn-scheduler.service";
+import { CombatConditionService } from "./combat-condition.service";
+import { CombatCoverService } from "./combat-cover.service";
+import { CombatMapperService } from "./combat-mapper.service";
+import { CombatMonsterActionService } from "./combat-monster-action.service";
+import { CombatMonsterResourceService } from "./combat-monster-resource.service";
+import { CombatMovementService } from "./combat-movement.service";
+import { CombatReactionService } from "./combat-reaction.service";
+import { CombatReactionContinuationService } from "./combat-reaction-continuation.service";
+import { CombatSpellService } from "./combat-spell.service";
+import { CombatStatsService } from "./combat-stats.service";
+import { CombatTargetingService } from "./combat-targeting.service";
+import { CombatTerrainService } from "./combat-terrain.service";
+import { CombatTurnService } from "./combat-turn.service";
 
 const createParticipant = (
   overrides: Partial<{
@@ -251,6 +277,54 @@ describe("CombatService lifecycle", () => {
       chooseAction: jest.fn(),
       listExecutableActions: jest.fn(() => []),
     };
+    const readyActions = new ReadyActionService();
+    const spellSlots = new SpellSlotService();
+    const concentrationRuntime = new ConcentrationRuntimeService();
+    const conditionRuntime = new ConditionRuntimeService();
+    const coverPositions = new CoverPositionService();
+    const forcedMovement = new ForcedMovementService();
+    const spellScaling = new SpellScalingService();
+    const aoeTargeting = new AoeTargetingService();
+    const aoeDamage = new AoeDamageService(diceService as never, ruleEngine as never);
+    const ruleCatalog = new RuleCatalogService();
+    const terrainEffects = new TerrainEffectService();
+    const combatConditions = new CombatConditionService(prisma as never, conditionRuntime);
+    const combatMovement = new CombatMovementService(terrainEffects);
+    const combatCover = new CombatCoverService(coverPositions, ruleEngine as never, combatMovement);
+    const combatMonsterResources = new CombatMonsterResourceService(
+      prisma as never,
+      sessionsService as never,
+      diceService as never,
+    );
+    const combatMonsterActions = new CombatMonsterActionService(
+      monsterAbilities as never,
+      srdEngine as never,
+      combatMovement,
+      combatMonsterResources,
+    );
+    const combatReactions = new CombatReactionService(prisma as never, sessionsService as never);
+    const combatSpells = new CombatSpellService(
+      prisma as never,
+      sessionsService as never,
+      ruleCatalog,
+      spellScaling,
+      spellSlots,
+    );
+    const combatStats = new CombatStatsService(srdEngine as never);
+    const combatTargeting = new CombatTargetingService(combatMovement, combatCover, combatStats);
+    const combatTerrain = new CombatTerrainService();
+    const combatActions = new CombatActionService();
+    const combatAutoMonsterTurnScheduler = new CombatAutoMonsterTurnSchedulerService();
+    const combatReactionContinuations = new CombatReactionContinuationService();
+    const combatTurns = new CombatTurnService();
+    const combatMapper = new CombatMapperService(
+      prisma as never,
+      sessionsService as never,
+      conditionRuntime,
+      concentrationRuntime,
+      combatConditions,
+      combatSpells,
+    );
     prisma.combat.findUniqueOrThrow.mockImplementation(async () => prisma.combat.findFirst());
 
     return {
@@ -267,6 +341,32 @@ describe("CombatService lifecycle", () => {
         ruleEngine as never,
         srdEngine as never,
         monsterAbilities as never,
+        readyActions,
+        spellSlots,
+        concentrationRuntime,
+        conditionRuntime,
+        coverPositions,
+        forcedMovement,
+        spellScaling,
+        aoeTargeting,
+        aoeDamage,
+        ruleCatalog,
+        terrainEffects,
+        combatConditions,
+        combatMovement,
+        combatCover,
+        combatMonsterResources,
+        combatMonsterActions,
+        combatReactions,
+        combatSpells,
+        combatStats,
+        combatTargeting,
+        combatTerrain,
+        combatActions,
+        combatAutoMonsterTurnScheduler,
+        combatReactionContinuations,
+        combatTurns,
+        combatMapper,
       ),
       prisma,
       sessionsService,

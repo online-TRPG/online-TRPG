@@ -20,7 +20,7 @@ import {
   publishScenario,
   updateScenario,
   uploadScenarioAsset,
-} from '../services/api';
+} from '../services/scenarioApi';
 import { loadItemCatalog, loadMonsterCatalog } from '../services/staticSrd';
 import type { ScenarioDetail, StoredUser } from '../types/session';
 import type {

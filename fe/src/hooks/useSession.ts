@@ -19,33 +19,35 @@ import type {
 } from '@trpg/shared-types';
 import type { Socket } from 'socket.io-client';
 import {
-  approveRestAction as apiApproveRestAction,
-  cancelRestAction as apiCancelRestAction,
   cloneCharacter as apiCloneCharacter,
   createCharacter as apiCreateCharacter,
-  createSession as apiCreateSession,
   deleteCharacter as apiDeleteCharacter,
+  listMyCharacters as apiListMyCharacters,
+  levelUpCharacter as apiLevelUpCharacter,
+  selectSessionCharacter as apiSelectSessionCharacter,
+  updateCharacter as apiUpdateCharacter,
+  updatePreparedSpells as apiUpdatePreparedSpells,
+} from '../services/characterApi';
+import { updateHumanGm as apiUpdateHumanGm } from '../services/humanGmApi';
+import {
+  approveRestAction as apiApproveRestAction,
+  cancelRestAction as apiCancelRestAction,
+  createSession as apiCreateSession,
   getSession,
   joinSession as apiJoinSession,
   joinSessionById as apiJoinSessionById,
   leaveSession as apiLeaveSession,
   listTurnLogs as apiListTurnLogs,
-  listMyCharacters as apiListMyCharacters,
   listMySessions as apiListMySessions,
   listSessions,
-  levelUpCharacter as apiLevelUpCharacter,
-  selectSessionCharacter as apiSelectSessionCharacter,
-  startSession as apiStartSession,
-  resolveMainCommandCheck as apiResolveMainCommandCheck,
   rejectRestAction as apiRejectRestAction,
+  resolveMainCommandCheck as apiResolveMainCommandCheck,
+  startSession as apiStartSession,
+  submitAction as apiSubmitAction,
   submitMainCommand as apiSubmitMainCommand,
   submitRestAction as apiSubmitRestAction,
-  submitAction as apiSubmitAction,
-  updateCharacter as apiUpdateCharacter,
-  updateHumanGm as apiUpdateHumanGm,
-  updatePreparedSpells as apiUpdatePreparedSpells,
   updateReadyState as apiUpdateReadyState,
-} from '../services/api';
+} from '../services/sessionApi';
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
 import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from '../services/storage';
 import type {

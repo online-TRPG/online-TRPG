@@ -252,9 +252,9 @@ export class LevelUpService {
     return value;
   }
 
-  private resolveAbilityModifier(score: number): number {
+  resolveAbilityModifier(score: number): number {
     if (!Number.isInteger(score) || score < 1 || score > 30) {
-      throw new Error("constitutionScore must be an integer from 1 to 30.");
+      throw new Error("ability score must be an integer from 1 to 30.");
     }
     return Math.floor((score - 10) / 2);
   }

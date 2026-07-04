@@ -12,7 +12,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
-import { getScenario } from '../services/api';
+import { getScenario } from '../services/scenarioApi';
 import type { AvailableSessionListItem, Scenario, StoredUser } from '../types/session';
 import './SessionCreatePage.css';
 

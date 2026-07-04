@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { getPublicProfile } from "../services/api";
+import { getPublicProfile } from "../services/authApi";
 import type { User } from "../types/session";
 import { buildPublicProfilePath } from "../utils/routes";
 import "./ProfilePage.css";
