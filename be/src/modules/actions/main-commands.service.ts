@@ -37,6 +37,7 @@ import type { ResolvedInterpreterActionRoute } from "./main-command-interpreter-
 import { MainCommandIntentHandlersService } from "./main-command-intent-handlers.service";
 import { MainCommandNpcDialogueService } from "./main-command-npc-dialogue.service";
 import { MainCommandPersistenceService } from "./main-command-persistence.service";
+import { MAIN_COMMAND_CONFIDENCE } from "./main-command-policy.constants";
 import { MainCommandPostActionRevealService } from "./main-command-post-action-reveal.service";
 import { MainCommandProgressEvidenceService } from "./main-command-progress-evidence.service";
 import type { RevealedClueState } from "./main-command-progress-evidence.service";
@@ -397,7 +398,7 @@ export class MainCommandsService {
       );
     }
 
-    if ((interpreter.parsed.action.confidence ?? 0) < 0.55) {
+    if ((interpreter.parsed.action.confidence ?? 0) < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return this.mainCommandInterpreterRouteResponse.buildLowConfidenceApprovalResponse(requestId, actionSummary, actionCandidate);
     }
 

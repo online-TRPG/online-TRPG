@@ -56,11 +56,11 @@ describe("SessionScenarioLinkService", () => {
   it("selects the active scenario from included links", () => {
     expect(
       service.selectActive([
-        { id: "draft", status: PrismaSessionScenarioStatus.DRAFT },
+        { id: "planned", status: PrismaSessionScenarioStatus.PLANNED },
         { id: "active", status: PrismaSessionScenarioStatus.ACTIVE },
       ]),
     ).toMatchObject({ id: "active" });
-    expect(service.selectActive([{ id: "first", status: PrismaSessionScenarioStatus.DRAFT }])).toMatchObject({ id: "first" });
+    expect(service.selectActive([{ id: "first", status: PrismaSessionScenarioStatus.PLANNED }])).toMatchObject({ id: "first" });
     expect(service.selectActive([])).toBeNull();
   });
 });

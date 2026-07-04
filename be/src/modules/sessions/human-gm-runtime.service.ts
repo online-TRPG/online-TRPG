@@ -14,6 +14,8 @@ import {
   CombatResponseDto,
   CombatStatus,
   GrantHumanGmInventoryItemDto,
+  HUMAN_GM_INVENTORY_QUANTITY_MAX,
+  HUMAN_GM_INVENTORY_QUANTITY_MIN,
   HumanGmMessageDto,
   HumanGmNodeMoveOptionDto,
   RemoveHumanGmInventoryItemDto,
@@ -21,6 +23,8 @@ import {
   SetHumanGmDifficultyClassDto,
   SessionSnapshotDto,
   UpdateSessionNodeDto,
+  VTT_CHECK_DC_MAX,
+  VTT_CHECK_DC_MIN,
 } from "@trpg/shared-types";
 import { randomUUID } from "crypto";
 import { mapSessionCharacter } from "../../common/mappers/domain.mapper";
@@ -118,8 +122,8 @@ export class HumanGmRuntimeService {
       throw new ConflictException("Started sessions are required for GM inventory grants.");
     }
 
-    const quantity = dto.quantity ?? 1;
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+    const quantity = dto.quantity ?? HUMAN_GM_INVENTORY_QUANTITY_MIN;
+    if (!Number.isInteger(quantity) || quantity < HUMAN_GM_INVENTORY_QUANTITY_MIN || quantity > HUMAN_GM_INVENTORY_QUANTITY_MAX) {
       throw new BadRequestException("지급할 아이템 수량이 올바르지 않습니다.");
     }
 
@@ -216,8 +220,8 @@ export class HumanGmRuntimeService {
       throw new ConflictException("Started sessions are required for GM inventory removals.");
     }
 
-    const quantity = dto.quantity ?? 1;
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+    const quantity = dto.quantity ?? HUMAN_GM_INVENTORY_QUANTITY_MIN;
+    if (!Number.isInteger(quantity) || quantity < HUMAN_GM_INVENTORY_QUANTITY_MIN || quantity > HUMAN_GM_INVENTORY_QUANTITY_MAX) {
       throw new BadRequestException("회수할 아이템 수량이 올바르지 않습니다.");
     }
 
@@ -308,10 +312,10 @@ export class HumanGmRuntimeService {
     if (!targetId) {
       throw new BadRequestException("DC를 적용할 대상을 입력해야 합니다.");
     }
-    if (!Number.isInteger(dto.dc) || dto.dc < 1 || dto.dc > 40) {
-      throw new BadRequestException("DC 값은 1에서 40 사이의 정수여야 합니다.");
+    if (!Number.isInteger(dto.dc) || dto.dc < VTT_CHECK_DC_MIN || dto.dc > VTT_CHECK_DC_MAX) {
+      throw new BadRequestException(`DC 값은 ${VTT_CHECK_DC_MIN}에서 ${VTT_CHECK_DC_MAX} 사이의 정수여야 합니다.`);
     }
-    const dc = runtime.clampNumber(dto.dc, 1, 40);
+    const dc = runtime.clampNumber(dto.dc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX);
     const label = dto.label?.trim() || targetId;
     const ability = dto.ability?.trim() || null;
     const publicNarration = ability

@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ScenarioNodeType, SubmitMainCommandDto } from "@trpg/shared-types";
+import { MAIN_COMMAND_CONFIDENCE, TRANSITION_MATCH_POLICY } from "./main-command-policy.constants";
 
 export type TransitionConditionEvaluation = {
   satisfied: boolean;
@@ -217,7 +218,9 @@ export class MainCommandTransitionEvaluatorService {
     const evaluations = nonEmptyTermGroups.map((terms) => {
       const matchedTerms = terms.filter((term) => evidenceText.includes(term));
       const missingTerms = terms.filter((term) => !evidenceText.includes(term));
-      const requiredMatchCount = terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.7);
+    const requiredMatchCount = terms.length <= TRANSITION_MATCH_POLICY.EXACT_MATCH_TERM_LIMIT
+      ? terms.length
+      : Math.ceil(terms.length * TRANSITION_MATCH_POLICY.PARTIAL_MATCH_RATIO);
       return {
         terms,
         matchedTerms,
@@ -298,7 +301,11 @@ export class MainCommandTransitionEvaluatorService {
       };
     }
 
-    const requiresGmApproval = results.some((result) => result.requirement.type === "GM_APPROVAL" || contract.confidence < 0.55);
+    const requiresGmApproval = results.some(
+      (result) =>
+        result.requirement.type === "GM_APPROVAL" ||
+        contract.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD,
+    );
 
     return {
       satisfied: false,
@@ -334,7 +341,9 @@ export class MainCommandTransitionEvaluatorService {
       return false;
     }
     const matchedCount = terms.filter((term) => normalizedEvidenceText.includes(term)).length;
-    const requiredMatchCount = terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.7);
+      const requiredMatchCount = terms.length <= TRANSITION_MATCH_POLICY.EXACT_MATCH_TERM_LIMIT
+        ? terms.length
+        : Math.ceil(terms.length * TRANSITION_MATCH_POLICY.PARTIAL_MATCH_RATIO);
     return matchedCount >= requiredMatchCount;
   }
 

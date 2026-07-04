@@ -23,6 +23,11 @@ import type {
   SubmitMainCommandDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  isAiGmMode,
+  isEndedCombatStatus,
+  isHumanGmMode,
+} from '@trpg/shared-types/frontend';
 import type { BattleMapSelection } from '../features/sessionPlay/components/SessionBattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
@@ -967,7 +972,7 @@ export function PlayPage({
     mainMessage,
     setMainMessage,
     mainCommandMode,
-    isAiGmSession: session?.gmMode === 'AI',
+    isAiGmSession: isAiGmMode(session?.gmMode),
     currentScreenType,
     currentNodeId: currentNode?.id,
     mainCommandPresets,
@@ -1036,7 +1041,7 @@ export function PlayPage({
   useEffect(() => {
     if (!user || !session?.id || !isCombatNode) {
       if (
-        combat?.status === 'ENDED' &&
+        isEndedCombatStatus(combat?.status) &&
         currentNode?.nodeType === 'combat' &&
         currentNode.id &&
         !completedCombatNodeIds.has(currentNode.id)
@@ -1070,7 +1075,7 @@ export function PlayPage({
           missingCombat &&
           currentNode?.id &&
           !isCombatBusy &&
-          (session.gmMode !== 'HUMAN' || isGmUser)
+          (!isHumanGmMode(session.gmMode) || isGmUser)
         ) {
           const autoStartKey = `${session.id}:${currentNode.id}`;
           if (autoCombatStartKeyRef.current !== autoStartKey) {
@@ -1095,7 +1100,7 @@ export function PlayPage({
   useEffect(() => {
     if (!user || !session?.id || !currentNode?.id || !isCombatNode) return;
     if (!isCombatChecked || combat || isCombatBusy || combatError) return;
-    if (session.gmMode === 'HUMAN' && !isGmUser) return;
+    if (isHumanGmMode(session.gmMode) && !isGmUser) return;
 
     const autoStartKey = `${session.id}:${currentNode.id}`;
     if (autoCombatStartKeyRef.current === autoStartKey) return;
@@ -2218,7 +2223,7 @@ export function PlayPage({
                 className="session-sidebar-input"
                 onSubmit={activeTab === 'Main' ? handleMainSubmit : handleChatSubmit}
               >
-                {activeTab === 'Main' && session?.gmMode === 'AI' && currentScreenType ? (
+                {activeTab === 'Main' && isAiGmMode(session?.gmMode) && currentScreenType ? (
                   <div className="main-command-picker">
                     {/* 선택 상태는 별도 태그 대신 버튼 자체의 색과 테두리로 보여 시선 이동을 줄입니다. */}
                     <div className="main-command-mode-row">

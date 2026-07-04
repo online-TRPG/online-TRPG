@@ -13,6 +13,8 @@ export type InventoryItemDisplaySource = InventoryPackContentDisplaySource & {
   useEffect?: string | null;
   damageDice?: string;
   damageType?: string;
+  rangeFt?: number;
+  longRangeFt?: number;
   packContents?: InventoryPackContentDisplaySource[];
 };
 

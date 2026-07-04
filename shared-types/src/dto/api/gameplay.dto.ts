@@ -30,6 +30,7 @@ import {
   MainCommandStatus,
   MainCommandTargetType,
 } from "../../constants/enums";
+import { MAIN_COMMAND_CHECK_EFFECT_TYPES, VTT_CHECK_EFFECT_ACTIONS } from "../../constants/main-command-check-effects";
 import { SessionCharacterResponseDto } from "./characters.dto";
 import { VttMapStateDto } from "./sessions.dto";
 
@@ -286,6 +287,151 @@ export class MainCommandActionCandidateDto {
   declaredMethod?: string | null;
 }
 
+export class VttMapCheckEffectPointDto {
+  @ApiProperty()
+  x!: number;
+
+  @ApiProperty()
+  y!: number;
+}
+
+export class VttDoorCheckEffectDto {
+  @ApiProperty({ enum: [MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR] })
+  type!: typeof MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR;
+
+  @ApiProperty()
+  doorId!: string;
+
+  @ApiProperty({ enum: [VTT_CHECK_EFFECT_ACTIONS.OPEN, VTT_CHECK_EFFECT_ACTIONS.BROKEN] })
+  effect!: typeof VTT_CHECK_EFFECT_ACTIONS.OPEN | typeof VTT_CHECK_EFFECT_ACTIONS.BROKEN;
+
+  @ApiProperty()
+  nodeId!: string;
+
+  @ApiProperty({ type: VttMapCheckEffectPointDto })
+  mapPoint!: VttMapCheckEffectPointDto;
+}
+
+export class VttHazardCheckEffectDto {
+  @ApiProperty({ enum: [MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD] })
+  type!: typeof MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD;
+
+  @ApiProperty()
+  hazardId!: string;
+
+  @ApiProperty({ enum: [VTT_CHECK_EFFECT_ACTIONS.DISARM] })
+  effect!: typeof VTT_CHECK_EFFECT_ACTIONS.DISARM;
+
+  @ApiProperty()
+  nodeId!: string;
+
+  @ApiProperty({ type: VttMapCheckEffectPointDto })
+  mapPoint!: VttMapCheckEffectPointDto;
+}
+
+export class VttObjectCheckEffectDto {
+  @ApiProperty({ enum: [MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT] })
+  type!: typeof MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT;
+
+  @ApiProperty()
+  objectId!: string;
+
+  @ApiProperty({ enum: [VTT_CHECK_EFFECT_ACTIONS.BROKEN] })
+  effect!: typeof VTT_CHECK_EFFECT_ACTIONS.BROKEN;
+
+  @ApiProperty()
+  nodeId!: string;
+
+  @ApiProperty({ type: VttMapCheckEffectPointDto })
+  mapPoint!: VttMapCheckEffectPointDto;
+}
+
+export class MainCommandNarrativeCheckEffectDto {
+  @ApiProperty({ enum: [MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK] })
+  type!: typeof MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK;
+
+  @ApiProperty()
+  requestId!: string;
+
+  @ApiProperty()
+  nodeId!: string;
+
+  @ApiProperty()
+  sessionCharacterId!: string;
+
+  @ApiProperty({ enum: MainCommandIntent })
+  intent!: MainCommandIntent;
+
+  @ApiProperty({ enum: MainCommandScreenType })
+  screenType!: MainCommandScreenType;
+
+  @ApiProperty()
+  playerText!: string;
+
+  @ApiProperty()
+  actionSummary!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetName!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetSummary!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetDisposition!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  itemId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  itemName!: string | null;
+
+  @ApiPropertyOptional({ type: VttMapCheckEffectPointDto, nullable: true })
+  mapPoint!: VttMapCheckEffectPointDto | null;
+
+  @ApiPropertyOptional({ type: MainCommandCheckOptionDto, nullable: true })
+  checkOption!: MainCommandCheckOptionDto | null;
+
+  @ApiProperty({ type: [String] })
+  visibleEntityNames!: string[];
+
+  @ApiProperty({ type: [String] })
+  publicClues!: string[];
+
+  @ApiProperty()
+  sceneText!: string;
+
+  @ApiPropertyOptional({ type: MainCommandActionCandidateDto, nullable: true })
+  actionCandidate!: MainCommandActionCandidateDto | null;
+}
+
+export type MainCommandCheckEffectDto =
+  | MainCommandNarrativeCheckEffectDto
+  | VttDoorCheckEffectDto
+  | VttHazardCheckEffectDto
+  | VttObjectCheckEffectDto;
+
+export class MainCommandResponseDataDto {
+  [key: string]: unknown;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    description: "Deferred effect to apply when a CHECK_REQUIRED response is resolved.",
+  })
+  checkEffect?: MainCommandCheckEffectDto | null;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    description: "Effect that was resolved after a pending main-command check.",
+  })
+  effect?: MainCommandCheckEffectDto | null;
+}
+
 export class MainCommandResponseDto {
   @ApiProperty()
   requestId!: string;
@@ -305,8 +451,8 @@ export class MainCommandResponseDto {
   @ApiPropertyOptional({ type: Object, nullable: true })
   statePatch?: Record<string, unknown> | null;
 
-  @ApiPropertyOptional({ type: Object, nullable: true })
-  data?: Record<string, unknown> | null;
+  @ApiPropertyOptional({ type: MainCommandResponseDataDto, nullable: true })
+  data?: MainCommandResponseDataDto | null;
 }
 
 export class ResolveMainCommandCheckDto {
@@ -316,7 +462,7 @@ export class ResolveMainCommandCheckDto {
 
   @ApiProperty({ type: Object })
   @IsObject()
-  effect!: Record<string, unknown>;
+  effect!: MainCommandCheckEffectDto;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -17,6 +17,14 @@ import type {
   UpdatePreparedSpellsDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  CHAT_MESSAGE_MAX_LENGTH,
+  MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS,
+  getMainCommandCheckEffect,
+  getPrimaryMainCommandCheckOption,
+  isBlockingSessionStatus,
+  isMainCommandCheckRequired,
+} from '@trpg/shared-types/frontend';
 import type { Socket } from 'socket.io-client';
 import {
   cloneCharacter as apiCloneCharacter,
@@ -201,10 +209,6 @@ type PendingMainCommandCheckLog = {
   pendingLogId: string;
   timeoutId?: number;
 };
-
-function isBlockingSessionStatus(status: string | undefined): boolean {
-  return status !== 'completed' && status !== 'disbanded';
-}
 
 function isDeclareRpActionIntent(value: unknown): boolean {
   return value === 'DECLARE_RP_ACTION';
@@ -425,13 +429,6 @@ function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
       typeof structuredAction === 'object' &&
       structuredAction.type === 'main_command'
   );
-}
-
-function getMainCommandCheckEffect(response: MainCommandResponseDto): Record<string, unknown> | null {
-  const data = response.data;
-  if (!data || typeof data !== 'object') return null;
-  const effect = (data as Record<string, unknown>).checkEffect;
-  return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
 }
 
 function getSenderNameByUserId(userId: string, snapshot: SessionSnapshot | null): string {
@@ -749,7 +746,7 @@ export function useSession(
       appendLog('action', '세션 로그', '[MAIN]...', pendingLogId);
       entry.timeoutId = window.setTimeout(() => {
         removePendingMainCommandCheckLog(entry);
-      }, 45_000);
+      }, MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS);
       pendingMainCommandCheckLogsRef.current = [
         ...pendingMainCommandCheckLogsRef.current,
         entry,
@@ -1136,7 +1133,7 @@ export function useSession(
 
         window.setTimeout(() => {
           removeLog(`player-action:${action.playerActionId}:pending`);
-        }, 45_000);
+        }, MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS);
       },
       onTurnLogCreated: (turnLog: TurnLogResponseDto) => {
         // 라이브 turn.log.created 만 오버레이를 띄운다 (과거 로그 로딩은 별도 경로).
@@ -1883,7 +1880,7 @@ export function useSession(
       removeLog(pendingLogId);
       pendingEntry.isPendingVisible = false;
       pendingEntry.timeoutId = undefined;
-    }, 45_000);
+    }, MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS);
     pendingMainCommandLogsRef.current = [...pendingMainCommandLogsRef.current, pendingEntry];
 
     try {
@@ -1895,9 +1892,10 @@ export function useSession(
       );
       // CHECK_REQUIRED 응답 시 로컬 d20 굴림으로 오버레이 띄움 (v1: 단일 클라이언트 가시).
       // 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
-      if (response?.status === 'CHECK_REQUIRED' && response.checkOptions?.[0]) {
+      const primaryCheckOption = getPrimaryMainCommandCheckOption(response);
+      if (isMainCommandCheckRequired(response) && primaryCheckOption) {
         const diceOverlay = buildCheckRequiredOverlay(
-          response.checkOptions[0],
+          primaryCheckOption,
           user.id,
           user.displayName,
         );
@@ -1980,8 +1978,8 @@ export function useSession(
 
     setError(null);
 
-    if (trimmed.length > 1000) {
-      const message = '채팅 메시지는 1000자 이하로 입력해주세요.';
+    if (trimmed.length > CHAT_MESSAGE_MAX_LENGTH) {
+      const message = `채팅 메시지는 ${CHAT_MESSAGE_MAX_LENGTH}자 이하로 입력해주세요.`;
       setError(message);
       appendLog('socket', scope === 'MAIN' ? 'RP 대사 전송 실패' : '채팅 전송 실패', message);
       return;

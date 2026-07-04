@@ -1,3 +1,4 @@
+import { VTT_CHECK_DC_MAX, VTT_CHECK_DC_MIN, VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { VttMapStateDto } from '@trpg/shared-types';
 
 type MapStructureKind = 'terrain' | 'wall' | 'door' | 'object';
@@ -93,6 +94,13 @@ const terrainEffectOptions = [
   { value: 'terrain.slippery', label: '미끄러운 지형' },
   { value: 'terrain.burning', label: '불타는 지형' },
   { value: 'terrain.poison_cloud', label: '독구름' },
+] as const;
+
+const doorStateOptions = [
+  { value: VTT_DOOR_STATES.OPEN, label: '열림' },
+  { value: VTT_DOOR_STATES.CLOSED, label: '닫힘' },
+  { value: VTT_DOOR_STATES.LOCKED, label: '잠김' },
+  { value: VTT_DOOR_STATES.BROKEN, label: '파괴됨' },
 ] as const;
 
 function clamp(value: number, min: number, max: number) {
@@ -204,10 +212,11 @@ export function BattleMapStructureInspector({
                 })
               }
             >
-              <option value="open">열림</option>
-              <option value="closed">닫힘</option>
-              <option value="locked">잠김</option>
-              <option value="broken">파괴됨</option>
+              {doorStateOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -231,8 +240,8 @@ export function BattleMapStructureInspector({
             {labels.breakDc}
             <input
               type="number"
-              min={1}
-              max={40}
+              min={VTT_CHECK_DC_MIN}
+              max={VTT_CHECK_DC_MAX}
               value={doorCell.breakCheckDc ?? ''}
               onChange={(event) =>
                 onUpdate(kind, cell.id, {
@@ -276,8 +285,8 @@ export function BattleMapStructureInspector({
             {labels.breakDc}
             <input
               type="number"
-              min={1}
-              max={40}
+              min={VTT_CHECK_DC_MIN}
+              max={VTT_CHECK_DC_MAX}
               disabled={!objectCell.canBreak}
               value={objectCell.breakCheckDc ?? ''}
               onChange={(event) =>
@@ -375,13 +384,13 @@ export function BattleMapStructureInspector({
                       DC
                       <input
                         type="number"
-                        min={1}
-                        max={40}
+                        min={VTT_CHECK_DC_MIN}
+                        max={VTT_CHECK_DC_MAX}
                         value={revealCheck.dc ?? 15}
                         disabled={!requiresCheck}
                         onChange={(event) =>
                           onPatchObjectRevealCheck(contentId, {
-                            dc: clamp(Number(event.target.value) || 15, 1, 40),
+                            dc: clamp(Number(event.target.value) || 15, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX),
                           })
                         }
                       />
@@ -462,12 +471,12 @@ export function BattleMapStructureInspector({
                     {labels.hazardDc}
                     <input
                       type="number"
-                      min={1}
-                      max={40}
+                      min={VTT_CHECK_DC_MIN}
+                      max={VTT_CHECK_DC_MAX}
                       value={objectCell.hazard.detectionDc ?? 12}
                       onChange={(event) =>
                         onUpdateObjectHazard({
-                          detectionDc: clamp(Number(event.target.value) || 12, 1, 40),
+                          detectionDc: clamp(Number(event.target.value) || 12, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX),
                         })
                       }
                     />

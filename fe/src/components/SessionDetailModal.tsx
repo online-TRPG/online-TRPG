@@ -1,6 +1,7 @@
 import modalFancyBlue from "./Modal_Fancy_Blue.webp";
 import buttonFancyBlue from "./Button_Fancy_Blue.webp";
 import buttonFancyBlueCancel from "./Button_Fancy_Blue_Cancel.webp";
+import { GmMode, SessionParticipantStatus, SessionScenarioStatus, isAiGmMode } from "@trpg/shared-types/frontend";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
 import type { SessionDetail, User } from "../types/session";
 
@@ -18,9 +19,9 @@ interface SessionDetailModalProps {
   onOpenHostProfile: (host: User) => void;
 }
 
-const GM_MODE_LABEL: Record<string, string> = {
-  AI: "AI GM",
-  HUMAN: "인간 GM",
+const GM_MODE_LABEL: Record<GmMode, string> = {
+  [GmMode.AI]: "AI GM",
+  [GmMode.HUMAN]: "인간 GM",
 };
 
 function getDetailErrorMessage(error: string | null): string | null {
@@ -121,8 +122,8 @@ export function SessionDetailModal({
   if (!loading && !detail && !error) return null;
 
   const activeScenario =
-    detail?.sessionScenarios.find((item) => item.status === "ACTIVE")?.scenario ?? detail?.scenario ?? null;
-  const participantCount = detail?.participants.filter((item) => item.status === "JOINED").length ?? 0;
+    detail?.sessionScenarios.find((item) => item.status === SessionScenarioStatus.ACTIVE)?.scenario ?? detail?.scenario ?? null;
+  const participantCount = detail?.participants.filter((item) => item.status === SessionParticipantStatus.JOINED).length ?? 0;
   const detailError = getDetailErrorMessage(error);
 
   const visualTitle = activeScenario?.title ?? detail?.session.title ?? "";
@@ -134,7 +135,9 @@ export function SessionDetailModal({
     rawScenarioIntroduction,
     getIntroductionMaxLength(rawScenarioIntroduction),
   );
-  const gmModeLabel = detail ? (detail.session.gmMode === "AI" ? "AI GM" : "\uC77C\uBC18 GM") : "AI GM";
+  const gmModeLabel = detail
+    ? GM_MODE_LABEL[detail.session.gmMode as GmMode] ?? (isAiGmMode(detail.session.gmMode) ? GM_MODE_LABEL[GmMode.AI] : GM_MODE_LABEL[GmMode.HUMAN])
+    : GM_MODE_LABEL[GmMode.AI];
   const difficultyLabel = visual.difficulty === "Hard" ? "어려움" : visual.difficulty === "Normal" ? "보통" : visual.difficulty;
   const durationLabel = getDurationLabel(visualTitle, difficultyLabel);
   const themeLabel = getThemeLabel(visualTitle, visual.theme);

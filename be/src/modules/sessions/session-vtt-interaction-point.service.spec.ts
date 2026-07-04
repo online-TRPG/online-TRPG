@@ -1,4 +1,4 @@
-import { VttMapStateDto } from "@trpg/shared-types";
+import { VTT_DOOR_STATES, VttMapStateDto } from "@trpg/shared-types";
 import { SessionVttInteractionPointService } from "./session-vtt-interaction-point.service";
 
 describe("SessionVttInteractionPointService", () => {
@@ -27,7 +27,7 @@ describe("SessionVttInteractionPointService", () => {
         y: 128,
         width: 64,
         height: 64,
-        state: "closed",
+        state: VTT_DOOR_STATES.CLOSED,
         keyItemId: null,
         canBreak: false,
         breakCheckDc: null,

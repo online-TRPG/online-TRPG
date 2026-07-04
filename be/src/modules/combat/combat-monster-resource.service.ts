@@ -1,14 +1,16 @@
 import { Injectable } from "@nestjs/common";
 import { CombatEntityType as PrismaCombatEntityType } from "@prisma/client";
+import { MONSTER_ACTION_UNAVAILABLE_REASONS } from "@trpg/shared-types";
 import type { CombatMonsterLifecycleEffectDto, DiceRollResponseDto } from "@trpg/shared-types";
 import { conflict } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { DiceService } from "../rules/dice.service";
 import { SessionsService } from "../sessions/sessions.service";
+import {
+  MONSTER_LIMITED_USE_EXPENDED_FLAG,
+  MONSTER_RECHARGE_EXPENDED_FLAG,
+} from "./combat-runtime-flags.constants";
 import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
-
-export const MONSTER_RECHARGE_EXPENDED_FLAG = "monsterRechargeExpended";
-export const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
 type MonsterResourceActor = {
   id: string;
@@ -128,7 +130,7 @@ export class CombatMonsterResourceService {
     const expended = this.parseMonsterRechargeExpended(flags[MONSTER_RECHARGE_EXPENDED_FLAG]);
     if (expended[actor.id]?.[action.actionId]) {
       throw conflict("COMBAT_409", "아직 재충전되지 않은 몬스터 행동입니다.", {
-        reason: "MONSTER_RECHARGE_ACTION_EXPENDED",
+        reason: MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED,
         actorParticipantId: actor.id,
         actionId: action.actionId,
         recharge: action.recharge ?? null,
@@ -186,7 +188,7 @@ export class CombatMonsterResourceService {
     const used = this.extractMonsterLimitedUseUsed(expended[actor.id]?.[action.actionId]);
     if (used >= limit) {
       throw conflict("COMBAT_409", "사용 횟수가 남지 않은 몬스터 행동입니다.", {
-        reason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+        reason: MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED,
         actorParticipantId: actor.id,
         actionId: action.actionId,
         usage: action.usage ?? null,

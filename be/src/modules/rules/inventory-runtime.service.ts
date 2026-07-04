@@ -447,6 +447,9 @@ export class InventoryRuntimeService {
   }
 
   private mapEntryToInventoryItem(entry: EntryWithDefinition): InventoryItemDto {
+    const properties = this.parseStringArrayJson(entry.itemDefinition.propertiesJson) ?? [];
+    const rangeFt = this.readRangeProperty(properties, "range:");
+    const longRangeFt = this.readRangeProperty(properties, "range_long:");
     return normalizeInventoryItemDisplay({
       id: entry.id,
       name: entry.itemDefinition.name,
@@ -458,15 +461,23 @@ export class InventoryRuntimeService {
       volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
       damageDice: entry.itemDefinition.damageDice ?? undefined,
       damageType: entry.itemDefinition.damageType ?? undefined,
+      rangeFt: rangeFt ?? undefined,
+      longRangeFt: longRangeFt ?? undefined,
       armorClassBase: entry.itemDefinition.armorClassBase ?? undefined,
       armorClassBonus: entry.itemDefinition.armorClassBonus ?? undefined,
       armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
       armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
       useEffect: entry.itemDefinition.useEffect ?? undefined,
       packContents: this.parsePackContentsJson(entry.itemDefinition.packContentsJson),
-      properties: this.parseStringArrayJson(entry.itemDefinition.propertiesJson),
+      properties,
       containerId: entry.containerEntryId ?? undefined,
     });
+  }
+
+  private readRangeProperty(properties: string[], prefix: "range:" | "range_long:"): number | null {
+    const value = properties.find((property) => property.toLowerCase().startsWith(prefix))?.slice(prefix.length);
+    const rangeFt = Number(value);
+    return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
   }
 
   private parsePackContentsJson(value: string | null | undefined): InventoryItemDto["packContents"] {

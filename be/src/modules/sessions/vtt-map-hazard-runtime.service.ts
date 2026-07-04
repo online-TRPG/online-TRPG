@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import {
+  MainCommandCheckEffectDto,
   MainCommandCheckOptionDto,
   MainCommandStatus,
 } from "@trpg/shared-types";
@@ -20,7 +21,7 @@ export class VttMapHazardRuntimeService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionsService.disarmVttHazardAtPoint(params);
   }

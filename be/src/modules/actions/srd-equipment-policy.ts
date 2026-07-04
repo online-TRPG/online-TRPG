@@ -75,6 +75,7 @@ export function toItemDefinitionData(record: SrdEquipmentRecord): {
   const properties = [
     "srd-engine",
     record.category?.equipmentCategory,
+    ...buildSrdWeaponRangeProperties(record.weapon?.rangeRaw),
     ...(record.weapon?.properties ?? []).map((property) => property.id ?? property.raw),
   ].filter((property): property is string => Boolean(property));
 
@@ -93,6 +94,16 @@ export function toItemDefinitionData(record: SrdEquipmentRecord): {
     packContentsJson: buildSrdPackContentsJson(record),
     propertiesJson: JSON.stringify([...new Set(properties)]),
   };
+}
+
+function buildSrdWeaponRangeProperties(rangeRaw: string | null | undefined): string[] {
+  const [normalRaw, longRaw] = rangeRaw?.split("/") ?? [];
+  const normal = Number(normalRaw?.trim());
+  const long = Number(longRaw?.trim());
+  return [
+    Number.isInteger(normal) && normal >= 0 ? `range:${normal}` : null,
+    Number.isInteger(long) && long >= 0 ? `range_long:${long}` : null,
+  ].filter((property): property is string => Boolean(property));
 }
 
 export function buildSrdPackAddedSummary(pack: SrdEquipmentRecord): string {

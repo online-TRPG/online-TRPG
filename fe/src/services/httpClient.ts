@@ -1,5 +1,12 @@
-import type { AuthTokenResponseDto } from '@trpg/shared-types';
-import type { ApiErrorBody, StoredUser } from '../types/session';
+import {
+  getApiFieldErrorReasons,
+  isApiSuccessEnvelope,
+} from '@trpg/shared-types/frontend';
+import type {
+  ApiErrorEnvelope,
+  AuthTokenResponseDto,
+} from '@trpg/shared-types';
+import type { StoredUser } from '../types/session';
 import { saveStoredToken } from './storage';
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
@@ -53,34 +60,19 @@ interface RequestOptions {
   skipAuthRefresh?: boolean;
 }
 
-function formatApiError(body: ApiErrorBody | null, fallback: string): string {
-  const fieldErrorReasons = readFieldErrorReasons(body?.data);
+function formatApiError(body: ApiErrorEnvelope | null, fallback: string): string {
+  const fieldErrorReasons = getApiFieldErrorReasons(body?.data);
   if (fieldErrorReasons.length > 0) return fieldErrorReasons.join('\n');
   if (!body?.message) return fallback;
   return Array.isArray(body.message) ? body.message.join(', ') : body.message;
 }
 
-function readFieldErrorReasons(data: unknown): string[] {
-  if (!data || typeof data !== 'object' || !('fieldErrors' in data)) return [];
-
-  const fieldErrors = (data as { fieldErrors?: unknown }).fieldErrors;
-  if (!Array.isArray(fieldErrors)) return [];
-
-  return fieldErrors
-    .map((item) => {
-      if (!item || typeof item !== 'object' || !('reason' in item)) return null;
-      const reason = (item as { reason?: unknown }).reason;
-      return typeof reason === 'string' ? reason : null;
-    })
-    .filter((reason): reason is string => Boolean(reason));
-}
-
-async function readApiErrorBody(response: Response): Promise<ApiErrorBody | null> {
+async function readApiErrorBody(response: Response): Promise<ApiErrorEnvelope | null> {
   const contentType = response.headers.get('content-type') ?? '';
 
   if (contentType.includes('application/json')) {
     try {
-      return (await response.json()) as ApiErrorBody;
+      return (await response.json()) as ApiErrorEnvelope;
     } catch {
       return null;
     }
@@ -88,24 +80,25 @@ async function readApiErrorBody(response: Response): Promise<ApiErrorBody | null
 
   try {
     const text = await response.text();
-    return text ? ({ message: text } as ApiErrorBody) : null;
+    return text ? ({ message: text } as ApiErrorEnvelope) : null;
   } catch {
     return null;
   }
 }
 
-async function peekApiErrorBody(response: Response): Promise<ApiErrorBody | null> {
+async function peekApiErrorBody(response: Response): Promise<ApiErrorEnvelope | null> {
   return readApiErrorBody(response.clone());
 }
 
-function isMissingRouteResponse(response: Response, body: ApiErrorBody | null): boolean {
+function isMissingRouteResponse(response: Response, body: ApiErrorEnvelope | null): boolean {
   const message = formatApiError(body, '');
+  // Development fallback only: Nest returns this default message when the current base URL has no matching route.
   return response.status === 404 && /Cannot\s+(GET|POST|PATCH|DELETE)\s+/i.test(message);
 }
 
 function unwrapApiResponse<T>(body: unknown): T {
-  if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
-    return (body as { data: T }).data;
+  if (isApiSuccessEnvelope<T>(body)) {
+    return body.data;
   }
   return body as T;
 }
@@ -145,7 +138,7 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
   };
   let response: Response | null = null;
   let lastNetworkError: unknown = null;
-  let lastNotFoundBody: ApiErrorBody | null = null;
+  let lastNotFoundBody: ApiErrorEnvelope | null = null;
 
   for (const baseUrl of fallbackApiBaseUrls) {
     try {
@@ -203,7 +196,7 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
 
   let response: Response | null = null;
   let lastNetworkError: unknown = null;
-  let lastNotFoundBody: ApiErrorBody | null = null;
+  let lastNotFoundBody: ApiErrorEnvelope | null = null;
 
   for (const baseUrl of fallbackApiBaseUrls) {
     try {

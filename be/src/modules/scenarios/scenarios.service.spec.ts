@@ -78,6 +78,7 @@ function createService() {
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     user: {
       findUnique: jest.fn(({ where }: { where: { id: string } }) => {

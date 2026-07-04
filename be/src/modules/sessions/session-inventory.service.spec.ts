@@ -31,8 +31,8 @@ describe("SessionInventoryService", () => {
     prisma.inventoryEntry.findMany.mockResolvedValue([]);
 
     await service.replaceSessionInventoryEntries("session-character-1", [
-      { itemDefinitionId: "item-1", quantity: 2 },
-      { itemDefinitionId: "missing-item", quantity: 5 },
+      { id: "inventory-item-1", name: "Item 1", itemDefinitionId: "item-1", quantity: 2 },
+      { id: "inventory-item-2", name: "Missing Item", itemDefinitionId: "missing-item", quantity: 5 },
     ]);
 
     expect(tx.inventoryEntry.deleteMany).toHaveBeenCalledWith({

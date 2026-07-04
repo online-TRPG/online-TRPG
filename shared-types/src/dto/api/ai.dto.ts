@@ -16,6 +16,7 @@ import {
   Min,
 } from "class-validator";
 import { AiTraceKind, AiTraceStatus } from "../../constants/enums";
+import { HUMAN_GM_AI_ASSIST_PROMPT_MAX_LENGTH } from "../../constants/runtime-limits";
 
 export class AiNarrationRequestDto {
   @ApiProperty({ example: "I cautiously push the heavy stone door." })
@@ -173,7 +174,7 @@ export class AiHumanGmAssistSuggestionRequestDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
+  @MaxLength(HUMAN_GM_AI_ASSIST_PROMPT_MAX_LENGTH)
   prompt!: string;
 
   @ApiProperty()

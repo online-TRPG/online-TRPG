@@ -12,6 +12,7 @@ import {
   CombatReactionPromptDto,
   CombatReactionResponseDto,
   DiceAdvantageState,
+  MONSTER_ACTION_UNAVAILABLE_REASONS,
 } from "@trpg/shared-types";
 import { CombatService } from "./combat.service";
 import {
@@ -37,6 +38,7 @@ import { CombatCoverService } from "./combat-cover.service";
 import { CombatMapperService } from "./combat-mapper.service";
 import { CombatMonsterActionService } from "./combat-monster-action.service";
 import { CombatMonsterResourceService } from "./combat-monster-resource.service";
+import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "./combat-runtime-flags.constants";
 import { CombatMovementService } from "./combat-movement.service";
 import { CombatReactionService } from "./combat-reaction.service";
 import { CombatReactionContinuationService } from "./combat-reaction-continuation.service";
@@ -525,7 +527,7 @@ describe("CombatService lifecycle", () => {
       sessionScenario: { id: "session-scenario-1" },
       state: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             [monster.id]: {
               "monster.cult_fanatic.ability.combat_surge": {
                 usage: "1/combat",
@@ -555,7 +557,7 @@ describe("CombatService lifecycle", () => {
       where: { sessionScenarioId: "session-scenario-1" },
       data: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             [monster.id]: {
               "monster.cult_fanatic.ability.dark_blessing": {
                 usage: "1/day",
@@ -7018,7 +7020,7 @@ describe("CombatService lifecycle", () => {
               },
             },
           },
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             [monster.id]: {
               "monster.red_dragon_wyrmling.ability.dark_blessing": {
                 usage: "1/day",
@@ -7092,12 +7094,12 @@ describe("CombatService lifecycle", () => {
       expect.objectContaining({
         actionId: "monster.red_dragon_wyrmling.ability.fire_breath",
         available: false,
-        unavailableReason: "MONSTER_RECHARGE_ACTION_EXPENDED",
+        unavailableReason: MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED,
       }),
       expect.objectContaining({
         actionId: "monster.red_dragon_wyrmling.ability.dark_blessing",
         available: false,
-        unavailableReason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+        unavailableReason: MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED,
       }),
       expect.any(Object),
     ]);
@@ -7678,7 +7680,7 @@ describe("CombatService lifecycle", () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         data: expect.objectContaining({
-          reason: "MONSTER_RECHARGE_ACTION_EXPENDED",
+          reason: MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED,
         }),
       }),
     });
@@ -7794,7 +7796,7 @@ describe("CombatService lifecycle", () => {
       where: { sessionScenarioId: "session-scenario-1" },
       data: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             [monster.id]: {
               [selectedAction.actionId]: {
                 usage: "1/day",
@@ -7872,7 +7874,7 @@ describe("CombatService lifecycle", () => {
       sessionScenario: { id: "session-scenario-1" },
       state: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             [monster.id]: {
               [selectedAction.actionId]: {
                 usage: "1/day",
@@ -7913,7 +7915,7 @@ describe("CombatService lifecycle", () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         data: expect.objectContaining({
-          reason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+          reason: MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED,
         }),
       }),
     });

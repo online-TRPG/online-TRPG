@@ -1,4 +1,5 @@
 import { VttMapStateDto } from "@trpg/shared-types";
+import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
 import { ActionProcessorService } from "./action-processor.service";
 
 describe("ActionProcessorService session action queue", () => {
@@ -1362,7 +1363,7 @@ describe("ActionProcessorService rest runtime effects", () => {
   it("clears rest-bound monster limited-use flags on long rest", async () => {
     const { service, prisma } = createService(
       JSON.stringify({
-        monsterLimitedUseExpended: {
+        [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
           "participant-dragon": {
             "monster.dragon.frightful_presence": {
               usage: "1/day",
@@ -1394,7 +1395,7 @@ describe("ActionProcessorService rest runtime effects", () => {
       where: { sessionScenarioId: "session-scenario-1" },
       data: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             "participant-dragon": {
               "monster.dragon.combat_surge": {
                 usage: "1/combat",
@@ -1413,7 +1414,7 @@ describe("ActionProcessorService rest runtime effects", () => {
   it("clears rest-only monster limited-use flags on short rest", async () => {
     const { service, prisma } = createService(
       JSON.stringify({
-        monsterLimitedUseExpended: {
+        [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
           "participant-dragon": {
             "monster.dragon.frightful_presence": {
               usage: "1/day",
@@ -1442,7 +1443,7 @@ describe("ActionProcessorService rest runtime effects", () => {
       where: { sessionScenarioId: "session-scenario-1" },
       data: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             "participant-dragon": {
               "monster.dragon.frightful_presence": {
                 usage: "1/day",

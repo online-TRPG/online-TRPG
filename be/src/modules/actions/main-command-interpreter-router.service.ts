@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { MainCommandIntent, SubmitMainCommandDto } from "@trpg/shared-types";
 import type { InterpreterParsedForRouting } from "./main-commands.service";
+import { MAIN_COMMAND_CONFIDENCE } from "./main-command-policy.constants";
 import { MainCommandSceneEntityService } from "./main-command-scene-entity.service";
 import type { VisibleSceneEntity } from "./main-command-scene-entity.service";
 import { MainCommandValidatorService } from "./main-command-validator.service";
@@ -132,7 +133,7 @@ export class MainCommandInterpreterRouterService {
         ...parsed.action,
         type: intent,
         approach: actionSummary,
-        confidence: Math.max(parsed.action.confidence ?? 0, 0.55),
+        confidence: Math.max(parsed.action.confidence ?? 0, MAIN_COMMAND_CONFIDENCE.ROUTER_ROUTE_FLOOR),
         requiresRoll: true,
         suggestedDifficulty: parsed.action.suggestedDifficulty ?? "medium",
       },

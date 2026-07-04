@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
-import { VttMapStateDto } from "@trpg/shared-types";
+import { VTT_DOOR_STATES, VttMapStateDto } from "@trpg/shared-types";
 
 type VttToken = VttMapStateDto["tokens"][number];
 type GridCell = { column: number; row: number };
@@ -117,7 +117,7 @@ export class SessionVttMovementPolicyService {
     const blockers = [
       ...(map.terrainCells ?? []).filter((cell) => !cell.terrainEffectId),
       ...(map.wallCells ?? []),
-      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+      ...(map.doorCells ?? []).filter((door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN),
       ...(options.ignoreTokens
         ? []
         : map.tokens

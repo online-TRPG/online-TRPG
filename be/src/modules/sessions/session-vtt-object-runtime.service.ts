@@ -3,11 +3,20 @@ import { ActionOutcome as PrismaActionOutcome, Prisma, SessionCharacterStatus as
 import {
   ActionOutcome,
   DiceAdvantageState,
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
+  MainCommandCheckEffectDto,
   MainCommandCheckOptionDto,
   MainCommandStatus,
   TurnLogResponseDto,
+  VTT_CHECK_DC_MAX,
+  VTT_CHECK_DC_MIN,
+  VttDoorCheckEffectDto,
+  VttHazardCheckEffectDto,
   VttMapStateDto,
+  VttObjectCheckEffectDto,
   VttObjectHazardDto,
+  VTT_CHECK_EFFECT_ACTIONS,
+  VTT_DOOR_STATES,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
@@ -83,6 +92,39 @@ export class SessionVttObjectRuntimeRunner {
 
   private normalizeVttMap(...args: any[]): VttMapStateDto {
     return this.runtime.normalizeVttMap(...args) as VttMapStateDto;
+  }
+
+  private async publishVttMapUpdate(sessionId: string, map: VttMapStateDto, publishSnapshot = false): Promise<void> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.realtimeEvents.emitVttMapUpdated(session.id, {
+      hostUserId: session.hostUserId,
+      hostMap: map,
+      playerMap: this.redactVttMapForPlayer(map),
+    });
+    if (publishSnapshot) {
+      this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
+    }
+  }
+
+  private async persistAndPublishVttMap(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    flags: Record<string, unknown>;
+    map: VttMapStateDto;
+    publishSnapshot?: boolean;
+  }): Promise<void> {
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...params.flags,
+          vttMap: params.map,
+        }),
+      },
+    });
+
+    await this.publishVttMapUpdate(params.sessionId, params.map, params.publishSnapshot);
   }
 
   private parseJson<T>(...args: any[]): T {
@@ -358,22 +400,11 @@ export class SessionVttObjectRuntimeRunner {
       },
       state.currentNodeId ?? null,
     );
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: params.sessionScenarioId },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...flags,
-          vttMap: nextMap,
-        }),
-      },
-    });
-
-    const session = await this.getSessionEntityOrThrow(params.sessionId);
-    this.realtimeEvents.emitVttMapUpdated(session.id, {
-      hostUserId: session.hostUserId,
-      hostMap: nextMap,
-      playerMap: this.redactVttMapForPlayer(nextMap),
+    await this.persistAndPublishVttMap({
+      sessionId: params.sessionId,
+      sessionScenarioId: params.sessionScenarioId,
+      flags,
+      map: nextMap,
     });
 
     return { count: observableObjectIds.size, objectNames };
@@ -389,18 +420,18 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const result = await this.updateVttDoorAtPoint(params, (door) => {
       const doorName = door.name?.trim() || "문";
 
-      if (door.state === "open") {
+      if (door.state === VTT_DOOR_STATES.OPEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 지나갈 수 있습니다.` };
       }
-      if (door.state === "locked") {
+      if (door.state === VTT_DOOR_STATES.LOCKED) {
         const requiredKeyId = door.keyItemId?.trim() || null;
         const providedItemId = params.itemId?.trim() || null;
         if (requiredKeyId && providedItemId !== requiredKeyId) {
@@ -416,13 +447,13 @@ export class SessionVttObjectRuntimeRunner {
             status: MainCommandStatus.CHECK_REQUIRED,
             message: `${doorName}은 잠겨 있습니다. 자물쇠를 열려면 판정이 필요합니다.`,
             checkOptions: [{ skill: "sleight_of_hand", dc: 15, reason: "잠긴 문 해제" }],
-            checkEffect: this.buildVttDoorCheckEffect(door, params, "open"),
+            checkEffect: this.buildVttDoorCheckEffect(door, params, VTT_CHECK_EFFECT_ACTIONS.OPEN),
           };
         }
       }
 
       return {
-        door: { ...door, state: "open" as const },
+        door: { ...door, state: VTT_DOOR_STATES.OPEN },
         status: MainCommandStatus.RESOLVED,
         message: `${doorName}을 열었습니다.`,
       };
@@ -445,18 +476,18 @@ export class SessionVttObjectRuntimeRunner {
     return this.updateVttDoorAtPoint(params, (door) => {
       const doorName = door.name?.trim() || "문";
 
-      if (door.state === "closed") {
+      if (door.state === VTT_DOOR_STATES.CLOSED) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 닫혀 있습니다.` };
       }
-      if (door.state === "locked") {
+      if (door.state === VTT_DOOR_STATES.LOCKED) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 잠겨 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.IMPOSSIBLE, message: `${doorName}은 파괴되어 닫을 수 없습니다.` };
       }
 
       return {
-        door: { ...door, state: "closed" as const },
+        door: { ...door, state: VTT_DOOR_STATES.CLOSED },
         status: MainCommandStatus.RESOLVED,
         message: `${doorName}을 닫았습니다.`,
       };
@@ -555,13 +586,7 @@ export class SessionVttObjectRuntimeRunner {
       });
     });
 
-    const session = await this.getSessionEntityOrThrow(params.sessionId);
-    this.realtimeEvents.emitVttMapUpdated(session.id, {
-      hostUserId: session.hostUserId,
-      hostMap: nextMap,
-      playerMap: this.redactVttMapForPlayer(nextMap),
-    });
-    this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
+    await this.publishVttMapUpdate(params.sessionId, nextMap, true);
 
     return {
       status: MainCommandStatus.RESOLVED,
@@ -573,15 +598,15 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.updateVttDoorAtPoint(params, (door) => {
       const doorName = door.name?.trim() || "문";
 
-      if (door.state === "open") {
+      if (door.state === VTT_DOOR_STATES.OPEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 있습니다.` };
       }
       if (!door.canBreak) {
@@ -597,12 +622,12 @@ export class SessionVttObjectRuntimeRunner {
           status: MainCommandStatus.CHECK_REQUIRED,
           message: `${doorName}을 부수려면 DC ${door.breakCheckDc} 판정이 필요합니다.`,
           checkOptions: [{ ability: "str", dc: door.breakCheckDc, reason: "문 파괴" }],
-          checkEffect: this.buildVttDoorCheckEffect(door, params, "broken"),
+          checkEffect: this.buildVttDoorCheckEffect(door, params, VTT_CHECK_EFFECT_ACTIONS.BROKEN),
         };
       }
 
       return {
-        door: { ...door, state: "broken" as const },
+        door: { ...door, state: VTT_DOOR_STATES.BROKEN },
         status: MainCommandStatus.RESOLVED,
         message: `${doorName}을 부쉈습니다.`,
       };
@@ -613,7 +638,7 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.updateVttObjectAtPoint(params, (cell) => {
       const objectName = cell.name?.trim() || "오브젝트";
@@ -655,25 +680,25 @@ export class SessionVttObjectRuntimeRunner {
   }): Promise<{ status: MainCommandStatus; message: string }> {
     const result = await this.updateVttDoorById(params, (door) => {
       const doorName = door.name?.trim() || "문";
-      if (params.effect === "open") {
-        if (door.state === "open") {
+      if (params.effect === VTT_CHECK_EFFECT_ACTIONS.OPEN) {
+        if (door.state === VTT_DOOR_STATES.OPEN) {
           return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
         }
         return {
-          door: { ...door, state: "open" as const },
+          door: { ...door, state: VTT_DOOR_STATES.OPEN },
           status: MainCommandStatus.RESOLVED,
           message: `판정에 성공해 ${doorName}을 열었습니다.`,
         };
       }
 
-      if (door.state === "open") {
+      if (door.state === VTT_DOOR_STATES.OPEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 있습니다.` };
       }
       return {
-        door: { ...door, state: "broken" as const },
+        door: { ...door, state: VTT_DOOR_STATES.BROKEN },
         status: MainCommandStatus.RESOLVED,
         message: `판정에 성공해 ${doorName}을 부쉈습니다.`,
       };
@@ -717,7 +742,7 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
@@ -759,7 +784,7 @@ export class SessionVttObjectRuntimeRunner {
       status: MainCommandStatus.CHECK_REQUIRED,
       message: `${hazardName}을 해제하려면 판정이 필요합니다.`,
       checkOptions: [{ skill: "sleight_of_hand", dc, reason: "함정 해제" }],
-      checkEffect: this.buildVttHazardCheckEffect(hazardCell, params, "disarm"),
+      checkEffect: this.buildVttHazardCheckEffect(hazardCell, params, VTT_CHECK_EFFECT_ACTIONS.DISARM),
     };
   }
 
@@ -992,7 +1017,7 @@ export class SessionVttObjectRuntimeRunner {
         }
 
         const check = this.rollHazardDetection(sessionCharacter.character);
-        const detectionDc = this.clampNumber(Number(hazard.detectionDc) || 12, 1, 40);
+        const detectionDc = this.clampNumber(Number(hazard.detectionDc) || 12, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX);
         const success = check.total >= detectionDc;
         attempted.add(sessionCharacterId);
         if (success) {
@@ -1457,13 +1482,13 @@ export class SessionVttObjectRuntimeRunner {
       status: MainCommandStatus;
       message: string;
       checkOptions?: MainCommandCheckOptionDto[];
-      checkEffect?: Record<string, unknown>;
+      checkEffect?: MainCommandCheckEffectDto;
     },
   ): Promise<{
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
@@ -1490,22 +1515,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1558,22 +1572,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1592,13 +1595,13 @@ export class SessionVttObjectRuntimeRunner {
       status: MainCommandStatus;
       message: string;
       checkOptions?: MainCommandCheckOptionDto[];
-      checkEffect?: Record<string, unknown>;
+      checkEffect?: MainCommandCheckEffectDto;
     },
   ): Promise<{
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
@@ -1628,22 +1631,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1696,22 +1688,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1759,22 +1740,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1784,10 +1754,10 @@ export class SessionVttObjectRuntimeRunner {
   private buildVttDoorCheckEffect(
     door: NonNullable<VttMapStateDto["doorCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
-    effect: "open" | "broken",
-  ): Record<string, unknown> {
+    effect: typeof VTT_CHECK_EFFECT_ACTIONS.OPEN | typeof VTT_CHECK_EFFECT_ACTIONS.BROKEN,
+  ): VttDoorCheckEffectDto {
     return {
-      type: "vttDoor",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR,
       doorId: door.id,
       effect,
       nodeId: params.nodeId,
@@ -1798,10 +1768,10 @@ export class SessionVttObjectRuntimeRunner {
   private buildVttHazardCheckEffect(
     cell: NonNullable<VttMapStateDto["objectCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
-    effect: "disarm",
-  ): Record<string, unknown> {
+    effect: typeof VTT_CHECK_EFFECT_ACTIONS.DISARM,
+  ): VttHazardCheckEffectDto {
     return {
-      type: "vttHazard",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD,
       hazardId: cell.id,
       effect,
       nodeId: params.nodeId,
@@ -1812,11 +1782,11 @@ export class SessionVttObjectRuntimeRunner {
   private buildVttObjectCheckEffect(
     cell: NonNullable<VttMapStateDto["objectCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
-  ): Record<string, unknown> {
+  ): VttObjectCheckEffectDto {
     return {
-      type: "vttObject",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT,
       objectId: cell.id,
-      effect: "broken",
+      effect: VTT_CHECK_EFFECT_ACTIONS.BROKEN,
       nodeId: params.nodeId,
       mapPoint: params.mapPoint,
     };
@@ -1935,7 +1905,7 @@ export class SessionVttObjectRuntimeRunner {
           requiresCheck: check.requiresCheck !== false,
           ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
           skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
-          dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
+          dc: this.clampNumber(Number(check.dc) || 15, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX),
         };
       })
       .filter(
@@ -2024,7 +1994,7 @@ export class SessionVttObjectRuntimeRunner {
     const blockers = [
       ...(map.terrainCells ?? []).filter((cell) => !cell.terrainEffectId),
       ...(map.wallCells ?? []),
-      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+      ...(map.doorCells ?? []).filter((door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN),
     ];
     if (!blockers.length) {
       return false;

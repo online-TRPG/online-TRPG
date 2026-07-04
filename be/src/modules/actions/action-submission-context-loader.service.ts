@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   ActionScope as PrismaActionScope,
+  CombatStatus as PrismaCombatStatus,
   GamePhase as PrismaGamePhase,
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
@@ -271,7 +272,7 @@ export class ActionSubmissionContextLoaderService {
     const combat = await this.prisma.combat.findFirst({
       where: {
         sessionId: params.sessionId,
-        status: "ACTIVE",
+        status: PrismaCombatStatus.ACTIVE,
       },
       include: { participants: true },
       orderBy: { createdAt: "desc" },

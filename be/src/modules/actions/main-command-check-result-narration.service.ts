@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandIntent } from "@trpg/shared-types";
+import { ActionOutcome, MainCommandIntent, MainCommandNarrativeCheckEffectDto } from "@trpg/shared-types";
 import { AiService } from "../ai/ai.service";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
+
+type MainCommandCheckEffect = MainCommandNarrativeCheckEffectDto;
 
 @Injectable()
 export class MainCommandCheckResultNarrationService {

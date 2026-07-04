@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandCheckOptionDto, MainCommandStatus } from "@trpg/shared-types";
+import { MainCommandCheckEffectDto, MainCommandCheckOptionDto, MainCommandStatus } from "@trpg/shared-types";
 import { SessionsService } from "./sessions.service";
 
 type MapPoint = { x: number; y: number };
@@ -17,7 +17,7 @@ export class VttMapObjectRuntimeService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionsService.breakVttObjectAtPoint(params);
   }

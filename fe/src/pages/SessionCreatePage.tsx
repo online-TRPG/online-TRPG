@@ -9,6 +9,7 @@
  * 5) JSX: 입력 폼 카드와 선택 시나리오 프리뷰 카드
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { isRecruitingSessionStatus } from '@trpg/shared-types/frontend';
 import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
@@ -81,7 +82,7 @@ export function SessionCreatePage({
   const [selectedScenarioImage, setSelectedScenarioImage] = useState<string | null>(null);
 
   // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
-  const hasRecruitingSession = mySessionList.some((item) => item.status === 'recruiting');
+  const hasRecruitingSession = mySessionList.some((item) => isRecruitingSessionStatus(item.status));
 
   // 시나리오 옵션이 로드되면 구현 완료된 기본 제공 시나리오를 우선 선택합니다.
   useEffect(() => {

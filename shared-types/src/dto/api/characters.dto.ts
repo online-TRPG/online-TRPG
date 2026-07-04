@@ -247,6 +247,18 @@ export class InventoryItemDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  rangeFt?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  longRangeFt?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   armorClassBase?: number;
 
   @ApiPropertyOptional()

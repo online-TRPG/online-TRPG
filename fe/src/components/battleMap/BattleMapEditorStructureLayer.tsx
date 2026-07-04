@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { Layer, Rect, Text } from 'react-konva';
 import type { ComponentProps } from 'react';
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { VttMapStateDto } from '@trpg/shared-types';
 import { getTerrainEffectVisual } from './battleMapTerrainEffects';
 
@@ -99,11 +100,11 @@ export function BattleMapEditorStructureLayer({
       ))}
       {doorCells.map((cell) => {
         const doorColor =
-          cell.state === 'open'
+          cell.state === VTT_DOOR_STATES.OPEN
             ? 'rgba(76, 143, 117, 0.64)'
-            : cell.state === 'locked'
+            : cell.state === VTT_DOOR_STATES.LOCKED
               ? 'rgba(183, 86, 75, 0.72)'
-              : cell.state === 'broken'
+              : cell.state === VTT_DOOR_STATES.BROKEN
                 ? 'rgba(128, 118, 106, 0.66)'
                 : 'rgba(198, 143, 52, 0.7)';
         return (

@@ -400,7 +400,7 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     ownerUserId: session.hostUserId,
     captainUserId: session.captainUserId,
     gmMode: gmModeMap[session.gmMode],
-    gmUserId: session.gmMode === "HUMAN" ? (session.gmUserId ?? session.hostUserId) : null,
+    gmUserId: session.gmMode === PrismaGmMode.HUMAN ? (session.gmUserId ?? session.hostUserId) : null,
     inviteCode: session.inviteCode,
     status: sessionStatusMap[session.status],
     visibility,

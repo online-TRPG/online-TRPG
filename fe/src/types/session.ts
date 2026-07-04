@@ -15,6 +15,7 @@ import type {
   SessionSnapshotDto,
   UserResponseDto,
 } from "@trpg/shared-types";
+import { normalizeSessionStatus } from "@trpg/shared-types/frontend";
 
 export type User = UserResponseDto;
 export type Scenario = ScenarioSummaryResponseDto;
@@ -63,13 +64,10 @@ function normalizeUserPublicId(user: User): User {
 }
 
 function normalizeSessionPublicId(session: Session): Session {
-  const normalizedStatus =
-    typeof session.status === "string" ? session.status.toLowerCase() : session.status;
-
   return {
     ...session,
     publicId: session.publicId ?? session.id,
-    status: normalizedStatus as Session["status"],
+    status: normalizeSessionStatus(session.status) as Session["status"],
   };
 }
 
@@ -105,14 +103,7 @@ export function normalizeSessionDetail(
   };
 }
 
-export interface ApiErrorBody {
-  code?: string;
-  statusCode?: number;
-  message?: string | string[];
-  data?: unknown;
-  timestamp?: string;
-  path?: string;
-}
+export type { ApiErrorEnvelope as ApiErrorBody } from '@trpg/shared-types';
 
 export interface LogEntry {
   id: string;

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Layer, Rect } from 'react-konva';
-import type {
-  ScenarioAssetResponseDto,
-  SrdMonsterReferenceDto,
-  VttMapStateDto,
+import {
+  type ScenarioAssetResponseDto,
+  type SrdMonsterReferenceDto,
+  type VttMapStateDto,
 } from '@trpg/shared-types';
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import { BattleMapBackgroundLayer } from './BattleMapBackgroundLayer';
 import type { BattleMapGridLine } from './BattleMapBackgroundLayer';
 import { BattleMapCanvas } from './BattleMapCanvas';
@@ -792,7 +793,9 @@ export function BattleMap({
         [
           ...terrainCells.filter((cell) => !cell.terrainEffectId),
           ...wallCells,
-          ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
+          ...doorCells.filter(
+            (door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN
+          ),
         ],
         map
       ),
@@ -1295,7 +1298,7 @@ export function BattleMap({
     };
     const nextCell =
       kind === 'door'
-        ? { ...base, state: 'closed' as const, keyItemId: null, canBreak: false, breakCheckDc: null }
+        ? { ...base, state: VTT_DOOR_STATES.CLOSED, keyItemId: null, canBreak: false, breakCheckDc: null }
         : kind === 'object'
           ? {
               ...base,

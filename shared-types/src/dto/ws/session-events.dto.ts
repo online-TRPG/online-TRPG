@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from "class-validator";
+import { CHAT_MESSAGE_MAX_LENGTH } from "../../constants/runtime-limits";
 import { SessionCharacterResponseDto } from "../api/characters.dto";
 import {
   CombatResponseDto,
@@ -27,10 +28,10 @@ export class ChatSendMessageDto {
   @IsString()
   sessionId!: string;
 
-  @ApiProperty({ maxLength: 1000 })
+  @ApiProperty({ maxLength: CHAT_MESSAGE_MAX_LENGTH })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(1000)
+  @MaxLength(CHAT_MESSAGE_MAX_LENGTH)
   content!: string;
 
   @ApiPropertyOptional({ enum: ["CHAT", "MAIN"] })

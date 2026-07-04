@@ -1,9 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import {
   MainCommandCheckOptionDto,
+  MainCommandCheckEffectDto,
   MainCommandStatus,
   VttMapInteractionDto,
   VttMapInteractionResponseDto,
+  VTT_MAP_INTERACTION_KINDS,
 } from "@trpg/shared-types";
 import { SessionsService } from "./sessions.service";
 import { VttMapDoorRuntimeService } from "./vtt-map-door-runtime.service";
@@ -58,10 +60,10 @@ export class VttMapInteractionRuntimeService {
       status: MainCommandStatus;
       message: string;
       checkOptions?: MainCommandCheckOptionDto[];
-      checkEffect?: Record<string, unknown>;
+      checkEffect?: MainCommandCheckEffectDto;
     } | null = null;
 
-    if (dto.kind === "open_door") {
+    if (dto.kind === VTT_MAP_INTERACTION_KINDS.OPEN_DOOR) {
       result = await this.doorRuntime.openAtPoint({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,
@@ -69,35 +71,35 @@ export class VttMapInteractionRuntimeService {
         mapPoint,
         itemId: dto.itemId,
       });
-    } else if (dto.kind === "break_door") {
+    } else if (dto.kind === VTT_MAP_INTERACTION_KINDS.BREAK_DOOR) {
       result = await this.doorRuntime.breakAtPoint({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,
         nodeId: state.currentNodeId,
         mapPoint,
       });
-    } else if (dto.kind === "close_door") {
+    } else if (dto.kind === VTT_MAP_INTERACTION_KINDS.CLOSE_DOOR) {
       result = await this.doorRuntime.closeAtPoint({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,
         nodeId: state.currentNodeId,
         mapPoint,
       });
-    } else if (dto.kind === "disarm_hazard") {
+    } else if (dto.kind === VTT_MAP_INTERACTION_KINDS.DISARM_HAZARD) {
       result = await this.hazardRuntime.disarmAtPoint({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,
         nodeId: state.currentNodeId,
         mapPoint,
       });
-    } else if (dto.kind === "break_object") {
+    } else if (dto.kind === VTT_MAP_INTERACTION_KINDS.BREAK_OBJECT) {
       result = await this.objectRuntime.breakAtPoint({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,
         nodeId: state.currentNodeId,
         mapPoint,
       });
-    } else if (dto.kind === "investigate_object") {
+    } else if (dto.kind === VTT_MAP_INTERACTION_KINDS.INVESTIGATE_OBJECT) {
       result = await this.objectRuntime.investigateAtPoint({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,
@@ -105,7 +107,7 @@ export class VttMapInteractionRuntimeService {
         mapPoint,
         actorSessionCharacterId,
       });
-    } else if (dto.kind === "detect_hazard") {
+    } else if (dto.kind === VTT_MAP_INTERACTION_KINDS.DETECT_HAZARD) {
       result = await this.objectRuntime.detectObservableInPartyVision({
         sessionId: resolvedSessionId,
         sessionScenarioId: sessionScenario.id,

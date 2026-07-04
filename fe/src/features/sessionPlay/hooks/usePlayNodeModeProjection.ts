@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { isEndedCombatStatus } from '@trpg/shared-types/frontend';
 import type { CombatResponseDto } from '@trpg/shared-types';
 import type { PlayerScenarioNode } from '../../../types/session';
 import { getCompletedCombatNodeIds } from '../utils/combatResultPresentation';
@@ -34,7 +35,7 @@ export function usePlayNodeModeProjection(params: UsePlayNodeModeProjectionParam
     currentNode?.nodeType === 'combat' &&
       currentNode.id &&
       (completedCombatNodeIds.has(currentNode.id) ||
-        (combat?.sessionId === sessionId && combat?.status === 'ENDED')),
+        (combat?.sessionId === sessionId && isEndedCombatStatus(combat?.status))),
   );
   const currentScreenType = isCompletedCombatNode
     ? MainCommandScreenTypeValues.EXPLORATION

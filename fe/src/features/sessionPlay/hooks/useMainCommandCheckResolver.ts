@@ -1,13 +1,15 @@
 import type {
   ActionOutcome,
+  MainCommandCheckEffectDto,
   MainCommandResponseDto,
   ResolveMainCommandCheckDto,
 } from '@trpg/shared-types';
+import { isMainCommandImpossible } from '@trpg/shared-types/frontend';
 
 export type PendingMainCommandCheck = {
   requestId: string;
   message: string;
-  effect: Record<string, unknown>;
+  effect: MainCommandCheckEffectDto;
 };
 
 type MainCommandCheckActorSource = {
@@ -60,7 +62,7 @@ export function useMainCommandCheckResolver(
       ...(actorId ? { actorId } : {}),
     });
 
-    if (response?.status === 'IMPOSSIBLE') {
+    if (isMainCommandImpossible(response)) {
       setMainCommandError(response.message);
       return;
     }

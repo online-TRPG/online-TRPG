@@ -47,7 +47,7 @@ import {
 } from '../utils/inventoryItemModel';
 import {
   getThrowableLongRangeFt,
-  getWeaponFallbackRangeFt,
+  getWeaponRangeFt,
   isLightMeleeWeaponItem,
   isSneakAttackWeaponItem,
 } from '../utils/combatInventoryRules';
@@ -407,11 +407,11 @@ export function CombatNodeSurface({
       !isCombatBusy
   );
   const attackName = equippedWeapon ? getUserFacingItemName(equippedWeapon) : '기본 공격';
-  const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
+  const attackRangeFt = equippedWeapon ? getWeaponRangeFt(equippedWeapon) : 5;
   const offhandAttackName = offhandWeapon
     ? `보조 공격(${getUserFacingItemName(offhandWeapon)})`
     : '보조 공격';
-  const offhandAttackRangeFt = offhandWeapon ? getWeaponFallbackRangeFt(offhandWeapon) : 5;
+  const offhandAttackRangeFt = offhandWeapon ? getWeaponRangeFt(offhandWeapon) : 5;
   const offhandWeaponIsLightMelee = isLightMeleeWeaponItem(offhandWeapon);
   const isSelectedTargetInRange = useMemo(() => {
     if (!map || !myCombatParticipant || !selectedTargetParticipant) return false;

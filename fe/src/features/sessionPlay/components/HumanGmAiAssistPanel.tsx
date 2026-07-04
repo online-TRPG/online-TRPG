@@ -1,9 +1,13 @@
 import { useState } from 'react';
-import type {
-  AiHumanGmAssistSuggestionRequestDto,
-  CreateHumanGmAiAssistSuggestionDto,
-  HumanGmAiAssistSuggestionDto,
+import {
+  type AiHumanGmAssistSuggestionRequestDto,
+  type CreateHumanGmAiAssistSuggestionDto,
+  type HumanGmAiAssistSuggestionDto,
 } from '@trpg/shared-types';
+import {
+  HUMAN_GM_AI_ASSIST_CONTENT_MAX_LENGTH,
+  HUMAN_GM_AI_ASSIST_PROMPT_MAX_LENGTH,
+} from '@trpg/shared-types/frontend';
 import './HumanGmAiAssistPanel.css';
 
 type GmAiAssistType = CreateHumanGmAiAssistSuggestionDto['assistType'];
@@ -58,9 +62,11 @@ export function HumanGmAiAssistPanel({
   const [content, setContent] = useState('');
   const [target, setTarget] = useState('');
   const pendingSuggestions = suggestions.filter((suggestion) => suggestion.status === 'PENDING');
+  const trimmedContent = content.trim();
+  const canGenerateFromContent =
+    trimmedContent.length > 0 && trimmedContent.length <= HUMAN_GM_AI_ASSIST_PROMPT_MAX_LENGTH;
 
   async function handleCreate() {
-    const trimmedContent = content.trim();
     if (!trimmedContent || !onCreate || isPending) return;
 
     const trimmedTarget = target.trim();
@@ -78,7 +84,7 @@ export function HumanGmAiAssistPanel({
 
   async function handleGenerate() {
     const trimmedPrompt = content.trim();
-    if (!trimmedPrompt || !onGenerate || isPending) return;
+    if (!trimmedPrompt || trimmedPrompt.length > HUMAN_GM_AI_ASSIST_PROMPT_MAX_LENGTH || !onGenerate || isPending) return;
 
     const trimmedTarget = target.trim();
     await onGenerate({
@@ -145,7 +151,7 @@ export function HumanGmAiAssistPanel({
           value={content}
           placeholder="검토할 AI 제안 내용을 입력하세요."
           rows={3}
-          maxLength={2000}
+          maxLength={HUMAN_GM_AI_ASSIST_CONTENT_MAX_LENGTH}
           disabled={isPending}
           onChange={(event) => setContent(event.target.value)}
         />
@@ -156,7 +162,7 @@ export function HumanGmAiAssistPanel({
               isBusy ||
               isPending ||
               !onCreate ||
-              !content.trim() ||
+              !trimmedContent ||
               (assistType === 'node_move' && !target)
             }
             onClick={() => void handleCreate()}
@@ -169,7 +175,7 @@ export function HumanGmAiAssistPanel({
               disabled={
                 isBusy ||
                 isPending ||
-                !content.trim() ||
+                !canGenerateFromContent ||
                 (assistType === 'node_move' && !target)
               }
               onClick={() => void handleGenerate()}

@@ -51,7 +51,7 @@ describe("SessionCampaignArchiveFlagStoreService", () => {
         turnLogCount: 12,
         nodeVisitCount: 5,
       },
-      publicRevisionLineage: [],
+      publicRevisionLineage: null,
     },
   };
 

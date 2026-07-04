@@ -7,6 +7,7 @@ import {
   RevealSessionContentDto,
   ScenarioNodeType,
   SessionStatus,
+  VTT_DOOR_STATES,
 } from "@trpg/shared-types";
 import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { CampaignArchiveRuntimeService } from "./campaign-archive-runtime.service";
@@ -2272,7 +2273,7 @@ describe("SessionsService VTT map structures", () => {
           y: 0,
           width: 64,
           height: 64,
-          state: "locked",
+          state: VTT_DOOR_STATES.LOCKED,
           keyItemId: "silver-key",
         },
       ],
@@ -2772,7 +2773,7 @@ describe("SessionsService VTT map structures", () => {
       gridSize: 64,
       terrainCells: [{ id: "rock", x: 64, y: 0, width: 64, height: 64 }],
       wallCells: [{ id: "wall", x: 128, y: 0, width: 64, height: 64 }],
-      doorCells: [{ id: "door", x: 192, y: 0, width: 64, height: 64, state: "closed" }],
+      doorCells: [{ id: "door", x: 192, y: 0, width: 64, height: 64, state: VTT_DOOR_STATES.CLOSED }],
     };
     const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
     const toToken = { ...fromToken, x: 192 };
@@ -2814,8 +2815,8 @@ describe("SessionsService VTT map structures", () => {
       terrainCells: [],
       wallCells: [],
       doorCells: [
-        { id: "open-door", x: 64, y: 0, width: 64, height: 64, state: "open" },
-        { id: "broken-door", x: 128, y: 0, width: 64, height: 64, state: "broken" },
+        { id: "open-door", x: 64, y: 0, width: 64, height: 64, state: VTT_DOOR_STATES.OPEN },
+        { id: "broken-door", x: 128, y: 0, width: 64, height: 64, state: VTT_DOOR_STATES.BROKEN },
       ],
     };
     const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };

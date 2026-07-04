@@ -9,6 +9,7 @@
  * 5) JSX: 좌측 사이드바, 필터 바, 세션 카드 목록, 페이지네이션, 초대 코드 모달, 상세 모달
  */
 import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
+import { GmMode, SessionStatus, isAiGmMode, isBlockingSessionStatus as isBlockingSharedSessionStatus } from "@trpg/shared-types/frontend";
 import { Icon } from "../components/Icon";
 import { SessionDetailModal } from "../components/SessionDetailModal";
 import sidePanelImage from "../components/Side_Panel.webp";
@@ -45,12 +46,11 @@ type SessionSort = "latest" | "title" | "players";
 
 // 서버 세션 상태값을 한국어 라벨로 바꿉니다.
 const STATUS_LABEL: Record<string, string> = {
-  lobby: "대기 중",
-  recruiting: "모집 중",
-  playing: "진행 중",
-  paused: "일시 정지",
-  completed: "완료",
-  disbanded: "해산",
+  [SessionStatus.RECRUITING]: "모집 중",
+  [SessionStatus.PLAYING]: "진행 중",
+  [SessionStatus.PAUSED]: "일시 정지",
+  [SessionStatus.COMPLETED]: "완료",
+  [SessionStatus.DISBANDED]: "해산",
 };
 
 const PAGE_SIZE = 4;
@@ -63,7 +63,7 @@ const JOIN_BLOCKED_NOTICE =
 
 // GM 모드 값에 따라 일반 GM/AI GM 라벨을 반환합니다.
 function getGmModeLabel(gmMode?: string | null): string {
-  return gmMode === "AI" ? AI_GM_LABEL : GENERAL_GM_LABEL;
+  return isAiGmMode(gmMode as GmMode | null | undefined) ? AI_GM_LABEL : GENERAL_GM_LABEL;
 }
 
 function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
@@ -84,7 +84,7 @@ function isInviteCodeError(error: string | null): boolean {
 }
 
 function isBlockingSessionStatus(status: string | undefined): boolean {
-  return status !== "completed" && status !== "disbanded";
+  return isBlockingSharedSessionStatus(status as SessionStatus | undefined);
 }
 
 // 페이지 전체에 띄울 에러만 걸러내고 메시지를 정리합니다.

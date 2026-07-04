@@ -1,4 +1,7 @@
-import { SessionCharacterStatus as PrismaSessionCharacterStatus } from "@prisma/client";
+import {
+  CharacterAvatarType as PrismaCharacterAvatarType,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
+} from "@prisma/client";
 import { SessionCharacterTransferClonePayloadService } from "./session-character-transfer-clone-payload.service";
 
 describe("SessionCharacterTransferClonePayloadService", () => {
@@ -21,7 +24,7 @@ describe("SessionCharacterTransferClonePayloadService", () => {
     spellsJson: "[]",
     equippedWeaponId: "longsword",
     offhandWeaponId: "shield",
-    avatarType: "preset",
+    avatarType: PrismaCharacterAvatarType.PRESET,
     avatarPresetId: "fighter-1",
     avatarUrl: "https://example.test/avatar.png",
     avatarUpdatedAt,
@@ -57,7 +60,7 @@ describe("SessionCharacterTransferClonePayloadService", () => {
       spellsJson: "[]",
       equippedWeaponId: "longsword",
       offhandWeaponId: "shield",
-      avatarType: "preset",
+      avatarType: PrismaCharacterAvatarType.PRESET,
       avatarPresetId: "fighter-1",
       avatarUrl: "https://example.test/avatar.png",
       avatarUpdatedAt,

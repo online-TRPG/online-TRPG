@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandIntent, MainCommandResponseDto, MainCommandStatus } from "@trpg/shared-types";
+import { ActionOutcome, MainCommandIntent, MainCommandNarrativeCheckEffectDto, MainCommandResponseDto, MainCommandStatus } from "@trpg/shared-types";
 import { SessionsService } from "../sessions/sessions.service";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
 
 type CheckResultDraft = {
   status: MainCommandStatus;
@@ -59,7 +58,7 @@ export class MainCommandCheckRevealService {
     requestId: string;
     sessionId: string;
     sessionScenarioId: string;
-    effect: MainCommandCheckEffect;
+    effect: MainCommandNarrativeCheckEffectDto;
     result: CheckResultDraft;
   }): Promise<{ result: CheckResultDraft; counts: RevealCountSummary }> {
     let result = params.result;

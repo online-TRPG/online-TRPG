@@ -1,5 +1,14 @@
 import { Injectable } from "@nestjs/common";
-import { VttMapStateDto } from "@trpg/shared-types";
+import {
+  VTT_CHECK_DC_MAX,
+  VTT_CHECK_DC_MIN,
+  VTT_DOOR_STATES,
+  VTT_DOOR_STATE_VALUES,
+  VTT_ENCOUNTER_PRIORITY_MAX,
+  VTT_ENCOUNTER_PRIORITY_MIN,
+  VttDoorState,
+  VttMapStateDto,
+} from "@trpg/shared-types";
 import { randomUUID } from "crypto";
 
 @Injectable()
@@ -25,7 +34,11 @@ export class SessionVttMapNormalizationService {
           ? {
               encounterRole: token.encounterRole === "fixed" ? ("fixed" as const) : ("scalable" as const),
               encounterGroupId: typeof token.encounterGroupId === "string" && token.encounterGroupId.trim() ? token.encounterGroupId.trim().slice(0, 80) : null,
-              encounterPriority: this.clampNumber(Number(token.encounterPriority) || 0, 0, 99),
+              encounterPriority: this.clampNumber(
+                Number(token.encounterPriority) || VTT_ENCOUNTER_PRIORITY_MIN,
+                VTT_ENCOUNTER_PRIORITY_MIN,
+                VTT_ENCOUNTER_PRIORITY_MAX,
+              ),
             }
           : {}),
         monster: token.monster
@@ -188,10 +201,15 @@ export class SessionVttMapNormalizationService {
     const wallCells = (map.wallCells ?? []).slice(0, 400).map((cell, index) => normalizeStructureCell(cell, "wall", index));
     const doorCells = (map.doorCells ?? []).slice(0, 200).map((cell, index) => ({
       ...normalizeStructureCell(cell, "door", index),
-      state: cell.state === "open" || cell.state === "closed" || cell.state === "locked" || cell.state === "broken" ? cell.state : "closed",
+      state: VTT_DOOR_STATE_VALUES.includes(cell.state as VttDoorState)
+        ? (cell.state as VttDoorState)
+        : VTT_DOOR_STATES.CLOSED,
       keyItemId: typeof cell.keyItemId === "string" && cell.keyItemId.trim() ? cell.keyItemId.trim() : null,
       canBreak: cell.canBreak === true,
-      breakCheckDc: typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc) ? this.clampNumber(cell.breakCheckDc, 1, 40) : null,
+      breakCheckDc:
+        typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc)
+          ? this.clampNumber(cell.breakCheckDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX)
+          : null,
     }));
     const objectCells = (map.objectCells ?? []).slice(0, 300).map((cell, index) => {
       const baseCell = normalizeStructureCell(cell, "object", index);
@@ -204,7 +222,10 @@ export class SessionVttMapNormalizationService {
         visibleToPlayers: cell.visibleToPlayers !== false,
         canBreak: cell.canBreak === true,
         broken: cell.broken === true,
-        breakCheckDc: typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc) ? this.clampNumber(cell.breakCheckDc, 1, 40) : null,
+        breakCheckDc:
+          typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc)
+            ? this.clampNumber(cell.breakCheckDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX)
+            : null,
         hiddenClueIds: Array.isArray(cell.hiddenClueIds) ? cell.hiddenClueIds.filter((id) => typeof id === "string").slice(0, 30) : [],
         hiddenItemIds: Array.isArray(cell.hiddenItemIds) ? cell.hiddenItemIds.filter((id) => typeof id === "string").slice(0, 30) : [],
         hiddenEventIds: Array.isArray(cell.hiddenEventIds) ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30) : [],
@@ -218,7 +239,7 @@ export class SessionVttMapNormalizationService {
                 requiresCheck: check.requiresCheck !== false,
                 ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
                 skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
-                dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
+                dc: this.clampNumber(Number(check.dc) || 15, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX),
               }))
               .filter((check) => check.contentId)
               .slice(0, 60)
@@ -247,7 +268,7 @@ export class SessionVttMapNormalizationService {
                 armed: cell.hazard.armed !== false,
                 triggerOnce: cell.hazard.triggerOnce !== false,
                 detectionRadiusCells: this.clampNumber(Number(cell.hazard.detectionRadiusCells) || 3, 1, 20),
-                detectionDc: this.clampNumber(Number(cell.hazard.detectionDc) || 12, 1, 40),
+                detectionDc: this.clampNumber(Number(cell.hazard.detectionDc) || 12, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX),
                 linkedClueIds: Array.isArray(cell.hazard.linkedClueIds) ? cell.hazard.linkedClueIds.filter((id) => typeof id === "string").slice(0, 30) : [],
                 attemptedBySessionCharacterIds: Array.isArray(cell.hazard.attemptedBySessionCharacterIds)
                   ? cell.hazard.attemptedBySessionCharacterIds.filter((id) => typeof id === "string").slice(0, 80)

@@ -1,57 +1,22 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandActionCandidateDto, MainCommandCheckOptionDto, MainCommandIntent, MainCommandScreenType } from "@trpg/shared-types";
-
-export type VttDoorCheckEffect = {
-  type: "vttDoor";
-  doorId: string;
-  effect: "open" | "broken";
-  nodeId: string;
-  mapPoint: { x: number; y: number };
-};
-
-export type VttHazardCheckEffect = {
-  type: "vttHazard";
-  hazardId: string;
-  effect: "disarm";
-  nodeId: string;
-  mapPoint: { x: number; y: number };
-};
-
-export type VttObjectCheckEffect = {
-  type: "vttObject";
-  objectId: string;
-  effect: "broken";
-  nodeId: string;
-  mapPoint: { x: number; y: number };
-};
-
-export type MainCommandCheckEffect = {
-  type: "mainCommandCheck";
-  requestId: string;
-  nodeId: string;
-  sessionCharacterId: string;
-  intent: MainCommandIntent;
-  screenType: MainCommandScreenType;
-  playerText: string;
-  actionSummary: string;
-  targetId: string | null;
-  targetName: string | null;
-  targetSummary: string | null;
-  targetDisposition: string | null;
-  itemId: string | null;
-  itemName: string | null;
-  mapPoint: { x: number; y: number } | null;
-  checkOption: MainCommandCheckOptionDto | null;
-  visibleEntityNames: string[];
-  publicClues: string[];
-  sceneText: string;
-  actionCandidate: MainCommandActionCandidateDto | null;
-};
+import {
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
+  MainCommandActionCandidateDto,
+  MainCommandCheckOptionDto,
+  MainCommandIntent,
+  MainCommandNarrativeCheckEffectDto,
+  MainCommandScreenType,
+  VttDoorCheckEffectDto,
+  VttHazardCheckEffectDto,
+  VttObjectCheckEffectDto,
+  VTT_CHECK_EFFECT_ACTIONS,
+} from "@trpg/shared-types";
 
 @Injectable()
 export class MainCommandCheckEffectParserService {
-  parseMainCommandCheckEffect(value: Record<string, unknown>): MainCommandCheckEffect | null {
-    if (value.type !== "mainCommandCheck") {
+  parseMainCommandCheckEffect(candidate: unknown): MainCommandNarrativeCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value || value.type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK) {
       return null;
     }
 
@@ -79,7 +44,7 @@ export class MainCommandCheckEffectParserService {
       value.actionCandidate && typeof value.actionCandidate === "object" ? this.parseActionCandidate(value.actionCandidate as Record<string, unknown>) : null;
 
     return {
-      type: "mainCommandCheck",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK,
       requestId,
       nodeId,
       sessionCharacterId: this.readString(value.sessionCharacterId) ?? "",
@@ -102,17 +67,21 @@ export class MainCommandCheckEffectParserService {
     };
   }
 
-  parseVttDoorCheckEffect(value: Record<string, unknown>): VttDoorCheckEffect | null {
+  parseVttDoorCheckEffect(candidate: unknown): VttDoorCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value) {
+      return null;
+    }
     const type = value.type;
     const doorId = value.doorId;
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
     if (
-      type !== "vttDoor" ||
+      type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR ||
       typeof doorId !== "string" ||
       typeof nodeId !== "string" ||
-      (effect !== "open" && effect !== "broken") ||
+      (effect !== VTT_CHECK_EFFECT_ACTIONS.OPEN && effect !== VTT_CHECK_EFFECT_ACTIONS.BROKEN) ||
       !mapPoint ||
       typeof mapPoint !== "object"
     ) {
@@ -131,17 +100,21 @@ export class MainCommandCheckEffectParserService {
     };
   }
 
-  parseVttHazardCheckEffect(value: Record<string, unknown>): VttHazardCheckEffect | null {
+  parseVttHazardCheckEffect(candidate: unknown): VttHazardCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value) {
+      return null;
+    }
     const type = value.type;
     const hazardId = value.hazardId;
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
     if (
-      type !== "vttHazard" ||
+      type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD ||
       typeof hazardId !== "string" ||
       typeof nodeId !== "string" ||
-      effect !== "disarm" ||
+      effect !== VTT_CHECK_EFFECT_ACTIONS.DISARM ||
       !mapPoint ||
       typeof mapPoint !== "object"
     ) {
@@ -160,17 +133,21 @@ export class MainCommandCheckEffectParserService {
     };
   }
 
-  parseVttObjectCheckEffect(value: Record<string, unknown>): VttObjectCheckEffect | null {
+  parseVttObjectCheckEffect(candidate: unknown): VttObjectCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value) {
+      return null;
+    }
     const type = value.type;
     const objectId = value.objectId;
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
     if (
-      type !== "vttObject" ||
+      type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT ||
       typeof objectId !== "string" ||
       typeof nodeId !== "string" ||
-      effect !== "broken" ||
+      effect !== VTT_CHECK_EFFECT_ACTIONS.BROKEN ||
       !mapPoint ||
       typeof mapPoint !== "object"
     ) {
@@ -220,6 +197,10 @@ export class MainCommandCheckEffectParserService {
 
   private readString(value: unknown): string | null {
     return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  private readRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   }
 
   private readStringArray(value: unknown): string[] {

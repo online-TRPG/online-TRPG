@@ -35,6 +35,7 @@ import { SpellSlotService } from "../rules/spell-slot.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
+import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
 import { badRequest, conflict, notFound } from "../../common/exceptions/domain-error";
 
 type RuntimeTurnStateKey = {
@@ -142,7 +143,6 @@ type ActionMutationClient = Prisma.TransactionClient;
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
-const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
 @Injectable()
 export class ActionProcessorService {

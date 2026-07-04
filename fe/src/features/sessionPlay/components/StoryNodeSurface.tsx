@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type {
-  AiHumanGmAssistSuggestionRequestDto,
-  CreateHumanGmAiAssistSuggestionDto,
-  HumanGmAiAssistSuggestionDto,
-  PlayerScenarioNodeDto,
-  RestActionDto,
-  SessionCharacterResponseDto,
+import {
+  type AiHumanGmAssistSuggestionRequestDto,
+  type CreateHumanGmAiAssistSuggestionDto,
+  type HumanGmAiAssistSuggestionDto,
+  type PlayerScenarioNodeDto,
+  type RestActionDto,
+  type SessionCharacterResponseDto,
 } from '@trpg/shared-types';
+import {
+  HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH,
+  HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH,
+} from '@trpg/shared-types/frontend';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -383,14 +387,14 @@ export function StoryNodeSurface({
               value={gmMessageContent}
               placeholder={storyPresentation.gmMessagePlaceholder}
               rows={3}
-              maxLength={2000}
+              maxLength={HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH}
               onChange={(event) => setGmMessageContent(event.target.value)}
             />
             <input
               className="story-gm-input"
               value={gmMessagePrivateNote}
               placeholder={storyPresentation.gmPrivateNotePlaceholder}
-              maxLength={1000}
+              maxLength={HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH}
               onChange={(event) => setGmMessagePrivateNote(event.target.value)}
             />
             <button

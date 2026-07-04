@@ -1,3 +1,9 @@
+import {
+  MONSTER_ACTION_UNAVAILABLE_REASONS,
+} from '@trpg/shared-types/frontend';
+import type {
+  MonsterActionUnavailableReason,
+} from '@trpg/shared-types';
 import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
 import { getSpellIconName } from '../../spells/spellPresentation';
@@ -15,6 +21,11 @@ type MonsterActionPresentationInput = {
   effectTags?: string[] | null;
   recharge?: string | null;
   usage?: string | null;
+};
+
+const monsterActionUnavailableLabels: Record<MonsterActionUnavailableReason, string> = {
+  [MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED]: '재충전 대기',
+  [MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED]: '사용 완료',
 };
 
 const combatActionIconNames: Partial<Record<string, GameIconName>> = {
@@ -98,8 +109,9 @@ export function getMonsterActionRangeLabel(action: MonsterActionPresentationInpu
 }
 
 export function getMonsterActionUnavailableLabel(action: MonsterActionPresentationInput) {
-  if (action.unavailableReason === 'MONSTER_RECHARGE_ACTION_EXPENDED') return '재충전 대기';
-  if (action.unavailableReason === 'MONSTER_LIMITED_USE_ACTION_EXPENDED') return '사용 완료';
+  if (action.unavailableReason && action.unavailableReason in monsterActionUnavailableLabels) {
+    return monsterActionUnavailableLabels[action.unavailableReason as MonsterActionUnavailableReason];
+  }
   return action.available === false ? '사용 불가' : null;
 }
 

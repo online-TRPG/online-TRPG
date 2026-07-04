@@ -1,4 +1,12 @@
-import type { ScenarioAssetResponseDto, SrdMonsterReferenceDto, VttMapStateDto } from '@trpg/shared-types';
+import {
+  VTT_ENCOUNTER_PRIORITY_MAX,
+  VTT_ENCOUNTER_PRIORITY_MIN,
+} from '@trpg/shared-types/frontend';
+import type {
+  ScenarioAssetResponseDto,
+  SrdMonsterReferenceDto,
+  VttMapStateDto,
+} from '@trpg/shared-types';
 
 type MapToken = VttMapStateDto['tokens'][number];
 
@@ -198,12 +206,12 @@ export function BattleMapTokenInspector({
             {labels.scalingPriority}
             <input
               type="number"
-              min={0}
-              max={99}
+              min={VTT_ENCOUNTER_PRIORITY_MIN}
+              max={VTT_ENCOUNTER_PRIORITY_MAX}
               value={token.encounterPriority ?? 0}
               onChange={(event) =>
                 onUpdate(token.id, {
-                  encounterPriority: clamp(Number(event.target.value), 0, 99),
+                  encounterPriority: clamp(Number(event.target.value), VTT_ENCOUNTER_PRIORITY_MIN, VTT_ENCOUNTER_PRIORITY_MAX),
                 })
               }
             />

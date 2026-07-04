@@ -2028,11 +2028,17 @@ export class CombatService {
       attackBonus: sessionCharacter.character.proficiencyBonus + abilityMod,
       damageDice: item.damageDice ?? fallback.damageDice ?? "1d6",
       damageBonus: slot === "offhand" && !hasTwoWeaponFighting ? Math.min(0, abilityMod) : abilityMod,
-      rangeFt: fallback.rangeFt ?? (isRanged ? 80 : 5),
+      rangeFt: this.readWeaponRangeProperty(properties, "range:") ?? fallback.rangeFt ?? (isRanged ? 80 : 5),
       properties: Array.from(properties),
       attackKind: isRanged ? "ranged_weapon_attack" : "melee_weapon_attack",
       isLightMeleeWeapon,
     };
+  }
+
+  private readWeaponRangeProperty(properties: Set<string>, prefix: "range:"): number | null {
+    const value = Array.from(properties).find((property) => property.startsWith(prefix))?.slice(prefix.length);
+    const rangeFt = Number(value);
+    return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
   }
 
   private getFallbackWeaponProfile(key: string): {

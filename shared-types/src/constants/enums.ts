@@ -6,6 +6,9 @@ export enum SessionStatus {
   DISBANDED = "disbanded",
 }
 
+/**
+ * @deprecated Use GmMode for session DTOs. This legacy lowercase enum is kept only for older callers.
+ */
 export enum SessionGmMode {
   AI = "ai",
   HUMAN = "human",

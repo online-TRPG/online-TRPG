@@ -30,6 +30,23 @@ import {
   SessionStatus,
   SessionVisibility,
 } from "../../constants/enums";
+import {
+  HUMAN_GM_AI_ASSIST_CONTENT_MAX_LENGTH,
+  HUMAN_GM_INVENTORY_QUANTITY_MAX,
+  HUMAN_GM_INVENTORY_QUANTITY_MIN,
+  HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH,
+  HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH,
+  VTT_CHECK_DC_MAX,
+  VTT_CHECK_DC_MIN,
+  VTT_ENCOUNTER_PRIORITY_MAX,
+  VTT_ENCOUNTER_PRIORITY_MIN,
+} from "../../constants/runtime-limits";
+import {
+  VTT_DOOR_STATE_VALUES,
+  VTT_MAP_INTERACTION_KIND_VALUES,
+  VttDoorState,
+  VttMapInteractionKind,
+} from "../../constants/vtt-map";
 import { SessionCharacterResponseDto } from "./characters.dto";
 import { ScenarioSummaryResponseDto } from "./scenarios.dto";
 import { UserResponseDto } from "./users.dto";
@@ -241,12 +258,12 @@ export class GrantHumanGmInventoryItemDto {
   @IsNotEmpty()
   itemDefinitionId!: string;
 
-  @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 99 })
+  @ApiPropertyOptional({ default: HUMAN_GM_INVENTORY_QUANTITY_MIN, minimum: HUMAN_GM_INVENTORY_QUANTITY_MIN, maximum: HUMAN_GM_INVENTORY_QUANTITY_MAX })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
-  @Max(99)
+  @Min(HUMAN_GM_INVENTORY_QUANTITY_MIN)
+  @Max(HUMAN_GM_INVENTORY_QUANTITY_MAX)
   quantity?: number;
 }
 
@@ -261,12 +278,12 @@ export class RemoveHumanGmInventoryItemDto {
   @IsNotEmpty()
   itemId!: string;
 
-  @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 99 })
+  @ApiPropertyOptional({ default: HUMAN_GM_INVENTORY_QUANTITY_MIN, minimum: HUMAN_GM_INVENTORY_QUANTITY_MIN, maximum: HUMAN_GM_INVENTORY_QUANTITY_MAX })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
-  @Max(99)
+  @Min(HUMAN_GM_INVENTORY_QUANTITY_MIN)
+  @Max(HUMAN_GM_INVENTORY_QUANTITY_MAX)
   quantity?: number;
 }
 
@@ -276,11 +293,11 @@ export class SetHumanGmDifficultyClassDto {
   @IsNotEmpty()
   targetId!: string;
 
-  @ApiProperty({ minimum: 1, maximum: 40 })
+  @ApiProperty({ minimum: VTT_CHECK_DC_MIN, maximum: VTT_CHECK_DC_MAX })
   @Type(() => Number)
   @IsInt()
-  @Min(1)
-  @Max(40)
+  @Min(VTT_CHECK_DC_MIN)
+  @Max(VTT_CHECK_DC_MAX)
   dc!: number;
 
   @ApiPropertyOptional({ nullable: true })
@@ -1127,7 +1144,7 @@ export class CreateHumanGmAiAssistSuggestionDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(2000)
+  @MaxLength(HUMAN_GM_AI_ASSIST_CONTENT_MAX_LENGTH)
   content!: string;
 
   @ApiPropertyOptional({ nullable: true })
@@ -1516,7 +1533,7 @@ export class HumanGmMessageDto {
   @ApiProperty({ example: "The innkeeper leans forward and lowers their voice." })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(2000)
+  @MaxLength(HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH)
   content!: string;
 
   @ApiPropertyOptional({ example: "Innkeeper" })
@@ -1534,7 +1551,7 @@ export class HumanGmMessageDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH)
   privateNote?: string | null;
 }
 
@@ -1864,8 +1881,8 @@ export class VttMapTokenDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(0)
-  @Max(99)
+  @Min(VTT_ENCOUNTER_PRIORITY_MIN)
+  @Max(VTT_ENCOUNTER_PRIORITY_MAX)
   encounterPriority?: number;
 
   @ApiPropertyOptional({ type: SrdMonsterReferenceDto, nullable: true })
@@ -1986,9 +2003,9 @@ export class VttTerrainCellDto {
 export class VttWallCellDto extends VttTerrainCellDto {}
 
 export class VttDoorCellDto extends VttTerrainCellDto {
-  @ApiProperty({ enum: ["open", "closed", "locked", "broken"] })
-  @IsIn(["open", "closed", "locked", "broken"])
-  state!: "open" | "closed" | "locked" | "broken";
+  @ApiProperty({ enum: VTT_DOOR_STATE_VALUES })
+  @IsIn(VTT_DOOR_STATE_VALUES)
+  state!: VttDoorState;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -2079,8 +2096,8 @@ export class VttObjectRevealCheckDto {
   @ApiPropertyOptional({ default: 15 })
   @IsOptional()
   @IsNumber()
-  @Min(1)
-  @Max(40)
+  @Min(VTT_CHECK_DC_MIN)
+  @Max(VTT_CHECK_DC_MAX)
   dc?: number;
 }
 
@@ -2111,8 +2128,8 @@ export class VttObjectHazardDto {
   @ApiPropertyOptional({ default: 12 })
   @IsOptional()
   @IsNumber()
-  @Min(1)
-  @Max(40)
+  @Min(VTT_CHECK_DC_MIN)
+  @Max(VTT_CHECK_DC_MAX)
   detectionDc?: number;
 
   @ApiPropertyOptional({ type: [String] })
@@ -2164,8 +2181,8 @@ export class VttObjectCellDto extends VttTerrainCellDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsNumber()
-  @Min(1)
-  @Max(40)
+  @Min(VTT_CHECK_DC_MIN)
+  @Max(VTT_CHECK_DC_MAX)
   breakCheckDc?: number | null;
 
   @ApiPropertyOptional({ type: [String] })
@@ -2406,17 +2423,9 @@ export class CreateVttMapPingDto {
 }
 
 export class VttMapInteractionDto {
-  @ApiProperty({ enum: ["open_door", "close_door", "break_door", "break_object", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"] })
-  @IsIn(["open_door", "close_door", "break_door", "break_object", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"])
-  kind!:
-    | "open_door"
-    | "close_door"
-    | "break_door"
-    | "break_object"
-    | "investigate_object"
-    | "disarm_hazard"
-    | "detect_hazard"
-    | "trigger_object";
+  @ApiProperty({ enum: VTT_MAP_INTERACTION_KIND_VALUES })
+  @IsIn(VTT_MAP_INTERACTION_KIND_VALUES)
+  kind!: VttMapInteractionKind;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()

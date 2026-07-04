@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { isJoinedParticipantStatus } from '@trpg/shared-types/frontend';
 import type { Character, Participant } from '../../../types/session';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import {
@@ -52,7 +53,7 @@ export function useParticipantCardPresentation({
         isRecruiting &&
         isHost &&
         !isParticipantGm &&
-        participant.status === 'JOINED';
+        isJoinedParticipantStatus(participant.status);
       const stateLabel = isParticipantGm
         ? 'GM'
         : participant.isReady

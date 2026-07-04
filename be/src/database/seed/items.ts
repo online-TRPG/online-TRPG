@@ -170,6 +170,7 @@ export async function seedItems(prisma: PrismaClient): Promise<void> {
     });
   }
   await seedStaticCatalogItems(prisma, staticCatalogItems, srdEquipment);
+  await refreshInventorySnapshots(prisma);
 }
 
 function loadSrdEquipment(): SrdEquipmentRecord[] {
@@ -251,6 +252,46 @@ async function seedStaticCatalogItems(
   }
 }
 
+async function refreshInventorySnapshots(prisma: PrismaClient): Promise<void> {
+  const sessionCharacters = await prisma.sessionCharacter.findMany({
+    where: { inventoryEntries: { some: {} } },
+    select: { id: true },
+  });
+
+  for (const sessionCharacter of sessionCharacters) {
+    const entries = await prisma.inventoryEntry.findMany({
+      where: { sessionCharacterId: sessionCharacter.id },
+      include: { itemDefinition: true },
+      orderBy: { createdAt: "asc" },
+    });
+    await prisma.sessionCharacter.update({
+      where: { id: sessionCharacter.id },
+      data: {
+        inventorySnapshotJson: JSON.stringify(
+          entries.map((entry) => {
+            const properties = parseStringArrayJson(entry.itemDefinition.propertiesJson);
+            return {
+              id: entry.id,
+              name: entry.itemDefinition.name,
+              quantity: entry.quantity,
+              itemDefinitionId: entry.itemDefinitionId,
+              itemType: entry.itemDefinition.itemType,
+              weightLb: entry.itemDefinition.weightLb ?? undefined,
+              volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+              damageDice: entry.itemDefinition.damageDice ?? undefined,
+              damageType: entry.itemDefinition.damageType ?? undefined,
+              rangeFt: readRangeProperty(properties, "range:") ?? undefined,
+              longRangeFt: readRangeProperty(properties, "range_long:") ?? undefined,
+              properties,
+              containerId: entry.containerEntryId ?? undefined,
+            };
+          }),
+        ),
+      },
+    });
+  }
+}
+
 function findSrdEquipmentRecord(records: SrdEquipmentRecord[], item: ItemSeed): SrdEquipmentRecord | null {
   const candidates = [
     item.key,
@@ -299,6 +340,7 @@ function toSrdItemDefinitionData(record: SrdEquipmentRecord, records: SrdEquipme
   const properties = [
     "srd-engine",
     record.category?.equipmentCategory,
+    ...buildSrdWeaponRangeProperties(record.weapon?.rangeRaw),
     ...(record.weapon?.properties ?? []).map((property) => property.id ?? property.raw),
   ].filter((property): property is string => Boolean(property));
 
@@ -318,6 +360,16 @@ function toSrdItemDefinitionData(record: SrdEquipmentRecord, records: SrdEquipme
     packContentsJson: buildSrdPackContentsJson(record, records),
     propertiesJson: JSON.stringify([...new Set(properties)]),
   };
+}
+
+function buildSrdWeaponRangeProperties(rangeRaw: string | null | undefined): string[] {
+  const [normalRaw, longRaw] = rangeRaw?.split("/") ?? [];
+  const normal = Number(normalRaw?.trim());
+  const long = Number(longRaw?.trim());
+  return [
+    Number.isInteger(normal) && normal >= 0 ? `range:${normal}` : null,
+    Number.isInteger(long) && long >= 0 ? `range_long:${long}` : null,
+  ].filter((property): property is string => Boolean(property));
 }
 
 function toStaticItemDefinitionData(item: StaticItemRecord) {
@@ -450,6 +502,26 @@ function parseWeightLb(value: string | null | undefined): number | null {
   }
   const match = value.match(/-?\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : null;
+}
+
+function parseStringArrayJson(value: string | null | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readRangeProperty(properties: string[] | undefined, prefix: "range:" | "range_long:"): number | null {
+  const value = properties?.find((property) => property.toLowerCase().startsWith(prefix))?.slice(prefix.length);
+  const rangeFt = Number(value);
+  return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
 }
 
 function normalizeEquipmentLookupKey(value: string): string {

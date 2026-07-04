@@ -1,6 +1,13 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandActionCandidateDto, MainCommandResponseDto, MainCommandStatus, SubmitMainCommandDto } from "@trpg/shared-types";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
+import {
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
+  getPrimaryMainCommandCheckOption,
+  MainCommandActionCandidateDto,
+  MainCommandNarrativeCheckEffectDto,
+  MainCommandResponseDto,
+  MainCommandStatus,
+  SubmitMainCommandDto,
+} from "@trpg/shared-types";
 import type { LoadedContext } from "./main-commands.service";
 import type { VisibleSceneEntity } from "./main-command-scene-entity.service";
 
@@ -27,15 +34,15 @@ export class MainCommandCheckEffectAttachmentService {
       return response;
     }
 
-    const data: Record<string, unknown> = response.data ?? {};
+    const data = response.data ?? {};
     if (data.checkEffect) {
       return response;
     }
 
     const target = dto.targetId ? visibleEntities.find((entity) => entity.id === dto.targetId) : null;
     const item = dto.itemId ? context.inventoryItems.find((entry) => entry.id === dto.itemId) : null;
-    const effect: MainCommandCheckEffect = {
-      type: "mainCommandCheck",
+    const effect: MainCommandNarrativeCheckEffectDto = {
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK,
       requestId,
       nodeId: context.currentNodeId,
       sessionCharacterId: context.sessionCharacterId,
@@ -50,7 +57,7 @@ export class MainCommandCheckEffectAttachmentService {
       itemId: dto.itemId ?? null,
       itemName: item?.name ?? null,
       mapPoint: dto.mapPoint ?? null,
-      checkOption: response.checkOptions?.[0] ?? null,
+      checkOption: getPrimaryMainCommandCheckOption(response),
       visibleEntityNames: visibleEntities.map((entity) => entity.name),
       publicClues,
       sceneText: context.currentNodeSceneText,

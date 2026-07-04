@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
-import { CombatStatus as PrismaCombatStatus, GamePhase as PrismaGamePhase } from "@prisma/client";
+import { CombatStatus as PrismaCombatStatus, GamePhase as PrismaGamePhase, GmMode as PrismaGmMode } from "@prisma/client";
 import { randomUUID } from "crypto";
 import {
   CreateVttMapPingDto,
@@ -43,7 +43,7 @@ export class MapRuntimeService {
         select: { id: true },
       }),
     );
-    const isGmOperator = session.gmMode === "HUMAN" && (session.gmUserId ?? session.hostUserId) === userId;
+    const isGmOperator = session.gmMode === PrismaGmMode.HUMAN && (session.gmUserId ?? session.hostUserId) === userId;
     this.logger.debug(
       `[VTT_GM_MAP_UPDATE] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} gmOperator=${isGmOperator} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
@@ -54,53 +54,15 @@ export class MapRuntimeService {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");
     }
 
-    let map = requestedMap;
-    map = await this.sessionsService.applyVttObjectProximityEvents({
+    const result = await this.sessionsService.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.sessionsService.applyVttHazardTriggers({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      map,
+      flags,
+      map: requestedMap,
       previousMap,
     });
-    map = hazardTriggerResult.map;
-    const beforeHazardDetectionMap = map;
-    map = await this.sessionsService.applyVttHazardDetections({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
-
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: sessionScenario.id },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...flags,
-          vttMap: map,
-        }),
-      },
-    });
-
-    const playerMap = this.sessionsService.redactVttMapForPlayer(map);
-    this.realtimeEvents.emitVttMapUpdated(resolvedSessionId, {
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap,
-    });
-    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
-      this.realtimeEvents.emitSessionSnapshot(
-        resolvedSessionId,
-        await this.sessionsService.buildSnapshot(resolvedSessionId),
-      );
-    }
-    return map;
+    return result.map;
   }
 
   async moveSessionToken(
@@ -163,7 +125,7 @@ export class MapRuntimeService {
       ),
       updatedAt: new Date().toISOString(),
     };
-    const result = await this.finalizeRuntimeVttMapChange({
+    const result = await this.sessionsService.finalizeRuntimeVttMapChange({
       session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
@@ -203,7 +165,7 @@ export class MapRuntimeService {
       ],
       updatedAt: new Date().toISOString(),
     };
-    const result = await this.finalizeRuntimeVttMapChange({
+    const result = await this.sessionsService.finalizeRuntimeVttMapChange({
       session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
@@ -228,86 +190,16 @@ export class MapRuntimeService {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const flags = this.sessionsService.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const normalizedMap = this.sessionsService.normalizeVttMap(map, state.currentNodeId ?? null);
-    const runtimeMap = await this.sessionsService.applyVttObjectProximityEvents({
+    const previousMap = await this.sessionsService.getVttMapBaseline(session.id, sessionScenario.id, state);
+    const result = await this.sessionsService.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
+      flags,
       map: normalizedMap,
+      previousMap,
     });
 
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: sessionScenario.id },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...flags,
-          vttMap: runtimeMap,
-        }),
-      },
-    });
-
-    this.realtimeEvents.emitVttMapUpdated(session.id, {
-      hostUserId: session.hostUserId,
-      hostMap: runtimeMap,
-      playerMap: this.sessionsService.redactVttMapForPlayer(runtimeMap),
-    });
-
-    return runtimeMap;
-  }
-
-  private async finalizeRuntimeVttMapChange(params: {
-    session: { id: string; hostUserId: string };
-    sessionScenarioId: string;
-    currentNodeId: string | null;
-    flags: Record<string, unknown>;
-    map: VttMapStateDto;
-    previousMap: VttMapStateDto;
-  }): Promise<{ map: VttMapStateDto; playerMap: VttMapStateDto }> {
-    let map = await this.sessionsService.applyVttObjectProximityEvents({
-      sessionScenarioId: params.sessionScenarioId,
-      currentNodeId: params.currentNodeId,
-      map: params.map,
-    });
-    const hazardTriggerResult = await this.sessionsService.applyVttHazardTriggers({
-      sessionId: params.session.id,
-      sessionScenarioId: params.sessionScenarioId,
-      map,
-      previousMap: params.previousMap,
-    });
-    map = hazardTriggerResult.map;
-    const beforeHazardDetectionMap = map;
-    map = await this.sessionsService.applyVttHazardDetections({
-      sessionId: params.session.id,
-      sessionScenarioId: params.sessionScenarioId,
-      currentNodeId: params.currentNodeId,
-      map,
-      previousMap: params.previousMap,
-    });
-    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
-
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: params.sessionScenarioId },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...params.flags,
-          vttMap: map,
-        }),
-      },
-    });
-
-    const playerMap = this.sessionsService.redactVttMapForPlayer(map);
-    this.realtimeEvents.emitVttMapUpdated(params.session.id, {
-      hostUserId: params.session.hostUserId,
-      hostMap: map,
-      playerMap,
-    });
-    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
-      this.realtimeEvents.emitSessionSnapshot(
-        params.session.id,
-        await this.sessionsService.buildSnapshot(params.session.id),
-      );
-    }
-
-    return { map, playerMap };
+    return result.map;
   }
 }

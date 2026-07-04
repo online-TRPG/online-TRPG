@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { isActiveSessionScenarioStatus } from '@trpg/shared-types/frontend';
 import type { SessionSnapshot } from '../../../types/session';
 
 type SessionScenario = SessionSnapshot['sessionScenarios'][number];
@@ -12,7 +13,7 @@ export function useActiveSessionScenarioProjection({
 }: UseActiveSessionScenarioProjectionParams) {
   const activeScenario = useMemo(
     () =>
-      sessionScenarios.find((item) => item.status === 'ACTIVE') ??
+      sessionScenarios.find((item) => isActiveSessionScenarioStatus(item.status)) ??
       sessionScenarios[0],
     [sessionScenarios],
   );

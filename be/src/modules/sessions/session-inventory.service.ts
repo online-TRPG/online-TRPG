@@ -146,25 +146,36 @@ export class SessionInventoryService {
       where: { id: sessionCharacterId },
       data: {
         inventorySnapshotJson: JSON.stringify(
-          entries.map((entry) => ({
-            id: entry.id,
-            name: entry.itemDefinition.name,
-            quantity: entry.quantity,
-            itemDefinitionId: entry.itemDefinitionId,
-            itemType: entry.itemDefinition.itemType,
-            weightLb: entry.itemDefinition.weightLb ?? undefined,
-            volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
-            damageDice: entry.itemDefinition.damageDice ?? undefined,
-            damageType: entry.itemDefinition.damageType ?? undefined,
-            properties: this.parseJson<string[] | undefined>(
+          entries.map((entry) => {
+            const properties = this.parseJson<string[] | undefined>(
               entry.itemDefinition.propertiesJson,
               undefined,
-            ),
-            containerId: entry.containerEntryId ?? undefined,
-          })),
+            );
+            return {
+              id: entry.id,
+              name: entry.itemDefinition.name,
+              quantity: entry.quantity,
+              itemDefinitionId: entry.itemDefinitionId,
+              itemType: entry.itemDefinition.itemType,
+              weightLb: entry.itemDefinition.weightLb ?? undefined,
+              volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+              damageDice: entry.itemDefinition.damageDice ?? undefined,
+              damageType: entry.itemDefinition.damageType ?? undefined,
+              rangeFt: this.readRangeProperty(properties, "range:") ?? undefined,
+              longRangeFt: this.readRangeProperty(properties, "range_long:") ?? undefined,
+              properties,
+              containerId: entry.containerEntryId ?? undefined,
+            };
+          }),
         ),
       },
     });
+  }
+
+  private readRangeProperty(properties: string[] | undefined, prefix: "range:" | "range_long:"): number | null {
+    const value = properties?.find((property) => property.toLowerCase().startsWith(prefix))?.slice(prefix.length);
+    const rangeFt = Number(value);
+    return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

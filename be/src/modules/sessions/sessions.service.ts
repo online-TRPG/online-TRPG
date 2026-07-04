@@ -53,6 +53,7 @@ import {
   InventoryItemDto,
   JoinSessionDto,
   MainCommandCheckOptionDto,
+  MainCommandCheckEffectDto,
   MainCommandStatus,
   MainCommandTargetType,
   MoveSessionTokenDto,
@@ -85,6 +86,7 @@ import {
   VttMapInteractionDto,
   VttObjectHazardDto,
   VttMapStateDto,
+  VTT_CHECK_EFFECT_ACTIONS,
 } from "@trpg/shared-types";
 import {
   mapGameState,
@@ -616,46 +618,15 @@ export class SessionsService {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");
     }
 
-    let map = requestedMap;
-    map = await this.applyVttObjectProximityEvents({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.applyVttHazardTriggers({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      map,
-      previousMap,
-    });
-    map = hazardTriggerResult.map;
-    const beforeHazardDetectionMap = map;
-    map = await this.applyVttHazardDetections({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
-
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: sessionScenario.id,
       flags,
-      map,
+      map: requestedMap,
+      previousMap,
     });
-
-    const playerMap = this.redactVttMapForPlayer(map);
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: resolvedSessionId,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap,
-    });
-    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
-      this.sessionVttMapPersistence.publishSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
-    }
-    return session.hostUserId === userId ? map : playerMap;
+    return session.hostUserId === userId ? result.map : result.playerMap;
   }
 
   async updateGmVttMap(userId: string, sessionId: string, dto: UpdateVttMapDto): Promise<VttMapStateDto> {
@@ -781,7 +752,7 @@ export class SessionsService {
       path: movement.path,
     });
 
-    let map: VttMapStateDto = {
+    const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
         token.id === params.sourceTokenId
@@ -794,43 +765,16 @@ export class SessionsService {
       ),
       updatedAt: new Date().toISOString(),
     };
-    map = await this.applyVttObjectProximityEvents({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.applyVttHazardTriggers({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      map,
-      previousMap,
-    });
-    map = hazardTriggerResult.map;
-    map = await this.applyVttHazardDetections({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: sessionScenario.id,
       flags,
-      map,
+      map: changedMap,
+      previousMap,
     });
 
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: resolvedSessionId,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap: this.redactVttMapForPlayer(map),
-    });
-    if (hazardTriggerResult.triggered) {
-      this.sessionVttMapPersistence.publishSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
-    }
-
-    return { map, moved: true, distanceMovedFt: movement.distanceMovedFt };
+    return { map: result.map, moved: true, distanceMovedFt: movement.distanceMovedFt };
   }
 
   async hideVttToken(sessionId: string, tokenId: string): Promise<VttMapStateDto | null> {
@@ -843,7 +787,7 @@ export class SessionsService {
       return targetToken ? previousMap : null;
     }
 
-    const map: VttMapStateDto = {
+    const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
         token.id === tokenId
@@ -856,20 +800,16 @@ export class SessionsService {
       updatedAt: new Date().toISOString(),
     };
 
-    await this.sessionVttMapPersistence.saveMap({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
       flags,
-      map,
+      map: changedMap,
+      previousMap,
     });
 
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: session.id,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap: this.redactVttMapForPlayer(map),
-    });
-
-    return map;
+    return result.map;
   }
 
   async hideVttTokenForSessionCharacter(sessionId: string, sessionCharacterId: string): Promise<VttMapStateDto | null> {
@@ -924,51 +864,24 @@ export class SessionsService {
       };
     }
 
-    let map: VttMapStateDto = {
+    const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((candidate) => (candidate.id === token.id ? requestedToken : candidate)),
       updatedAt: new Date().toISOString(),
     };
-    map = await this.applyVttObjectProximityEvents({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.applyVttHazardTriggers({
-      sessionId: session.id,
-      sessionScenarioId: sessionScenario.id,
-      map,
-      previousMap,
-    });
-    map = hazardTriggerResult.map;
-    map = await this.applyVttHazardDetections({
-      sessionId: session.id,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: sessionScenario.id,
       flags,
-      map,
+      map: changedMap,
+      previousMap,
     });
-
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: session.id,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap: this.redactVttMapForPlayer(map),
-    });
-    if (hazardTriggerResult.triggered) {
-      this.sessionVttMapPersistence.publishSnapshot(session.id, await this.buildSnapshot(session.id));
-    }
 
     return {
       status: MainCommandStatus.RESOLVED,
       message: `${token.name}이(가) 목표 위치로 이동했습니다.`,
-      map,
+      map: result.map,
     };
   }
 
@@ -2209,7 +2122,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).openVttDoorAtPoint(params);
   }
@@ -2235,7 +2148,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).breakVttDoorAtPoint(params);
   }
@@ -2244,7 +2157,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).breakVttObjectAtPoint(params);
   }
@@ -2254,7 +2167,7 @@ export class SessionsService {
     sessionScenarioId: string;
     doorId: string;
     nodeId: string;
-    effect: "open" | "broken";
+    effect: typeof VTT_CHECK_EFFECT_ACTIONS.OPEN | typeof VTT_CHECK_EFFECT_ACTIONS.BROKEN;
   }): Promise<{ status: MainCommandStatus; message: string }> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).applyVttDoorCheckSuccess(params);
   }
@@ -2272,7 +2185,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).disarmVttHazardAtPoint(params);
   }
@@ -2810,14 +2723,22 @@ export class SessionsService {
       .redactVttMapForPlayer(map);
   }
 
-  private async finalizeRuntimeVttMapChange(params: {
+  async finalizeRuntimeVttMapChange(params: {
     session: { id: string; hostUserId: string };
     sessionScenarioId: string;
     currentNodeId: string | null;
     flags: Record<string, unknown>;
     map: VttMapStateDto;
     previousMap: VttMapStateDto;
-  }): Promise<{ map: VttMapStateDto; playerMap: VttMapStateDto }> {
+  }): Promise<{
+    map: VttMapStateDto;
+    playerMap: VttMapStateDto;
+    hazardTriggered: boolean;
+    hazardDetectionChanged: boolean;
+    snapshotPublished: boolean;
+  }> {
+    // Keep VTT mutations in one sequence: proximity events, hazard triggers,
+    // hazard discovery, persistence, redacted publish, then optional snapshot.
     let map = await this.applyVttObjectProximityEvents({
       sessionScenarioId: params.sessionScenarioId,
       currentNodeId: params.currentNodeId,
@@ -2853,11 +2774,18 @@ export class SessionsService {
       hostMap: map,
       playerMap,
     });
-    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
+    const snapshotPublished = hazardTriggerResult.triggered || hazardDetectionChanged;
+    if (snapshotPublished) {
       this.sessionVttMapPersistence.publishSnapshot(params.session.id, await this.buildSnapshot(params.session.id));
     }
 
-    return { map, playerMap };
+    return {
+      map,
+      playerMap,
+      hazardTriggered: hazardTriggerResult.triggered,
+      hazardDetectionChanged,
+      snapshotPublished,
+    };
   }
 
   async resolveVttMapInteractionPoint(

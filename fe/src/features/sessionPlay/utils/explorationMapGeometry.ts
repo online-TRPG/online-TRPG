@@ -1,3 +1,4 @@
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { VttMapStateDto } from '@trpg/shared-types';
 
 function rectsOverlap(
@@ -34,7 +35,9 @@ function getMovementBlockers(map: VttMapStateDto) {
   return [
     ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
-    ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
+    ...(map.doorCells ?? []).filter(
+      (door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN
+    ),
   ];
 }
 

@@ -3,6 +3,7 @@ import { MainCommandIntent, MainCommandResponseDto, MainCommandStatus, MainComma
 import { AiService } from "../ai/ai.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { MainCommandApprovalPolicyService } from "./main-command-approval-policy.service";
+import { MAIN_COMMAND_CONFIDENCE } from "./main-command-policy.constants";
 import type { InterpreterParsedForRouting, LoadedContext, VisibleSceneEntity } from "./main-commands.service";
 
 export type MainCommandIntentHandlersRuntime = {
@@ -252,7 +253,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (normalizedDisposition === "hostile" && confidence < 0.65) {
+    if (normalizedDisposition === "hostile" && confidence < MAIN_COMMAND_CONFIDENCE.HOSTILE_PERSUASION_REJECT_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -318,7 +319,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (confidence < 0.45) {
+    if (confidence < MAIN_COMMAND_CONFIDENCE.INTIMIDATE_MINIMUM) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -327,7 +328,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (normalizedDisposition === "friendly" && confidence < 0.7) {
+    if (normalizedDisposition === "friendly" && confidence < MAIN_COMMAND_CONFIDENCE.FRIENDLY_INTIMIDATION_REJECT_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -395,7 +396,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (confidence < 0.45) {
+    if (confidence < MAIN_COMMAND_CONFIDENCE.DECEPTION_MINIMUM) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -920,7 +921,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (interpreter.parsed.action.confidence < 0.6) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.TOOL_OR_OBJECT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
@@ -986,7 +987,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (interpreter.parsed.action.confidence < 0.6) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.TOOL_OR_OBJECT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
@@ -1087,7 +1088,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1384,7 +1385,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1435,7 +1436,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1491,7 +1492,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1557,7 +1558,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,

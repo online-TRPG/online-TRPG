@@ -1,3 +1,4 @@
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { PlayerScenarioNodeDto, VttMapStateDto } from '@trpg/shared-types';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 import { getCharacterClassLabel } from './characterVisuals';
@@ -16,9 +17,9 @@ function getCellKindLabel(
 }
 
 export function getDoorStateLabel(state: string | undefined) {
-  if (state === 'open') return '열림';
-  if (state === 'locked') return '잠김';
-  if (state === 'broken') return '파괴됨';
+  if (state === VTT_DOOR_STATES.OPEN) return '열림';
+  if (state === VTT_DOOR_STATES.LOCKED) return '잠김';
+  if (state === VTT_DOOR_STATES.BROKEN) return '파괴됨';
   return '닫힘';
 }
 
@@ -145,7 +146,7 @@ export function getGmMapSummary(map: VttMapStateDto | null) {
     hiddenTokens: map.tokens.filter((token) => token.hidden).length,
     hiddenObjects: (map.objectCells ?? []).filter((cell) => cell.visibleToPlayers === false).length,
     hazards: (map.objectCells ?? []).filter((cell) => cell.hazard && cell.hazard.armed !== false).length,
-    lockedDoors: (map.doorCells ?? []).filter((door) => door.state === 'locked').length,
+    lockedDoors: (map.doorCells ?? []).filter((door) => door.state === VTT_DOOR_STATES.LOCKED).length,
     fogRects: map.fogRects.length,
   };
 }
