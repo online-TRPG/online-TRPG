@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AUTH_EXPIRED_EVENT,
-  AUTH_TOKEN_REISSUED_EVENT,
   convertGuestToLocal,
   createGuest,
   deleteMe as apiDeleteMe,
@@ -12,8 +10,9 @@ import {
   register,
   reissue,
   updateMe,
-} from "../services/api";
+} from "../services/authApi";
 import { getAccessTokenExpiresAtMs } from "../services/authToken";
+import { AUTH_EXPIRED_EVENT, AUTH_TOKEN_REISSUED_EVENT } from "../services/httpClient";
 import {
   clearAll,
   clearStoredToken,

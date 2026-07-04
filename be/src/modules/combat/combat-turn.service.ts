@@ -317,7 +317,7 @@ export class CombatTurnService {
     if (
       combatAfterTerrainEffects.status === CombatStatus.ACTIVE &&
       readyActionPrompts.length === 0 &&
-      !runtime.serverAutoMonsterTurnSessions.has(sessionId)
+      !runtime.combatAutoMonsterTurnScheduler.isRunning(sessionId)
     ) {
       runtime.logAutoMonsterTurn("advanceCurrentTurn checking monster automation", {
         sessionId,
@@ -714,19 +714,19 @@ export class CombatTurnService {
   }
 
   scheduleServerAutoMonsterTurns(runtime: CombatTurnRuntime, sessionId: string): void {
-    if (runtime.serverAutoMonsterTurnSessions.has(sessionId) || runtime.serverAutoMonsterTurnScheduledSessions.has(sessionId)) {
+    if (runtime.combatAutoMonsterTurnScheduler.shouldSkipSchedule(sessionId)) {
       runtime.logAutoMonsterTurn("schedule skipped: automation already running or scheduled", {
         sessionId,
-        running: runtime.serverAutoMonsterTurnSessions.has(sessionId),
-        scheduled: runtime.serverAutoMonsterTurnScheduledSessions.has(sessionId),
+        running: runtime.combatAutoMonsterTurnScheduler.isRunning(sessionId),
+        scheduled: runtime.combatAutoMonsterTurnScheduler.isScheduled(sessionId),
       });
       return;
     }
 
     runtime.logAutoMonsterTurn("schedule queued", { sessionId });
-    runtime.serverAutoMonsterTurnScheduledSessions.add(sessionId);
+    runtime.combatAutoMonsterTurnScheduler.markScheduled(sessionId);
     setTimeout(() => {
-      runtime.serverAutoMonsterTurnScheduledSessions.delete(sessionId);
+      runtime.combatAutoMonsterTurnScheduler.clearScheduled(sessionId);
       runtime.logAutoMonsterTurn("scheduled run starting", { sessionId });
       void runtime.runServerAutoMonsterTurns(sessionId);
     }, 50);
@@ -744,7 +744,7 @@ export class CombatTurnService {
   }
 
   async runServerAutoMonsterTurns(runtime: CombatTurnRuntime, sessionId: string): Promise<void> {
-    if (runtime.serverAutoMonsterTurnSessions.has(sessionId)) {
+    if (runtime.combatAutoMonsterTurnScheduler.isRunning(sessionId)) {
       runtime.logAutoMonsterTurn("run skipped: automation already running", {
         sessionId,
       });
@@ -752,7 +752,7 @@ export class CombatTurnService {
     }
 
     runtime.logAutoMonsterTurn("run started", { sessionId });
-    runtime.serverAutoMonsterTurnSessions.add(sessionId);
+    runtime.combatAutoMonsterTurnScheduler.markRunning(sessionId);
     try {
       for (let step = 0; step < 20; step += 1) {
         const session = await runtime.sessionsService.getSessionEntityOrThrow(sessionId);
@@ -882,7 +882,7 @@ export class CombatTurnService {
       );
       runtime.logger.error(`Auto monster turn loop failed session=${sessionId}: ${runtime.extractErrorMessage(error)}`);
     } finally {
-      runtime.serverAutoMonsterTurnSessions.delete(sessionId);
+      runtime.combatAutoMonsterTurnScheduler.clearRunning(sessionId);
       runtime.logAutoMonsterTurn("run finished", { sessionId });
     }
   }

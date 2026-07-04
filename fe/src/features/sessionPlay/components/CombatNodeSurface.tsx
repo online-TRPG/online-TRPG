@@ -12,14 +12,9 @@ import type {
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
-import {
-  normalizeSrdCharacterClassKey,
-  resolvePreparedSpellAbility,
-} from '@trpg/srd-data/rules';
 import { SessionBattleMap } from './SessionBattleMap';
 import type { BattleMapSelection } from './SessionBattleMap';
 import { GameIcon } from '../../../components/GameIcon';
-import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
@@ -28,31 +23,74 @@ import { InventoryItemInfo } from './InventoryItemInfo';
 import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
+import {
+  getCombatResourceMeterStyle,
+  getCombatTurnCardColorStyle,
+  useCombatNodeSurfacePresentation,
+} from '../hooks/useCombatNodeSurfacePresentation';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
 import { formatInternalIdAsReadableName, getUserFacingItemName } from '../utils/displayNames';
-import { isDirectlyUsableP3Item } from '../utils/executableItems';
-import { getSpellIconName } from '../../spells/spellPresentation';
+import {
+  CombatActionButtonContent,
+  getMonsterActionRangeLabel,
+  getMonsterActionSummaryLabels,
+  getMonsterActionUnavailableLabel,
+} from './CombatActionPresentation';
+import {
+  getInventoryItemIconName,
+  isArmorInventoryItem as isArmorItem,
+  isEquippedInventoryItem as isEquippedItem,
+  isQuickUsableInventoryItem as isQuickUsableItem,
+  isShieldInventoryItem as isShieldItem,
+  isWeaponInventoryItem as isWeaponItem,
+} from '../utils/inventoryItemModel';
+import {
+  getThrowableLongRangeFt,
+  getWeaponFallbackRangeFt,
+  isLightMeleeWeaponItem,
+  isSneakAttackWeaponItem,
+} from '../utils/combatInventoryRules';
+import {
+  getClassAbilityButtons,
+  type CombatClassAbilityAction,
+} from '../utils/combatClassAbilityButtons';
+import type { CombatClassFeatureAction } from '../utils/combatClassFeatureCommand';
+import {
+  formatLevel1SpellSlots,
+  formatSpellSlotPips,
+  getCombatSpellActionButtonTitle,
+  getSpellTargetingHint,
+  spellFilterOptions,
+  type SpellFilter,
+} from '../utils/combatSpellPresentation';
+import {
+  getAvailableSlotLevelsForSpell,
+  canLegacyCombatSpellTargetParticipant,
+  type CombatSpellSlotResource,
+  getCombatSpellActionCostKind,
+  getCombatCatalogSpellMetadataById,
+  getLegacyCombatSpellTargetKind,
+  getKnownMvpSpellActions,
+  getSelectedSlotLevelForSpell,
+  getSpellSlotRemaining,
+  getVisibleSpellActions,
+  getVisibleSpellSlotEntries,
+  isImmediateSelfCombatSpell,
+  isCombatSpellActionDisabled,
+  mvpSpellLevelById,
+  mvpSpellRangeFtById,
+  p3CombatSpellMetadataById,
+} from '../utils/combatSpellModel';
+import { getMapObjectItemPayload } from '../utils/explorationMapObjectModel';
+import { getGridDistanceFt } from '../utils/explorationMapGeometry';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
-import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
 type ForcedMovementMode = 'push' | 'pull' | 'slide';
 type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
-type SpellFilter =
-  | 'all'
-  | 'cantrip'
-  | 'level1'
-  | 'level2'
-  | 'level3'
-  | 'level4'
-  | 'level5'
-  | 'level6'
-  | 'level7'
-  | 'level8'
-  | 'level9';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
 type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
@@ -60,41 +98,6 @@ type CombatConditionOption = {
   id: string;
   label: string;
 };
-type CombatSpellAction = {
-  label: string;
-  spellId: string;
-  level?: number;
-};
-
-type CombatAbilityButton = {
-  key: string;
-  label: string;
-  action?:
-    | 'second_wind'
-    | 'sneak_attack'
-    | 'action_surge'
-    | 'rage'
-    | 'frenzy'
-    | 'cunning_dash'
-    | 'cunning_disengage'
-    | 'cunning_hide'
-    | 'divine_sense'
-    | 'lay_on_hands'
-    | 'primeval_awareness'
-    | 'ki_patient_defense'
-    | 'ki_step_of_wind'
-    | 'channel_divinity'
-    | 'bardic_inspiration'
-    | 'font_of_magic'
-    | 'wild_shape'
-    | 'dragonborn_breath';
-  title: string;
-  requiresAction?: boolean;
-  requiresBonusAction?: boolean;
-  disabled?: boolean;
-  unavailableReason?: string;
-};
-
 interface CombatNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
   scenarioTitle?: string | null;
@@ -165,24 +168,7 @@ interface CombatNodeSurfaceProps {
     distanceFt: number
   ) => void | Promise<void>;
   onUseClassFeature: (
-    action:
-      | 'second_wind'
-      | 'action_surge'
-      | 'rage'
-      | 'frenzy'
-      | 'cunning_dash'
-      | 'cunning_disengage'
-      | 'cunning_hide'
-      | 'divine_sense'
-      | 'lay_on_hands'
-      | 'primeval_awareness'
-      | 'ki_patient_defense'
-      | 'ki_step_of_wind'
-      | 'channel_divinity'
-      | 'bardic_inspiration'
-      | 'font_of_magic'
-      | 'wild_shape'
-      | 'dragonborn_breath',
+    action: CombatClassFeatureAction,
     targetParticipantId?: string
   ) => void | Promise<void>;
   onCastSpell: (
@@ -227,127 +213,6 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   },
 ];
 
-type P3CombatSpellMetadata = {
-  id: string;
-  label: string;
-  level: number;
-  rangeFt: number;
-  targeting: 'self' | 'token' | 'point';
-  targetDisposition?: 'ally' | 'enemy' | 'any';
-  allowDefeated?: boolean;
-};
-
-const p3CombatSpellMetadata: P3CombatSpellMetadata[] = [
-  { id: 'spell.blade_ward', label: 'Blade Ward', level: 0, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.dancing_lights', label: 'Dancing Lights', level: 0, rangeFt: 120, targeting: 'point' },
-  { id: 'spell.eldritch_blast', label: 'Eldritch Blast', level: 0, rangeFt: 120, targeting: 'token', targetDisposition: 'enemy' },
-  { id: 'spell.friends', label: 'Friends', level: 0, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.mending', label: 'Mending', level: 0, rangeFt: 5, targeting: 'token', targetDisposition: 'any' },
-  { id: 'spell.message', label: 'Message', level: 0, rangeFt: 120, targeting: 'token', targetDisposition: 'any' },
-  { id: 'spell.poison_spray', label: 'Poison Spray', level: 0, rangeFt: 10, targeting: 'token', targetDisposition: 'enemy' },
-  { id: 'spell.produce_flame', label: 'Produce Flame', level: 0, rangeFt: 30, targeting: 'token', targetDisposition: 'enemy' },
-  { id: 'spell.resistance', label: 'Resistance', level: 0, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.spare_the_dying', label: 'Spare the Dying', level: 0, rangeFt: 5, targeting: 'token', targetDisposition: 'ally', allowDefeated: true },
-  { id: 'spell.alarm', label: 'Alarm', level: 1, rangeFt: 30, targeting: 'point' },
-  { id: 'spell.animal_friendship', label: 'Animal Friendship', level: 1, rangeFt: 30, targeting: 'token', targetDisposition: 'any' },
-  { id: 'spell.armor_of_agathys', label: 'Armor of Agathys', level: 1, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.color_spray', label: 'Color Spray', level: 1, rangeFt: 15, targeting: 'point' },
-  { id: 'spell.comprehend_languages', label: 'Comprehend Languages', level: 1, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.create_or_destroy_water', label: 'Create or Destroy Water', level: 1, rangeFt: 30, targeting: 'point' },
-  { id: 'spell.expeditious_retreat', label: 'Expeditious Retreat', level: 1, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.false_life', label: 'False Life', level: 1, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.find_familiar', label: 'Find Familiar', level: 1, rangeFt: 5, targeting: 'point' },
-  { id: 'spell.goodberry', label: 'Goodberry', level: 1, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.jump', label: 'Jump', level: 1, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.mage_armor', label: 'Mage Armor', level: 1, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.alter_self', label: 'Alter Self', level: 2, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.blur', label: 'Blur', level: 2, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.darkvision', label: 'Darkvision', level: 2, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.enhance_ability', label: 'Enhance Ability', level: 2, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.enlarge_reduce', label: 'Enlarge/Reduce', level: 2, rangeFt: 30, targeting: 'token', targetDisposition: 'any' },
-  { id: 'spell.flaming_sphere', label: 'Flaming Sphere', level: 2, rangeFt: 60, targeting: 'point' },
-  { id: 'spell.gust_of_wind', label: 'Gust of Wind', level: 2, rangeFt: 60, targeting: 'point' },
-  { id: 'spell.heat_metal', label: 'Heat Metal', level: 2, rangeFt: 60, targeting: 'token', targetDisposition: 'enemy' },
-  { id: 'spell.levitate', label: 'Levitate', level: 2, rangeFt: 60, targeting: 'token', targetDisposition: 'any' },
-  { id: 'spell.locate_object', label: 'Locate Object', level: 2, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.mirror_image', label: 'Mirror Image', level: 2, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.spider_climb', label: 'Spider Climb', level: 2, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.call_lightning', label: 'Call Lightning', level: 3, rangeFt: 120, targeting: 'point' },
-  { id: 'spell.fear', label: 'Fear', level: 3, rangeFt: 30, targeting: 'point' },
-  { id: 'spell.gaseous_form', label: 'Gaseous Form', level: 3, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.plant_growth', label: 'Plant Growth', level: 3, rangeFt: 150, targeting: 'point' },
-  { id: 'spell.protection_from_energy', label: 'Protection from Energy', level: 3, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.sleet_storm', label: 'Sleet Storm', level: 3, rangeFt: 150, targeting: 'point' },
-  { id: 'spell.slow', label: 'Slow', level: 3, rangeFt: 120, targeting: 'point' },
-  { id: 'spell.water_walk', label: 'Water Walk', level: 3, rangeFt: 30, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.blight', label: 'Blight', level: 4, rangeFt: 30, targeting: 'token', targetDisposition: 'enemy' },
-  { id: 'spell.death_ward', label: 'Death Ward', level: 4, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.dimension_door', label: 'Dimension Door', level: 4, rangeFt: 500, targeting: 'point' },
-  { id: 'spell.freedom_of_movement', label: 'Freedom of Movement', level: 4, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
-  { id: 'spell.ice_storm', label: 'Ice Storm', level: 4, rangeFt: 300, targeting: 'point' },
-  { id: 'spell.locate_creature', label: 'Locate Creature', level: 4, rangeFt: 0, targeting: 'self' },
-  { id: 'spell.phantasmal_killer', label: 'Phantasmal Killer', level: 4, rangeFt: 120, targeting: 'token', targetDisposition: 'enemy' },
-  { id: 'spell.wall_of_fire', label: 'Wall of Fire', level: 4, rangeFt: 120, targeting: 'point' },
-];
-
-const p3CombatSpellMetadataById = new Map(
-  p3CombatSpellMetadata.map((spell) => [spell.id, spell] as const)
-);
-
-const mvpSpellLabels = [
-  'Acid Splash',
-  'Guidance',
-  'Mage Hand',
-  'Minor Illusion',
-  'Shocking Grasp',
-  'Chill Touch',
-  'Fire Bolt',
-  'Ray of Frost',
-  'Sacred Flame',
-  'Light',
-  'Detect Magic',
-  'Bless',
-  'Bane',
-  'Magic Missile',
-  'Burning Hands',
-  'Thunderwave',
-  'Entangle',
-  'Cure Wounds',
-  'Guiding Bolt',
-  'Inflict Wounds',
-  'Healing Word',
-  'Command',
-  'Shield',
-  'Sleep',
-  'Hold Person',
-  'Web',
-  'Misty Step',
-  'Scorching Ray',
-  'Fireball',
-  'Dispel Magic',
-  'Charm Person',
-  'Faerie Fire',
-  'Feather Fall',
-  'Fog Cloud',
-  'Grease',
-  'Heroism',
-  "Hunter's Mark",
-  'Longstrider',
-  'Aid',
-  'Blindness/Deafness',
-  'Darkness',
-  'Invisibility',
-  'Lesser Restoration',
-  'Moonbeam',
-  'Spiritual Weapon',
-  'Counterspell',
-  'Fly',
-  'Haste',
-  'Lightning Bolt',
-  'Revivify',
-  ...p3CombatSpellMetadata.map((spell) => spell.label),
-];
-
 const gmCombatConditionOptions: CombatConditionOption[] = [
   { id: 'condition.stunned', label: '기절' },
   { id: 'condition.poisoned', label: '중독' },
@@ -361,1065 +226,6 @@ const gmForcedMovementOptions: Array<{ mode: ForcedMovementMode; label: string }
   { mode: 'slide', label: '이동시키기' },
 ];
 const gmForcedMovementDistanceOptions = [5, 10, 15, 20, 30];
-
-const mvpSpellIdsByLabel: Record<string, string> = {
-  'Acid Splash': 'spell.acid_splash',
-  Guidance: 'spell.guidance',
-  'Mage Hand': 'spell.mage_hand',
-  'Minor Illusion': 'spell.minor_illusion',
-  'Shocking Grasp': 'spell.shocking_grasp',
-  'Chill Touch': 'spell.chill_touch',
-  'Fire Bolt': 'spell.fire_bolt',
-  'Ray of Frost': 'spell.ray_of_frost',
-  'Sacred Flame': 'spell.sacred_flame',
-  Light: 'spell.light',
-  'Detect Magic': 'spell.detect_magic',
-  Bless: 'spell.bless',
-  Bane: 'spell.bane',
-  'Magic Missile': 'spell.magic_missile',
-  'Burning Hands': 'spell.burning_hands',
-  Thunderwave: 'spell.thunderwave',
-  Entangle: 'spell.entangle',
-  'Cure Wounds': 'spell.cure_wounds',
-  'Guiding Bolt': 'spell.guiding_bolt',
-  'Inflict Wounds': 'spell.inflict_wounds',
-  'Healing Word': 'spell.healing_word',
-  Command: 'spell.command',
-  Shield: 'spell.shield',
-  Sleep: 'spell.sleep',
-  'Hold Person': 'spell.hold_person',
-  Web: 'spell.web',
-  'Misty Step': 'spell.misty_step',
-  'Scorching Ray': 'spell.scorching_ray',
-  Fireball: 'spell.fireball',
-  'Dispel Magic': 'spell.dispel_magic',
-  'Charm Person': 'spell.charm_person',
-  'Faerie Fire': 'spell.faerie_fire',
-  'Feather Fall': 'spell.feather_fall',
-  'Fog Cloud': 'spell.fog_cloud',
-  Grease: 'spell.grease',
-  Heroism: 'spell.heroism',
-  "Hunter's Mark": 'spell.hunters_mark',
-  Longstrider: 'spell.longstrider',
-  Aid: 'spell.aid',
-  'Blindness/Deafness': 'spell.blindness_deafness',
-  Darkness: 'spell.darkness',
-  Invisibility: 'spell.invisibility',
-  'Lesser Restoration': 'spell.lesser_restoration',
-  Moonbeam: 'spell.moonbeam',
-  'Spiritual Weapon': 'spell.spiritual_weapon',
-  Counterspell: 'spell.counterspell',
-  Fly: 'spell.fly',
-  Haste: 'spell.haste',
-  'Lightning Bolt': 'spell.lightning_bolt',
-  Revivify: 'spell.revivify',
-  ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.label, spell.id])),
-};
-
-const mvpSpellRangeFtById: Record<string, number> = {
-  'spell.acid_splash': 60,
-  'spell.guidance': 5,
-  'spell.mage_hand': 30,
-  'spell.minor_illusion': 30,
-  'spell.shocking_grasp': 5,
-  'spell.chill_touch': 120,
-  'spell.fire_bolt': 120,
-  'spell.ray_of_frost': 60,
-  'spell.sacred_flame': 60,
-  'spell.light': 5,
-  'spell.detect_magic': 0,
-  'spell.bless': 30,
-  'spell.bane': 30,
-  'spell.magic_missile': 120,
-  'spell.burning_hands': 15,
-  'spell.thunderwave': 15,
-  'spell.entangle': 90,
-  'spell.cure_wounds': 5,
-  'spell.guiding_bolt': 120,
-  'spell.inflict_wounds': 5,
-  'spell.healing_word': 60,
-  'spell.command': 60,
-  'spell.sleep': 90,
-  'spell.hold_person': 60,
-  'spell.web': 60,
-  'spell.misty_step': 30,
-  'spell.scorching_ray': 120,
-  'spell.fireball': 150,
-  'spell.dispel_magic': 120,
-  'spell.charm_person': 30,
-  'spell.faerie_fire': 60,
-  'spell.feather_fall': 60,
-  'spell.fog_cloud': 120,
-  'spell.grease': 60,
-  'spell.heroism': 5,
-  'spell.hunters_mark': 90,
-  'spell.longstrider': 5,
-  'spell.aid': 30,
-  'spell.blindness_deafness': 30,
-  'spell.darkness': 60,
-  'spell.invisibility': 5,
-  'spell.lesser_restoration': 5,
-  'spell.moonbeam': 120,
-  'spell.spiritual_weapon': 60,
-  'spell.counterspell': 60,
-  'spell.fly': 5,
-  'spell.haste': 30,
-  'spell.lightning_bolt': 100,
-  'spell.revivify': 5,
-  ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.rangeFt])),
-};
-
-const mvpSpellLevelById: Record<string, number> = {
-  'spell.acid_splash': 0,
-  'spell.guidance': 0,
-  'spell.mage_hand': 0,
-  'spell.minor_illusion': 0,
-  'spell.shocking_grasp': 0,
-  'spell.chill_touch': 0,
-  'spell.fire_bolt': 0,
-  'spell.ray_of_frost': 0,
-  'spell.sacred_flame': 0,
-  'spell.light': 0,
-  'spell.detect_magic': 1,
-  'spell.bless': 1,
-  'spell.bane': 1,
-  'spell.magic_missile': 1,
-  'spell.burning_hands': 1,
-  'spell.thunderwave': 1,
-  'spell.entangle': 1,
-  'spell.cure_wounds': 1,
-  'spell.guiding_bolt': 1,
-  'spell.inflict_wounds': 1,
-  'spell.healing_word': 1,
-  'spell.command': 1,
-  'spell.shield': 1,
-  'spell.sleep': 1,
-  'spell.hold_person': 2,
-  'spell.web': 2,
-  'spell.misty_step': 2,
-  'spell.scorching_ray': 2,
-  'spell.fireball': 3,
-  'spell.dispel_magic': 3,
-  'spell.charm_person': 1,
-  'spell.faerie_fire': 1,
-  'spell.feather_fall': 1,
-  'spell.fog_cloud': 1,
-  'spell.grease': 1,
-  'spell.heroism': 1,
-  'spell.hunters_mark': 1,
-  'spell.longstrider': 1,
-  'spell.aid': 2,
-  'spell.blindness_deafness': 2,
-  'spell.darkness': 2,
-  'spell.invisibility': 2,
-  'spell.lesser_restoration': 2,
-  'spell.moonbeam': 2,
-  'spell.spiritual_weapon': 2,
-  'spell.counterspell': 3,
-  'spell.fly': 3,
-  'spell.haste': 3,
-  'spell.lightning_bolt': 3,
-  'spell.revivify': 3,
-  ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.level])),
-};
-
-const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
-  { id: 'all', label: '전체' },
-  { id: 'cantrip', label: '소마법' },
-  { id: 'level1', label: '1레벨 마법' },
-  { id: 'level2', label: '2레벨 마법' },
-  { id: 'level3', label: '3레벨 마법' },
-  { id: 'level4', label: '4레벨 마법' },
-  { id: 'level5', label: '5레벨 마법' },
-  { id: 'level6', label: '6레벨 마법' },
-  { id: 'level7', label: '7레벨 마법' },
-  { id: 'level8', label: '8레벨 마법' },
-  { id: 'level9', label: '9레벨 마법' },
-];
-
-const combatActionIconNames: Partial<Record<string, GameIconName>> = {
-  공격: 'game-icons:crossed-swords',
-  '보조 공격': 'game-icons:two-handed-sword',
-  도약: 'game-icons:jump-across',
-  대시: 'game-icons:running-shoe',
-  회피: 'game-icons:dodge',
-  숨기: 'game-icons:ninja-mask',
-  준비: 'game-icons:time-trap',
-  기절: 'game-icons:knockout',
-  중독: 'game-icons:poison-bottle',
-  넘어짐: 'game-icons:falling',
-  화상: 'game-icons:burning-round-shot',
-  'Second Wind': 'game-icons:health-increase',
-  Rage: 'game-icons:muscle-up',
-  Frenzy: 'game-icons:axe-swing',
-  'Bardic Inspiration': 'game-icons:sing',
-  'Channel Divinity': 'game-icons:holy-symbol',
-  'Preserve Life': 'game-icons:holy-symbol',
-  'Wild Shape': 'game-icons:wolf-head',
-  Ki: 'game-icons:monk-face',
-  'Patient Defense': 'game-icons:dodge',
-  'Step of the Wind': 'game-icons:wind-slap',
-  'Divine Sense': 'game-icons:divine-sight',
-  'Lay on Hands': 'game-icons:healing',
-  'Primeval Awareness': 'game-icons:forest',
-  'Action Surge': 'game-icons:winged-sword',
-  'Sneak Attack': 'game-icons:sharp-smile',
-  'Cunning Dash': 'game-icons:sprint',
-  'Cunning Disengage': 'game-icons:dodging',
-  'Cunning Hide': 'game-icons:hidden',
-  'Create Spell Slot': 'game-icons:magic-swirl',
-  'Chill Touch': 'game-icons:ice-bolt',
-  'Fire Bolt': 'game-icons:fireball',
-  'Ray of Frost': 'game-icons:ice-bolt',
-  'Sacred Flame': 'game-icons:holy-hand-grenade',
-  Light: 'game-icons:sun',
-  'Detect Magic': 'game-icons:magic-eye',
-  Bless: 'game-icons:angel-outfit',
-  Bane: 'game-icons:evil-eyes',
-  'Magic Missile': 'game-icons:magic-swirl',
-  'Burning Hands': 'game-icons:fire-breath',
-  Thunderwave: 'game-icons:sonic-boom',
-  Entangle: 'game-icons:vines',
-  'Cure Wounds': 'game-icons:health-increase',
-  Shield: 'game-icons:magic-shield',
-  Sleep: 'game-icons:night-sleep',
-  Fireball: 'game-icons:fireball',
-};
-
-function getCombatActionIconName(label: string): GameIconName | undefined {
-  // 전투 하위 액션은 상위 탭과 구분되도록 라벨별 RPG 아이콘을 한곳에서 관리합니다.
-  return combatActionIconNames[label];
-}
-
-function CombatActionButtonContent({ label, spellId }: { label: string; spellId?: string | null }) {
-  const iconName = spellId ? getSpellIconName(spellId, label) : getCombatActionIconName(label);
-
-  if (!iconName) return <span className="combat-action-button-label">{label}</span>;
-
-  return (
-    <>
-      <GameIcon name={iconName} size={36} className="combat-action-button-icon" />
-      <span className="combat-action-button-label">{label}</span>
-    </>
-  );
-}
-
-function getMonsterActionRangeLabel(action: CombatParticipant['monsterActions'][number]) {
-  if (!action.rangeFt) return null;
-  if (action.longRangeFt && action.longRangeFt > action.rangeFt) {
-    return `${action.rangeFt}/${action.longRangeFt}ft`;
-  }
-  return `${action.rangeFt}ft`;
-}
-
-function getMonsterActionUnavailableLabel(action: CombatMonsterAction) {
-  if (action.unavailableReason === 'MONSTER_RECHARGE_ACTION_EXPENDED') return '재충전 대기';
-  if (action.unavailableReason === 'MONSTER_LIMITED_USE_ACTION_EXPENDED') return '사용 완료';
-  return action.available === false ? '사용 불가' : null;
-}
-
-function getMonsterActionSummaryLabels(action: CombatMonsterAction) {
-  const labels: string[] = [];
-  if (action.targetKind === 'single_target') labels.push('Target');
-  if (action.targetKind === 'self') labels.push('Self');
-  if (action.targetKind === 'area') labels.push('Area');
-  if (action.resolutionKind === 'attack') labels.push('Attack');
-  if (action.resolutionKind === 'save') labels.push('Save');
-  if (action.resolutionKind === 'special') labels.push('Special');
-  if (action.childActions?.length) {
-    labels.push(
-      action.childActions
-        .map((child) => `${child.actionId}${child.count > 1 ? ` x${child.count}` : ''}`)
-        .join(', ')
-    );
-  }
-  if (action.save?.ability) {
-    labels.push(
-      `${action.save.ability.toUpperCase()} save${action.save.fixedDc ? ` DC ${action.save.fixedDc}` : ''}`
-    );
-  }
-  if (action.conditionRiders?.length) {
-    labels.push(action.conditionRiders.join(', '));
-  }
-  if (action.effectTags?.includes('legendary_or_lair_candidate')) {
-    labels.push('Legendary/Lair candidate');
-  }
-  action.effectTags
-    ?.filter(
-      (tag) =>
-        tag.startsWith('legendary_like:') ||
-        tag.startsWith('lair:') ||
-        tag.startsWith('phase:') ||
-        tag.startsWith('terrain:')
-    )
-    .forEach((tag) => labels.push(tag.replace(/_/g, ' ')));
-  if (action.recharge) labels.push(`Recharge ${action.recharge}`);
-  if (action.usage) labels.push(action.usage);
-  return labels;
-}
-
-function hasCharacterFeature(character: SessionCharacterResponseDto, featureId: string) {
-  return character.features.some((feature) => feature === featureId);
-}
-
-function getClassAbilityButtons(
-  character: SessionCharacterResponseDto | null,
-  participantConditions: string[] | undefined
-): CombatAbilityButton[] {
-  if (!character) return [];
-
-  const classKey = normalizeSrdCharacterClassKey(character.className);
-  const buttons: CombatAbilityButton[] = [];
-
-  if (hasCharacterFeature(character, 'race.dragonborn.trait.base_traits')) {
-    buttons.push({
-      key: 'dragonborn_breath',
-      label: 'Breath Weapon',
-      action: 'dragonborn_breath',
-      title: 'Action으로 적을 지정해 15ft 원뿔 브레스를 사용합니다. 대상은 DEX 내성을 굴립니다.',
-      requiresAction: true,
-      disabled: (participantConditions ?? []).includes(
-        'resource:dragonborn_breath_expended'
-      ),
-    });
-  }
-
-  if (classKey.includes('barbarian') && hasCharacterFeature(character, 'class.barbarian.feature.rage')) {
-    buttons.push({
-      key: 'rage',
-      label: 'Rage',
-      action: 'rage',
-      title: 'Bonus Action으로 격노를 시작합니다. 피해 저항 태그와 자원 소모가 서버에 기록됩니다.',
-      requiresBonusAction: true,
-      disabled:
-        (participantConditions ?? []).includes('rage') ||
-        (participantConditions ?? []).includes('condition.rage'),
-    });
-  }
-
-  if (
-    classKey.includes('barbarian') &&
-    hasCharacterFeature(character, 'class.barbarian.subclass_feature.frenzy')
-  ) {
-    buttons.push({
-      key: 'frenzy',
-      label: 'Frenzy',
-      action: 'frenzy',
-      title: 'Rage 중 Frenzy를 선언해 이후 턴에 보너스 행동 근접 공격을 사용할 수 있게 합니다.',
-      disabled:
-        !(participantConditions ?? []).includes('rage') ||
-        (participantConditions ?? []).includes('frenzy'),
-    });
-  }
-
-  if (classKey.includes('bard') && hasCharacterFeature(character, 'class.bard.feature.bardic_inspiration')) {
-    buttons.push({
-      key: 'bardic_inspiration',
-      label: 'Bardic Inspiration',
-      action: 'bardic_inspiration',
-      title: 'Bonus Action으로 아군에게 d6를 부여합니다. 다음 공격 굴림에 자동 적용됩니다.',
-      requiresBonusAction: true,
-    });
-  }
-
-  if (
-    classKey.includes('cleric') &&
-    hasCharacterFeature(character, 'class.cleric.feature.channel_divinity')
-  ) {
-    buttons.push({
-      key: 'cleric_channel_divinity',
-      label: 'Preserve Life',
-      action: 'channel_divinity',
-      title: 'Channel Divinity를 소모해 자신을 최대 HP 절반까지 회복합니다.',
-      requiresAction: true,
-      disabled: (participantConditions ?? []).includes(
-        'resource:channel_divinity_expended'
-      ),
-    });
-  }
-
-  if (classKey.includes('druid') && hasCharacterFeature(character, 'class.druid.feature.wild_shape')) {
-    buttons.push({
-      key: 'wild_shape',
-      label: 'Wild Shape',
-      action: 'wild_shape',
-      title: 'Action으로 늑대 형태가 되어 형태 HP 11, 이동 40ft, 물기 공격을 얻습니다.',
-      requiresAction: true,
-      disabled: (participantConditions ?? []).includes('wild_shape:wolf'),
-    });
-  }
-
-  if (classKey.includes('fighter') && hasCharacterFeature(character, 'class.fighter.feature.second_wind')) {
-    buttons.push({
-      key: 'second_wind',
-      label: 'Second Wind',
-      action: 'second_wind',
-      title: 'Bonus Action을 사용해 1d10 + Fighter 레벨만큼 자신을 회복합니다.',
-      requiresBonusAction: true,
-      disabled: (participantConditions ?? []).includes('resource:second_wind_expended'),
-    });
-  }
-
-  if (classKey.includes('fighter') && hasCharacterFeature(character, 'class.fighter.feature.action_surge')) {
-    buttons.push({
-      key: 'action_surge',
-      label: 'Action Surge',
-      action: 'action_surge',
-      title: '추가 Action을 얻습니다. 같은 턴에 한 번만 사용할 수 있습니다.',
-      disabled:
-        (participantConditions ?? []).includes('resource:action_surge_expended') ||
-        (participantConditions ?? []).includes('action_surge:additional_action_granted'),
-    });
-  }
-
-  if (classKey.includes('monk') && hasCharacterFeature(character, 'class.monk.feature.ki')) {
-    buttons.push(
-      {
-        key: 'ki_patient_defense',
-        label: 'Patient Defense',
-        action: 'ki_patient_defense',
-        title: 'Ki 1점을 소모하고 Bonus Action으로 Dodge를 사용합니다.',
-        requiresBonusAction: true,
-      },
-      {
-        key: 'ki_step_of_wind',
-        label: 'Step of the Wind',
-        action: 'ki_step_of_wind',
-        title: 'Ki 1점을 소모하고 Bonus Action으로 Disengage를 사용합니다.',
-        requiresBonusAction: true,
-      }
-    );
-  }
-
-  if (classKey.includes('paladin') && hasCharacterFeature(character, 'class.paladin.feature.divine_sense')) {
-    buttons.push({
-      key: 'divine_sense',
-      label: 'Divine Sense',
-      action: 'divine_sense',
-      title: 'Action으로 60ft 안의 celestial/fiend/undead 존재를 감지합니다.',
-      requiresAction: true,
-      disabled: (participantConditions ?? []).includes('resource:divine_sense_expended'),
-    });
-  }
-
-  if (classKey.includes('paladin') && hasCharacterFeature(character, 'class.paladin.feature.lay_on_hands')) {
-    buttons.push({
-      key: 'lay_on_hands',
-      label: 'Lay on Hands',
-      action: 'lay_on_hands',
-      title: 'Action으로 남은 Lay on Hands 회복 풀을 자신에게 사용합니다.',
-      requiresAction: true,
-      disabled: (participantConditions ?? []).includes('resource:lay_on_hands_expended'),
-    });
-  }
-
-  if (classKey.includes('ranger') && hasCharacterFeature(character, 'class.ranger.feature.primeval_awareness')) {
-    buttons.push({
-      key: 'primeval_awareness',
-      label: 'Primeval Awareness',
-      action: 'primeval_awareness',
-      title: 'Action과 1레벨 주문 슬롯을 소모해 주변의 특정 생물 유형을 감지합니다.',
-      requiresAction: true,
-    });
-  }
-
-  if (classKey.includes('rogue') && hasCharacterFeature(character, 'class.rogue.feature.sneak_attack')) {
-    buttons.push({
-      key: 'sneak_attack',
-      label: 'Sneak Attack',
-      action: 'sneak_attack',
-      title:
-        'Action을 사용해 이점이 있는 finesse 또는 원거리 무기 공격을 합니다. 명중하면 턴당 한 번 추가 피해를 줍니다.',
-      requiresAction: true,
-      disabled: participantConditions?.includes('resource:sneak_attack_expended'),
-    });
-  }
-
-  if (classKey.includes('rogue') && hasCharacterFeature(character, 'class.rogue.feature.cunning_action')) {
-    buttons.push(
-      {
-        key: 'cunning_dash',
-        label: 'Cunning Dash',
-        action: 'cunning_dash',
-        title: 'Bonus Action으로 Dash를 선언합니다.',
-        requiresBonusAction: true,
-      },
-      {
-        key: 'cunning_disengage',
-        label: 'Cunning Disengage',
-        action: 'cunning_disengage',
-        title: 'Bonus Action으로 Disengage를 선언합니다.',
-        requiresBonusAction: true,
-      },
-      {
-        key: 'cunning_hide',
-        label: 'Cunning Hide',
-        action: 'cunning_hide',
-        title: 'Bonus Action으로 Hide를 선언합니다.',
-        requiresBonusAction: true,
-      }
-    );
-  }
-
-  if (
-    classKey.includes('sorcerer') &&
-    hasCharacterFeature(character, 'class.sorcerer.feature.font_of_magic')
-  ) {
-    buttons.push({
-      key: 'font_of_magic',
-      label: 'Create Spell Slot',
-      action: 'font_of_magic',
-      title: '소서리 포인트 2점과 Bonus Action을 사용해 1레벨 주문 슬롯 하나를 회복합니다.',
-      requiresBonusAction: true,
-    });
-  }
-
-  return buttons;
-}
-
-function normalizeSpellId(value: string) {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-  return normalized.startsWith('spell.') ? normalized : `spell.${normalized}`;
-}
-
-function getRuleCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | undefined {
-  if (typeof entry.spellLevel === 'number') return entry.spellLevel;
-  const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
-  if (!tag) return undefined;
-  const level = Number(tag.slice('spell_level:'.length));
-  return Number.isInteger(level) ? level : undefined;
-}
-
-function formatRuleCatalogSpellLabel(entry: RuleCatalogReferenceDto) {
-  if (entry.label) return entry.label;
-  const raw = entry.id.includes('.') ? entry.id.slice(entry.id.lastIndexOf('.') + 1) : entry.id;
-  return raw
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ') || entry.id;
-}
-
-function hasMvpSpell(
-  character: SessionCharacterResponseDto | null,
-  spellId: string,
-  spellLevelById: Record<string, number> = mvpSpellLevelById
-) {
-  if (!character) return false;
-  const cantrips = (character.spells?.cantrips ?? []).map(normalizeSpellId);
-  if (cantrips.includes(spellId)) return true;
-
-  const learnedSpells = (character.spells?.spells ?? []).map(normalizeSpellId);
-  if (!learnedSpells.includes(spellId)) return false;
-
-  const spellLevel = spellLevelById[spellId];
-  const preparedSpells = character.spells?.preparedSpells;
-  if (
-    spellLevel &&
-    resolvePreparedSpellAbility(normalizeSrdCharacterClassKey(character.className)) !== null &&
-    preparedSpells
-  ) {
-    return preparedSpells.map(normalizeSpellId).includes(spellId);
-  }
-
-  return true;
-}
-
-function getKnownMvpSpellActions(
-  character: SessionCharacterResponseDto | null,
-  ruleCatalog: RuleCatalogReferenceDto[] = []
-): CombatSpellAction[] {
-  const catalogSpellEntries = ruleCatalog.filter(
-    (entry) => entry.kind === 'spell_definitions' && entry.executable
-  );
-  const catalogSpellById = new Map(catalogSpellEntries.map((entry) => [entry.id, entry] as const));
-  const spellLevelById: Record<string, number> = { ...mvpSpellLevelById };
-  for (const entry of catalogSpellEntries) {
-    const level = getRuleCatalogSpellLevel(entry);
-    if (typeof level === 'number') spellLevelById[entry.id] = level;
-  }
-  const actions: CombatSpellAction[] = [];
-  const seenSpellIds = new Set<string>();
-
-  for (const label of mvpSpellLabels) {
-    const spellId = mvpSpellIdsByLabel[label];
-    if (spellId && hasMvpSpell(character, spellId, spellLevelById)) {
-      actions.push({ label, spellId, level: spellLevelById[spellId] });
-      seenSpellIds.add(spellId);
-    }
-  }
-
-  const knownSpellIds = [
-    ...(character?.spells?.cantrips ?? []),
-    ...(character?.spells?.spells ?? []),
-  ].map(normalizeSpellId);
-  for (const spellId of knownSpellIds) {
-    if (seenSpellIds.has(spellId) || !catalogSpellById.has(spellId)) continue;
-    if (!hasMvpSpell(character, spellId, spellLevelById)) continue;
-    const entry = catalogSpellById.get(spellId)!;
-    actions.push({
-      label: formatRuleCatalogSpellLabel(entry),
-      spellId,
-      level: spellLevelById[spellId],
-    });
-    seenSpellIds.add(spellId);
-  }
-
-  return actions.sort((left, right) => {
-    const leftLevel = left.level ?? 99;
-    const rightLevel = right.level ?? 99;
-    if (leftLevel !== rightLevel) return leftLevel - rightLevel;
-    return left.label.localeCompare(right.label);
-  });
-}
-
-function getSpellTargetingHint(spellId: string) {
-  if (
-    spellId === 'spell.acid_splash' ||
-    spellId === 'spell.shocking_grasp' ||
-    spellId === 'spell.chill_touch' ||
-    spellId === 'spell.fire_bolt' ||
-    spellId === 'spell.ray_of_frost'
-  ) {
-    return '사거리 안의 적 토큰을 선택하세요. 벽/닫힌 문/오브젝트 엄폐는 서버가 명중 보정에 반영합니다.';
-  }
-  if (spellId === 'spell.sacred_flame') {
-    return '시야와 사거리 안의 적 토큰을 선택하세요. 대상은 민첩 내성을 굴리며 엄폐 내성 보너스를 받지 않습니다.';
-  }
-  if (spellId === 'spell.magic_missile') {
-    return '사거리 안의 적 토큰을 선택하세요. 대상이 완전 엄폐 뒤에 있으면 슬롯/행동 소모 전에 서버가 차단합니다.';
-  }
-  if (spellId === 'spell.cure_wounds') {
-    return '접촉 가능한 아군 또는 자기 토큰을 선택하세요. 완전 엄폐 뒤 대상은 서버가 차단합니다.';
-  }
-  if (spellId === 'spell.sleep') {
-    return '사거리 안의 타일을 선택하세요. 원점에서 완전 엄폐인 대상은 Sleep HP pool에서 제외됩니다.';
-  }
-  if (spellId === 'spell.fireball') {
-    return '사거리 안의 폭발 원점을 선택하세요. 완전 엄폐 대상은 제외되고, 일부 엄폐는 Dex 내성 보너스로 적용됩니다.';
-  }
-  if (spellId === 'spell.burning_hands') {
-    return '시전자에서 15ft 이내의 방향 타일을 선택하세요. 해당 방향의 15ft cone 안 대상이 Dex 내성을 굴립니다.';
-  }
-  if (spellId === 'spell.thunderwave') {
-    return '시전자에서 15ft 이내의 시작 타일을 선택하세요. 15ft cube 안 대상은 건강 내성을 굴리고, 실패하면 10ft 밀려납니다.';
-  }
-  if (spellId === 'spell.entangle') {
-    return '사거리 안의 시작 타일을 선택하세요. 20ft cube가 험지가 되고, 범위 안 대상은 힘 내성 실패 시 구속됩니다.';
-  }
-  if (spellId === 'spell.light') {
-    return '사거리 안의 타일을 선택하세요.';
-  }
-  if (spellId === 'spell.detect_magic') {
-    return '시전자 중심 30ft 안의 마법 효과를 감지합니다. 맵의 아무 타일이나 선택해 시전하세요.';
-  }
-  if (spellId === 'spell.bless') {
-    return '30ft 안의 아군 토큰을 선택하세요. 공격 굴림과 내성 굴림에 매번 1d4를 더합니다.';
-  }
-  if (spellId === 'spell.bane') {
-    return '30ft 안의 적 토큰을 선택하세요. 매력 내성 실패 시 공격 굴림과 내성 굴림에서 매번 1d4를 뺍니다.';
-  }
-  if (spellId === 'spell.guiding_bolt') {
-    return '120ft 안의 적 토큰을 선택하세요. 명중하면 다음 공격이 이점을 얻습니다.';
-  }
-  if (spellId === 'spell.inflict_wounds') {
-    return '접촉 가능한 적 토큰을 선택하세요.';
-  }
-  if (spellId === 'spell.healing_word') {
-    return '60ft 안의 아군 또는 자기 토큰을 선택하세요. Bonus Action을 사용합니다.';
-  }
-  if (spellId === 'spell.command' || spellId === 'spell.hold_person') {
-    return '60ft 안의 적 토큰을 선택하세요. 대상은 지혜 내성을 굴립니다.';
-  }
-  if (spellId === 'spell.web') {
-    return '60ft 안의 시작 타일을 선택하세요. 20ft cube가 험지가 되고 대상이 구속될 수 있습니다.';
-  }
-  if (spellId === 'spell.misty_step') {
-    return '30ft 안의 빈 타일을 선택하세요. Bonus Action으로 그 지점으로 순간이동합니다.';
-  }
-  if (spellId === 'spell.scorching_ray') {
-    return '120ft 안의 적 토큰을 선택하세요. 광선 공격 굴림을 처리합니다.';
-  }
-  if (spellId === 'spell.dispel_magic') {
-    return '120ft 안에서 해제할 주문 효과가 걸린 토큰을 선택하세요.';
-  }
-  if (
-    spellId === 'spell.faerie_fire' ||
-    spellId === 'spell.fog_cloud' ||
-    spellId === 'spell.grease' ||
-    spellId === 'spell.darkness' ||
-    spellId === 'spell.moonbeam' ||
-    spellId === 'spell.minor_illusion' ||
-    spellId === 'spell.mage_hand' ||
-    spellId === 'spell.lightning_bolt'
-  ) {
-    return '사거리 안의 효과 중심 또는 방향 타일을 선택하세요.';
-  }
-  if (
-    spellId === 'spell.guidance' ||
-    spellId === 'spell.feather_fall' ||
-    spellId === 'spell.heroism' ||
-    spellId === 'spell.longstrider' ||
-    spellId === 'spell.aid' ||
-    spellId === 'spell.invisibility' ||
-    spellId === 'spell.lesser_restoration' ||
-    spellId === 'spell.fly' ||
-    spellId === 'spell.haste'
-  ) {
-    return '사거리 안의 아군 또는 자기 토큰을 선택하세요.';
-  }
-  if (
-    spellId === 'spell.charm_person' ||
-    spellId === 'spell.hunters_mark' ||
-    spellId === 'spell.blindness_deafness' ||
-    spellId === 'spell.spiritual_weapon'
-  ) {
-    return '사거리 안의 적 토큰을 선택하세요.';
-  }
-  if (spellId === 'spell.revivify') {
-    return '접촉 가능한 쓰러진 아군 토큰을 선택하세요.';
-  }
-  if (spellId === 'spell.counterspell') {
-    return 'Counterspell은 적이 주문을 시전할 때 반응 팝업으로 사용합니다.';
-  }
-  const p3Spell = p3CombatSpellMetadataById.get(spellId);
-  if (p3Spell?.targeting === 'token') {
-    if (p3Spell.targetDisposition === 'ally') {
-      return `${p3Spell.rangeFt}ft 안의 아군 또는 자기 토큰을 선택하세요.`;
-    }
-    if (p3Spell.targetDisposition === 'enemy') {
-      return `${p3Spell.rangeFt}ft 안의 적 토큰을 선택하세요.`;
-    }
-    return `${p3Spell.rangeFt}ft 안의 대상 토큰을 선택하세요.`;
-  }
-  if (p3Spell?.targeting === 'point') {
-    return `${p3Spell.rangeFt}ft 안의 효과 지점 또는 이동 목적지를 선택하세요.`;
-  }
-  return '사거리 안의 타일 또는 대상을 선택하세요.';
-}
-
-function formatLevel1SpellSlots(remaining: number, total: number) {
-  const cappedTotal = Math.max(0, Math.floor(total));
-  const cappedRemaining = Math.min(cappedTotal, Math.max(0, Math.floor(remaining)));
-  if (cappedTotal <= 0) return '1 --';
-  return `1 ${Array.from({ length: cappedTotal }, (_, index) =>
-    index < cappedRemaining ? '●' : '○'
-  ).join('')}`;
-}
-
-function formatSpellSlotPips(level: string, remaining: number, total: number) {
-  const cappedTotal = Math.max(0, Math.floor(total));
-  const cappedRemaining = Math.min(cappedTotal, Math.max(0, Math.floor(remaining)));
-  if (cappedTotal <= 0) return `${level} --`;
-  return `${level} ${Array.from({ length: cappedTotal }, (_, index) =>
-    index < cappedRemaining ? '●' : '○'
-  ).join('')}`;
-}
-
-function getPhaseLabel(phase: string | null | undefined) {
-  if (!phase) return '상태 미확인';
-  if (phase === 'combat') return '진행: 전투';
-  if (phase === 'exploration') return '진행: 탐색';
-  if (phase === 'dialogue') return '진행: 대화';
-  if (phase === 'lobby') return '진행: 대기';
-  if (phase === 'rest') return '진행: 휴식';
-  return `진행: ${phase}`;
-}
-
-function getInventoryItemKey(item: InventoryItemDto) {
-  return [item.itemType, item.itemDefinitionId, item.name, ...(item.properties ?? [])]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-}
-
-function isQuickUsableItem(item: InventoryItemDto) {
-  const key = getInventoryItemKey(item);
-  const isPack = item.itemType === 'pack' || key.includes('꾸러미');
-  return (
-    item.quantity > 0 &&
-    (isDirectlyUsableP3Item(item.itemDefinitionId) ||
-      key.includes('consumable') ||
-      key.includes('potion') ||
-      key.includes('포션') ||
-      key.includes('healing') ||
-      isPack)
-  );
-}
-
-function isWeaponItem(item: InventoryItemDto) {
-  const key = getInventoryItemKey(item);
-  return item.itemType === 'weapon' || Boolean(item.damageDice) || key.includes('weapon');
-}
-
-function isArmorItem(item: InventoryItemDto) {
-  if (isShieldItem(item)) return false;
-  const key = getInventoryItemKey(item);
-  return item.itemType === 'armor' || key.includes('armor') || key.includes('갑옷');
-}
-
-function isShieldItem(item: InventoryItemDto) {
-  const key = getInventoryItemKey(item);
-  return item.itemType === 'shield' || key.includes('shield') || key.includes('방패');
-}
-
-function isEquippedItem(item: InventoryItemDto, equippedId: string | null | undefined) {
-  return Boolean(
-    equippedId &&
-    (item.id === equippedId || item.itemDefinitionId === equippedId || item.name === equippedId)
-  );
-}
-
-function getInventoryItemIconName(item: InventoryItemDto): GameIconName {
-  const key = getInventoryItemKey(item).replace(/_/g, '-');
-
-  // 기타 아이템 기본값은 가방보다 중립적인 보급 상자로 두어, 꾸러미 전용 아이콘과 역할이 섞이지 않게 합니다.
-  if (key.includes('shield') || key.includes('방패')) return 'game-icons:shield';
-  if (item.itemType === 'armor' || key.includes('armor') || key.includes('갑옷'))
-    return 'game-icons:armor-vest';
-  if (key.includes('bow') || key.includes('crossbow') || key.includes('활') || key.includes('석궁'))
-    return 'game-icons:bow-arrow';
-  if (key.includes('dagger') || key.includes('knife') || key.includes('단검'))
-    return 'game-icons:plain-dagger';
-  if (key.includes('axe') || key.includes('액스') || key.includes('도끼'))
-    return 'game-icons:battle-axe';
-  if (isWeaponItem(item)) return 'game-icons:rune-sword';
-  if (key.includes('potion') || key.includes('healing') || key.includes('포션'))
-    return 'game-icons:health-potion';
-  if (item.itemType === 'pack' || key.includes('꾸러미')) return 'game-icons:swap-bag';
-  if (key.includes('scroll') || key.includes('spell') || key.includes('두루마리'))
-    return 'game-icons:scroll-unfurled';
-  if (key.includes('book') || key.includes('책')) return 'game-icons:spell-book';
-  if (key.includes('key') || key.includes('열쇠')) return 'game-icons:key';
-  if (key.includes('tool') || key.includes('kit') || key.includes('도구'))
-    return 'game-icons:toolbox';
-  if (key.includes('coin') || key.includes('gold') || key.includes('코인') || key.includes('금화'))
-    return 'game-icons:coins';
-  return 'game-icons:wooden-crate';
-}
-
-function getWeaponFallbackRangeFt(item: InventoryItemDto) {
-  const key = getInventoryItemKey(item).replace(/_/g, '-');
-  if (key.includes('longbow')) return 150;
-  if (key.includes('shortbow') || key.includes('light-crossbow')) return 80;
-  if (key.includes('javelin')) return 30;
-  if (key.includes('dagger') || key.includes('dart') || key.includes('handaxe')) return 20;
-  if (key.includes('롱보우')) return 150;
-  if (key.includes('쇼트보우') || key.includes('라이트 크로스보우')) return 80;
-  if (key.includes('재블린')) return 30;
-  if (key.includes('단검') || key.includes('다트') || key.includes('핸드액스')) return 20;
-  if ((item.properties ?? []).some((property) => property.toLowerCase().includes('ranged')))
-    return 80;
-  return 5;
-}
-
-function getThrowableLongRangeFt(item: InventoryItemDto) {
-  const key = getInventoryItemKey(item).replace(/_/g, '-');
-  const properties = getWeaponPropertySet(item);
-  if (key.includes('javelin') || key.includes('재블린')) return 120;
-  if (
-    properties.has('thrown') ||
-    key.includes('dagger') ||
-    key.includes('dart') ||
-    key.includes('handaxe') ||
-    key.includes('단검') ||
-    key.includes('다트') ||
-    key.includes('핸드액스')
-  ) {
-    return 60;
-  }
-  return 60;
-}
-
-function getWeaponPropertySet(item: InventoryItemDto) {
-  const key = getInventoryItemKey(item).replace(/_/g, '-');
-  const properties = new Set(
-    (item.properties ?? []).map((property) => property.toLowerCase().replace(/[_\s]+/g, '-'))
-  );
-
-  if (
-    key.includes('longbow') ||
-    key.includes('shortbow') ||
-    key.includes('crossbow') ||
-    key.includes('dart')
-  ) {
-    properties.add('ranged');
-  } else if (isWeaponItem(item)) {
-    properties.add('melee');
-  }
-
-  if (
-    key.includes('dagger') ||
-    key.includes('rapier') ||
-    key.includes('handaxe') ||
-    key.includes('scimitar') ||
-    key.includes('shortsword') ||
-    key.includes('단검') ||
-    key.includes('레이피어') ||
-    key.includes('핸드액스') ||
-    key.includes('시미터') ||
-    key.includes('쇼트소드')
-  ) {
-    properties.add('light');
-    properties.add('melee');
-  }
-
-  if (
-    key.includes('dagger') ||
-    key.includes('rapier') ||
-    key.includes('scimitar') ||
-    key.includes('shortsword') ||
-    key.includes('단검') ||
-    key.includes('레이피어') ||
-    key.includes('시미터') ||
-    key.includes('쇼트소드')
-  ) {
-    properties.add('finesse');
-  }
-
-  if (
-    key.includes('greataxe') ||
-    key.includes('longbow') ||
-    key.includes('shortbow') ||
-    key.includes('crossbow') ||
-    key.includes('그레이트액스') ||
-    key.includes('롱보우') ||
-    key.includes('쇼트보우') ||
-    key.includes('크로스보우')
-  ) {
-    properties.add('two-handed');
-  }
-
-  return properties;
-}
-
-function isLightMeleeWeaponItem(item: InventoryItemDto | null) {
-  if (!item || !isWeaponItem(item)) return false;
-  const properties = getWeaponPropertySet(item);
-  return (
-    properties.has('light') &&
-    (properties.has('melee') || !properties.has('ranged')) &&
-    !properties.has('two-handed')
-  );
-}
-
-function isSneakAttackWeaponItem(item: InventoryItemDto | null) {
-  if (!item || !isWeaponItem(item)) return false;
-  const properties = getWeaponPropertySet(item);
-  return properties.has('finesse') || properties.has('ranged');
-}
-
-function getGridDistanceFt(
-  map: VttMapStateDto,
-  left: VttMapStateDto['tokens'][number],
-  right: VttMapStateDto['tokens'][number]
-) {
-  const leftColumn = Math.floor(
-    Math.min(Math.max(left.x, 0), Math.max(0, map.width - 1)) / map.gridSize
-  );
-  const leftRow = Math.floor(
-    Math.min(Math.max(left.y, 0), Math.max(0, map.height - 1)) / map.gridSize
-  );
-  const rightColumn = Math.floor(
-    Math.min(Math.max(right.x, 0), Math.max(0, map.width - 1)) / map.gridSize
-  );
-  const rightRow = Math.floor(
-    Math.min(Math.max(right.y, 0), Math.max(0, map.height - 1)) / map.gridSize
-  );
-  return Math.max(Math.abs(leftColumn - rightColumn), Math.abs(leftRow - rightRow)) * 5;
-}
-
-function getSelectionGridPoint(
-  selection: BattleMapSelection | null,
-  map: VttMapStateDto | null
-) {
-  if (!selection || !map) return null;
-  return {
-    x: Math.floor(Math.min(Math.max(selection.point.x, 0), Math.max(0, map.width - 1)) / map.gridSize),
-    y: Math.floor(Math.min(Math.max(selection.point.y, 0), Math.max(0, map.height - 1)) / map.gridSize),
-  };
-}
-
-function getMapObjectItemPayload(
-  selection: BattleMapSelection | null,
-  map: VttMapStateDto | null
-) {
-  if (!selection || selection.kind !== 'object') return null;
-  const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
-  const itemDefinitionId = objectCell.hiddenItemIds?.[0]?.trim();
-  if (!itemDefinitionId) return null;
-  const gridPoint = getSelectionGridPoint(selection, map);
-  if (!gridPoint) return null;
-  const escapedItemDefinitionId = itemDefinitionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = objectCell.description?.match(
-    new RegExp(`(?:^|\\s)${escapedItemDefinitionId}\\s+x(\\d+)(?:\\s|$)`)
-  );
-  const quantity = Number(match?.[1]);
-  return {
-    objectId: objectCell.id,
-    itemDefinitionId,
-    quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : 1,
-    point: gridPoint,
-  };
-}
-
-function getResourceFillPercent(
-  current: number | null | undefined,
-  max: number | null | undefined
-) {
-  if (typeof current !== 'number' || typeof max !== 'number' || max <= 0) return 0;
-  return Math.min(100, Math.max(0, (current / max) * 100));
-}
-
-function splitSceneParagraphs(sceneText: string | undefined) {
-  const paragraphs = (sceneText ?? '')
-    .split(/\n{2,}|\r?\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-
-  return paragraphs.length ? paragraphs : ['현재 전투 장면 설명이 아직 준비되지 않았습니다.'];
-}
-
-function readParticipantColorVar(
-  colorStyle: CSSProperties | undefined,
-  name: '--participant-frame-color' | '--participant-bg-color' | '--participant-text-color',
-  fallback: string
-) {
-  const value = (colorStyle as Record<string, string> | undefined)?.[name];
-  return typeof value === 'string' && value.trim() ? value : fallback;
-}
-
-function getTurnCardColorStyle(
-  colorStyle: CSSProperties | undefined,
-  fallbackColor: SessionTokenColor
-): CSSProperties {
-  const accentColor = readParticipantColorVar(
-    colorStyle,
-    '--participant-frame-color',
-    fallbackColor.frame
-  );
-  const backgroundColor = readParticipantColorVar(
-    colorStyle,
-    '--participant-bg-color',
-    fallbackColor.background
-  );
-  const textColor = readParticipantColorVar(
-    colorStyle,
-    '--participant-text-color',
-    fallbackColor.text
-  );
-
-  return {
-    ...colorStyle,
-    // 턴 카드는 플레이어별 고정 색을 가장 먼저 보이게 해야 해서 전용 CSS 변수로 한 번 더 연결합니다.
-    ['--combat-turn-accent' as string]: accentColor,
-    ['--combat-turn-bg' as string]: backgroundColor,
-    ['--combat-turn-text' as string]: textColor,
-  } as CSSProperties;
-}
 
 function CombatResourceIcon({ kind }: { kind: CombatResourceIconKind }) {
   if (kind === 'action') return <GameIcon name="game-icons:rune-sword" size={21} />;
@@ -1494,43 +300,20 @@ export function CombatNodeSurface({
   const [targetingMonsterActionId, setTargetingMonsterActionId] = useState<string | null>(null);
   const [combatMovementMode, setCombatMovementMode] = useState<CombatMovementMode>('normal');
   const [spellFilter, setSpellFilter] = useState<SpellFilter>('all');
-  const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
+  const combatPresentation = useCombatNodeSurfacePresentation({
+    phase,
+  });
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
-  const catalogSpellMetadataById = useMemo(() => {
-    const map = new Map<
-      string,
-      { level?: number; rangeFt?: number | null; targetingType?: string | null }
-    >();
-    for (const entry of ruleCatalog) {
-      if (entry.kind !== 'spell_definitions' || !entry.executable) continue;
-      map.set(entry.id, {
-        level: getRuleCatalogSpellLevel(entry),
-        rangeFt: entry.rangeFt,
-        targetingType: entry.targetingType,
-      });
-    }
-    return map;
-  }, [ruleCatalog]);
+  const catalogSpellMetadataById = useMemo(
+    () => getCombatCatalogSpellMetadataById(ruleCatalog),
+    [ruleCatalog]
+  );
   const knownSpellActions = useMemo(
     () => getKnownMvpSpellActions(myCharacter, ruleCatalog),
     [myCharacter, ruleCatalog]
   );
   const visibleSpellActions = useMemo(
-    () =>
-      knownSpellActions.filter((action) => {
-        const spellLevel = action.level;
-        if (spellFilter === 'cantrip') return spellLevel === 0;
-        if (spellFilter === 'level1') return spellLevel === 1;
-        if (spellFilter === 'level2') return spellLevel === 2;
-        if (spellFilter === 'level3') return spellLevel === 3;
-        if (spellFilter === 'level4') return spellLevel === 4;
-        if (spellFilter === 'level5') return spellLevel === 5;
-        if (spellFilter === 'level6') return spellLevel === 6;
-        if (spellFilter === 'level7') return spellLevel === 7;
-        if (spellFilter === 'level8') return spellLevel === 8;
-        if (spellFilter === 'level9') return spellLevel === 9;
-        return true;
-      }),
+    () => getVisibleSpellActions(knownSpellActions, spellFilter),
     [knownSpellActions, spellFilter]
   );
   const actionTabs = useMemo(() => {
@@ -1558,50 +341,9 @@ export function CombatNodeSurface({
     level1SpellSlotsRemaining,
     level1SpellSlotsTotal
   );
-  const spellSlotResources = myActionResources?.spellSlots ?? {};
-  const visibleSpellSlotEntries = Object.entries(spellSlotResources)
-    .filter(([level, resource]) => {
-      const numericLevel = Number(level);
-      return Number.isInteger(numericLevel) && numericLevel > 0 && resource.total > 0;
-    })
-    .sort(([left], [right]) => Number(left) - Number(right));
-  const getSpellSlotTotal = (spellLevel: number) => {
-    if (spellLevel === 1) return spellSlotResources['1']?.total ?? level1SpellSlotsTotal;
-    return spellSlotResources[String(spellLevel)]?.total ?? 0;
-  };
-  const getSpellSlotRemaining = (spellLevel: number) => {
-    const total = getSpellSlotTotal(spellLevel);
-    const remaining =
-      spellLevel === 1
-        ? (spellSlotResources['1']?.remaining ?? level1SpellSlotsRemaining)
-        : (spellSlotResources[String(spellLevel)]?.remaining ?? 0);
-    return Math.min(total, Math.max(0, remaining));
-  };
-  const getAvailableSlotLevelsForSpell = (spellLevel: number | undefined) => {
-    if (typeof spellLevel !== 'number' || spellLevel <= 0) return [];
-    return Object.entries(spellSlotResources)
-      .map(([level, resource]) => ({
-        level: Number(level),
-        remaining: resource.remaining,
-        total: resource.total,
-      }))
-      .filter(
-        (entry) =>
-          Number.isInteger(entry.level) &&
-          entry.level >= spellLevel &&
-          entry.total > 0 &&
-          entry.remaining > 0
-      )
-      .sort((left, right) => left.level - right.level)
-      .map((entry) => entry.level);
-  };
-  const getSelectedSlotLevelForSpell = (spellId: string, spellLevel: number | undefined) => {
-    if (typeof spellLevel !== 'number' || spellLevel <= 0) return undefined;
-    const availableLevels = getAvailableSlotLevelsForSpell(spellLevel);
-    if (!availableLevels.length) return spellLevel;
-    const selected = spellSlotLevelBySpellId[spellId];
-    return availableLevels.includes(selected) ? selected : availableLevels[0];
-  };
+  const spellSlotResources: Record<string, CombatSpellSlotResource> =
+    myActionResources?.spellSlots ?? {};
+  const visibleSpellSlotEntries = getVisibleSpellSlotEntries(spellSlotResources);
   const getSpellRangeFt = (spellId: string) =>
     mvpSpellRangeFtById[spellId] ?? catalogSpellMetadataById.get(spellId)?.rangeFt ?? 0;
   const equippedWeapon =
@@ -1946,12 +688,8 @@ export function CombatNodeSurface({
   const canUseJumpMovement = Boolean(
     canControlActiveActor && !isCombatBusy && movementCurrent !== null && movementCurrent > 10
   );
-  const hpMeterStyle = {
-    '--combat-resource-fill': `${getResourceFillPercent(activeCurrentHp, activeMaxHp)}%`,
-  } as CSSProperties;
-  const movementMeterStyle = {
-    '--combat-resource-fill': `${getResourceFillPercent(movementCurrent, movementTotal)}%`,
-  } as CSSProperties;
+  const hpMeterStyle = getCombatResourceMeterStyle(activeCurrentHp, activeMaxHp);
+  const movementMeterStyle = getCombatResourceMeterStyle(movementCurrent, movementTotal);
   const inventoryPanelStyle = {
     '--combat-inventory-item-count': Math.max(inventory.length, 1),
   } as CSSProperties;
@@ -2113,7 +851,7 @@ export function CombatNodeSurface({
     character: SessionCharacterResponseDto | null
   ) {
     const fallbackColor = participant.isHostile ? MONSTER_TOKEN_COLOR : NPC_TOKEN_COLOR;
-    return getTurnCardColorStyle(
+    return getCombatTurnCardColorStyle(
       character ? getCharacterColorStyle?.(character) : undefined,
       fallbackColor
     );
@@ -2246,12 +984,7 @@ export function CombatNodeSurface({
     if (!spellId || spellId === 'spell.shield') return;
     const p3Spell = p3CombatSpellMetadataById.get(spellId);
     const catalogSpell = catalogSpellMetadataById.get(spellId);
-    if (
-      spellId === 'spell.detect_magic' ||
-      p3Spell?.targeting === 'self' ||
-      catalogSpell?.targetingType === 'self' ||
-      catalogSpell?.targetingType === 'none'
-    ) {
+    if (isImmediateSelfCombatSpell(spellId, p3Spell, catalogSpell)) {
       setTargetingSpellId(null);
       void onCastSpell(spellId, buildSpellCastPayload(spellId));
       return;
@@ -2266,7 +999,12 @@ export function CombatNodeSurface({
 
   function buildSpellCastPayload(spellId: string) {
     const spellLevel = mvpSpellLevelById[spellId] ?? catalogSpellMetadataById.get(spellId)?.level;
-    const slotLevel = getSelectedSlotLevelForSpell(spellId, spellLevel);
+    const slotLevel = getSelectedSlotLevelForSpell(
+      spellId,
+      spellLevel,
+      spellSlotResources,
+      spellSlotLevelBySpellId
+    );
     return typeof slotLevel === 'number' && slotLevel > 0 && slotLevel !== spellLevel
       ? { slotLevel }
       : {};
@@ -2295,75 +1033,12 @@ export function CombatNodeSurface({
       void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
       return;
     }
-    if (
-      spellId === 'spell.chill_touch' ||
-      spellId === 'spell.acid_splash' ||
-      spellId === 'spell.shocking_grasp' ||
-      spellId === 'spell.fire_bolt' ||
-      spellId === 'spell.ray_of_frost' ||
-      spellId === 'spell.sacred_flame' ||
-      spellId === 'spell.magic_missile' ||
-      spellId === 'spell.cure_wounds' ||
-      spellId === 'spell.guiding_bolt' ||
-      spellId === 'spell.inflict_wounds' ||
-      spellId === 'spell.healing_word' ||
-      spellId === 'spell.command' ||
-      spellId === 'spell.hold_person' ||
-      spellId === 'spell.scorching_ray' ||
-      spellId === 'spell.dispel_magic' ||
-      spellId === 'spell.bless' ||
-      spellId === 'spell.bane'
-      || spellId === 'spell.guidance'
-      || spellId === 'spell.feather_fall'
-      || spellId === 'spell.heroism'
-      || spellId === 'spell.longstrider'
-      || spellId === 'spell.aid'
-      || spellId === 'spell.invisibility'
-      || spellId === 'spell.lesser_restoration'
-      || spellId === 'spell.fly'
-      || spellId === 'spell.haste'
-      || spellId === 'spell.charm_person'
-      || spellId === 'spell.hunters_mark'
-      || spellId === 'spell.blindness_deafness'
-      || spellId === 'spell.spiritual_weapon'
-      || spellId === 'spell.revivify'
-    ) {
+    const legacySpellTargetKind = getLegacyCombatSpellTargetKind(spellId);
+    if (legacySpellTargetKind === 'token') {
       if (selection?.kind !== 'token') return;
       const participant = getParticipantByTokenId(selection.token.id);
-      if (!participant || (spellId !== 'spell.revivify' && !participant.isAlive)) return;
-      if (
-        spellId !== 'spell.cure_wounds' &&
-        spellId !== 'spell.healing_word' &&
-        spellId !== 'spell.dispel_magic' &&
-        spellId !== 'spell.bless' &&
-        spellId !== 'spell.guidance' &&
-        spellId !== 'spell.feather_fall' &&
-        spellId !== 'spell.heroism' &&
-        spellId !== 'spell.longstrider' &&
-        spellId !== 'spell.aid' &&
-        spellId !== 'spell.invisibility' &&
-        spellId !== 'spell.lesser_restoration' &&
-        spellId !== 'spell.fly' &&
-        spellId !== 'spell.haste' &&
-        spellId !== 'spell.revivify' &&
-        !participant.isHostile
-      ) return;
-      if (
-        (spellId === 'spell.cure_wounds' ||
-          spellId === 'spell.healing_word' ||
-          spellId === 'spell.bless' ||
-          spellId === 'spell.guidance' ||
-          spellId === 'spell.feather_fall' ||
-          spellId === 'spell.heroism' ||
-          spellId === 'spell.longstrider' ||
-          spellId === 'spell.aid' ||
-          spellId === 'spell.invisibility' ||
-          spellId === 'spell.lesser_restoration' ||
-          spellId === 'spell.fly' ||
-          spellId === 'spell.haste' ||
-          spellId === 'spell.revivify') &&
-        participant.isHostile
-      ) return;
+      if (!participant) return;
+      if (!canLegacyCombatSpellTargetParticipant(spellId, participant)) return;
       if (!isParticipantSpellTargetInRange(participant, spellId)) return;
       setTargetingSpellId(null);
       void onCastSpell(spellId, {
@@ -2372,30 +1047,7 @@ export function CombatNodeSurface({
       });
       return;
     }
-    if (
-      spellId === 'spell.sleep' ||
-      spellId === 'spell.fireball' ||
-      spellId === 'spell.burning_hands' ||
-      spellId === 'spell.thunderwave' ||
-      spellId === 'spell.entangle' ||
-      spellId === 'spell.web' ||
-      spellId === 'spell.misty_step' ||
-      spellId === 'spell.faerie_fire' ||
-      spellId === 'spell.fog_cloud' ||
-      spellId === 'spell.grease' ||
-      spellId === 'spell.darkness' ||
-      spellId === 'spell.moonbeam' ||
-      spellId === 'spell.minor_illusion' ||
-      spellId === 'spell.mage_hand' ||
-      spellId === 'spell.lightning_bolt'
-    ) {
-      const point = selection?.point ?? null;
-      if (!point || !isPointSpellTargetInRange(point, spellId)) return;
-      setTargetingSpellId(null);
-      void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
-      return;
-    }
-    if (spellId === 'spell.light') {
+    if (legacySpellTargetKind === 'point') {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
@@ -2426,10 +1078,6 @@ export function CombatNodeSurface({
       setTargetingSpellId(null);
       void onCastSpell(spellId, buildSpellCastPayload(spellId));
       return;
-    }
-    if (spellId === 'spell.detect_magic') {
-      setTargetingSpellId(null);
-      void onCastSpell(spellId, buildSpellCastPayload(spellId));
     }
   }
 
@@ -2548,7 +1196,7 @@ export function CombatNodeSurface({
       : combatMovementMode === 'jump'
         ? '도약: 경로상의 토큰은 무시하지만 벽과 이동불가 타일은 막습니다.'
         : targetingSpellId
-          ? getSpellTargetingHint(targetingSpellId)
+          ? getSpellTargetingHint(targetingSpellId, p3CombatSpellMetadataById)
           : '';
 
   return (
@@ -2561,7 +1209,7 @@ export function CombatNodeSurface({
           </h1>
         </div>
         <div className="combat-round-status">
-          <span>{getPhaseLabel(phase)}</span>
+          <span>{combatPresentation.phaseLabel}</span>
           <span>라운드 {combat?.roundNo ?? '-'}</span>
           <span>
             라운드 턴{' '}
@@ -2882,47 +1530,55 @@ export function CombatNodeSurface({
                       const spellLevel =
                         action.level ?? mvpSpellLevelById[spellId] ?? catalogSpellMetadataById.get(spellId)?.level;
                       const isSlottedSpell = typeof spellLevel === 'number' && spellLevel > 0;
-                      const availableSlotLevels = getAvailableSlotLevelsForSpell(spellLevel);
+                      const availableSlotLevels = getAvailableSlotLevelsForSpell(
+                        spellLevel,
+                        spellSlotResources
+                      );
                       const selectedSlotLevel =
                         spellId && isSlottedSpell
-                          ? getSelectedSlotLevelForSpell(spellId, spellLevel)
+                          ? getSelectedSlotLevelForSpell(
+                              spellId,
+                              spellLevel,
+                              spellSlotResources,
+                              spellSlotLevelBySpellId
+                            )
                           : undefined;
                       const spellSlotRemaining =
                         isSlottedSpell && selectedSlotLevel
-                          ? getSpellSlotRemaining(selectedSlotLevel)
+                          ? getSpellSlotRemaining(
+                              spellSlotResources,
+                              selectedSlotLevel,
+                              level1SpellSlotsRemaining,
+                              level1SpellSlotsTotal
+                            )
                           : isSlottedSpell
                             ? 0
                             : Number.POSITIVE_INFINITY;
-                      const usesBonusAction =
-                        spellId === 'spell.healing_word' ||
-                        spellId === 'spell.misty_step' ||
-                        spellId === 'spell.hunters_mark' ||
-                        spellId === 'spell.spiritual_weapon';
-                      const usesReaction =
-                        spellId === 'spell.shield' ||
-                        spellId === 'spell.feather_fall' ||
-                        spellId === 'spell.counterspell';
-                      const disabled =
-                        !canUsePlayerCharacterActions ||
-                        (usesBonusAction ? !canUseBonusAction : !canUseAction) ||
-                        isCombatBusy ||
-                        usesReaction ||
-                        (isSlottedSpell && spellSlotRemaining <= 0);
+                      const spellActionCostKind = getCombatSpellActionCostKind(spellId);
+                      const disabled = isCombatSpellActionDisabled({
+                        costKind: spellActionCostKind,
+                        canUsePlayerCharacterActions,
+                        canUseAction,
+                        canUseBonusAction,
+                        isCombatBusy,
+                        isSlottedSpell,
+                        spellSlotRemaining,
+                      });
+                      const isTargetingThisSpell = targetingSpellId === spellId;
                       return (
                         <div className="combat-spell-action-wrap" key={spellId}>
                           <button
                             type="button"
-                            className={`combat-action-button has-action-icon${targetingSpellId === spellId ? ' targeting' : ''}`}
+                            className={`combat-action-button has-action-icon${isTargetingThisSpell ? ' targeting' : ''}`}
                             disabled={disabled}
-                            title={
-                              usesReaction
-                                ? `${action.label}은(는) 조건이 충족될 때 반응 팝업으로 사용합니다.`
-                                : isSlottedSpell && spellSlotRemaining <= 0
-                                  ? `사용 가능한 ${spellLevel}레벨 주문 슬롯이 없습니다.`
-                                  : targetingSpellId === spellId
-                                    ? `${action.label} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
-                                    : `${action.label} 타겟팅`
-                            }
+                            title={getCombatSpellActionButtonTitle({
+                              label: action.label,
+                              costKind: spellActionCostKind,
+                              isSlottedSpell,
+                              spellLevel,
+                              spellSlotRemaining,
+                              isTargeting: isTargetingThisSpell,
+                            })}
                             onClick={() => spellId && startSpellTargeting(spellId)}
                           >
                             <CombatActionButtonContent label={action.label} spellId={spellId} />

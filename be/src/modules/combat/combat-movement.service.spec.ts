@@ -1,7 +1,8 @@
 import { CombatMovementService } from "./combat-movement.service";
+import { TerrainEffectService } from "../rules/terrain-effect.service";
 
 describe("CombatMovementService", () => {
-  const service = new CombatMovementService();
+  const service = new CombatMovementService(new TerrainEffectService());
 
   const createMap = () => ({
     id: "map-1",

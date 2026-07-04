@@ -3,6 +3,11 @@
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import { CharactersService } from "./characters.service";
+import { CharacterAvatarAssetService } from "./character-avatar-asset.service";
+import { CharacterCreationService } from "./character-creation.service";
+import { CharacterEquipmentLoadoutService } from "./character-equipment-loadout.service";
+import { CharacterFeatureSnapshotService } from "./character-feature-snapshot.service";
+import { CharacterSpellSelectionService } from "./character-spell-selection.service";
 import { LevelUpService } from "../rules/level-up.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 
@@ -232,10 +237,23 @@ describe("CharactersService level up", () => {
         prisma as never,
         sessionsService as never,
         realtimeEvents as never,
-        racesService as never,
         catalogService as never,
         ruleCatalogService as never,
         new LevelUpService(),
+        new CharacterSpellSelectionService(catalogService as never, ruleCatalogService as never),
+        new CharacterEquipmentLoadoutService(prisma as never, catalogService as never),
+        new CharacterAvatarAssetService(prisma as never),
+        new CharacterFeatureSnapshotService(
+          prisma as never,
+          racesService as never,
+          ruleCatalogService as never,
+        ),
+        new CharacterCreationService(
+          prisma as never,
+          racesService as never,
+          catalogService as never,
+          new LevelUpService(),
+        ),
       ),
       prisma,
       sessionsService,

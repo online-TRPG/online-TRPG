@@ -12,11 +12,11 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import type { StoryRpUtterance } from '../utils/storyRpPresentation';
 import {
-  getUserFacingDamageTypeLabel,
-  getUserFacingItemPropertyLabel,
-  getUserFacingItemTypeLabel,
-} from '../utils/displayNames';
+  getStoryCharacterHpPercent,
+  useStoryNodeSurfacePresentation,
+} from '../hooks/useStoryNodeSurfacePresentation';
 import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
@@ -63,13 +63,6 @@ interface StoryNodeSurfaceProps {
   recentGmAiAssistLogs?: string[];
 }
 
-export interface StoryRpUtterance {
-  id: string;
-  characterId: string;
-  message: string;
-  createdAt: string;
-}
-
 type VisibleStoryRpUtterance = StoryRpUtterance & {
   isFading: boolean;
 };
@@ -84,37 +77,6 @@ export type StoryNodeMoveOption = {
   isFallback?: boolean;
 };
 
-type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
-
-const abilityKeys: AbilityKey[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-
-const abilityDisplayLabels: Record<AbilityKey, string> = {
-  str: '근력',
-  dex: '민첩',
-  con: '건강',
-  int: '지능',
-  wis: '지혜',
-  cha: '매력',
-};
-
-const skillLabelMap: Map<string, string> = new Map([
-  ['Acrobatics', '곡예'],
-  ['Arcana', '비전학'],
-  ['Athletics', '운동'],
-  ['History', '역사'],
-  ['Insight', '통찰'],
-  ['Investigation', '조사'],
-  ['Perception', '인지능력'],
-  ['Persuasion', '설득'],
-  ['Stealth', '은신'],
-  ['Survival', '생존'],
-]);
-
-function getHpPercent(character: SessionCharacterResponseDto) {
-  if (character.maxHp <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
-}
-
 function StoryPartyFrameCorners() {
   return (
     <>
@@ -124,67 +86,6 @@ function StoryPartyFrameCorners() {
       <span className="story-party-frame-corner bottom-right" aria-hidden="true" />
     </>
   );
-}
-
-function calcModifier(score: number) {
-  return Math.floor((score - 10) / 2);
-}
-
-function formatModifier(score: number) {
-  const modifier = calcModifier(score);
-  return modifier >= 0 ? `+${modifier}` : `${modifier}`;
-}
-
-function formatStat(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '-';
-  return Number.isInteger(value) ? `${value}` : `${Math.round(value * 10) / 10}`;
-}
-
-function getSkillLabel(skill: string) {
-  const normalized = skill.trim();
-  return skillLabelMap.get(normalized) ?? normalized;
-}
-
-function getConditionLabel(character: SessionCharacterResponseDto) {
-  return character.conditions.length ? character.conditions.join(', ') : '정상';
-}
-
-function getInventoryMetaLabel(item: SessionCharacterResponseDto['inventory'][number]) {
-  const parts = [
-    item.displayTypeLabel?.trim() || getUserFacingItemTypeLabel(item.itemType),
-    item.damageDice
-      ? `${item.damageDice}${item.damageType ? ` ${getUserFacingDamageTypeLabel(item.damageType)}` : ''}`
-      : null,
-    item.weightLb !== undefined ? `${formatStat(item.weightLb)} lb` : null,
-    item.volumeCuFt !== undefined ? `${formatStat(item.volumeCuFt)} cu ft` : null,
-    item.displayPropertyLabels?.length
-      ? item.displayPropertyLabels.join(', ')
-      : item.properties?.length
-        ? item.properties.map(getUserFacingItemPropertyLabel).join(', ')
-        : null,
-  ].filter(Boolean);
-
-  return parts.length ? parts.join(' · ') : '추가 속성 없음';
-}
-
-function getPhaseLabel(phase: string | null | undefined) {
-  if (!phase) return '상태 미확인';
-  if (phase === 'dialogue') return '진행: 대화';
-  if (phase === 'exploration') return '진행: 탐색';
-  if (phase === 'combat') return '진행: 전투';
-  if (phase === 'lobby') return '진행: 대기';
-  if (phase === 'rest') return '진행: 휴식';
-  return `진행: ${phase}`;
-}
-
-function splitSceneParagraphs(sceneText: string | undefined) {
-  // 서버가 내려주는 sceneText를 그대로 살리되, 줄 단위 서술은 읽기 쉬운 문단으로 나눕니다.
-  const paragraphs = (sceneText ?? '')
-    .split(/\n{2,}|\r?\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-
-  return paragraphs.length ? paragraphs : ['현재 장면 설명이 아직 준비되지 않았습니다.'];
 }
 
 export function StoryNodeSurface({
@@ -230,11 +131,20 @@ export function StoryNodeSurface({
     >
   >(new Map());
   const highlightTimersRef = useRef<Map<string, number>>(new Map());
-  const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ?? null;
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const restTargetCharacter = (isGmView ? selectedCharacter : myCharacter) ?? myCharacter;
+  const storyPresentation = useStoryNodeSurfacePresentation({
+    nodeTitle: node?.title,
+    scenarioTitle,
+    phase,
+    sceneText: node?.sceneText,
+    isGmView,
+    restTargetCharacterName: restTargetCharacter?.name,
+    isGmNpcMessage,
+    isGmMessagePending,
+  });
   const restTargetCharacterId = restTargetCharacter?.id;
   const restHitDiceMaximum = Math.max(
     restTargetCharacter?.hitDiceRemaining ?? restTargetCharacter?.level ?? 0,
@@ -360,42 +270,42 @@ export function StoryNodeSurface({
         <div className="story-node-title-row">
           <img
             src={storyNodeBadge}
-            alt="스토리 노드"
+            alt={storyPresentation.storyNodeBadgeAlt}
             className="session-node-type-badge"
           />
-          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
+          <h1 className="node-header-scroll-title">{storyPresentation.titleText}</h1>
         </div>
-        <div className="story-node-status-row" aria-label="장면 상태">
-          <span>{getPhaseLabel(phase)}</span>
-          {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
+        <div className="story-node-status-row" aria-label={storyPresentation.statusRowAriaLabel}>
+          <span>{storyPresentation.phaseLabel}</span>
+          <span>{storyPresentation.viewModeLabel}</span>
         </div>
       </NodeHeaderScroll>
 
       <div className="story-node-content">
-        <section className="story-node-main" aria-label="스토리 장면">
+        <section className="story-node-main" aria-label={storyPresentation.mainSectionAriaLabel}>
           <div className="story-scene-visual">
             {node?.imageUrl ? (
               <img src={node.imageUrl} alt={node.title} className="story-scene-image" />
             ) : (
               <div className="story-scene-empty">
-                <span>장면 이미지</span>
-                <strong>{node?.title ?? scenarioTitle ?? '장면 이미지 없음'}</strong>
+                <span>{storyPresentation.sceneImageEyebrow}</span>
+                <strong>{storyPresentation.sceneImageFallbackTitle}</strong>
               </div>
             )}
             <div className="story-scene-caption">
-              <span>현재 장면</span>
-              <strong>{node?.title ?? '스토리 노드'}</strong>
+              <span>{storyPresentation.sceneCaptionEyebrow}</span>
+              <strong>{storyPresentation.sceneCaptionTitle}</strong>
             </div>
           </div>
 
-          <section className="story-scene-text" aria-label="장면 설명">
+          <section className="story-scene-text" aria-label={storyPresentation.sceneTextAriaLabel}>
             <img
               src={quillImage}
               alt=""
               aria-hidden="true"
               className="story-scene-quill"
             />
-            {sceneParagraphs.map((paragraph, index) => (
+            {storyPresentation.sceneParagraphs.map((paragraph, index) => (
               <p key={`${paragraph}-${index}`}>{paragraph}</p>
             ))}
           </section>
@@ -403,9 +313,9 @@ export function StoryNodeSurface({
       </div>
 
       {onRequestRest ? (
-        <section className="story-rest-actions" aria-label="휴식 행동">
+        <section className="story-rest-actions" aria-label={storyPresentation.restActionsAriaLabel}>
           <span className="story-rest-actions-label">
-            휴식 대상 {restTargetCharacter?.name ?? '캐릭터 미선택'}
+            {storyPresentation.restTargetLabel}
           </span>
           <button
             type="button"
@@ -415,7 +325,7 @@ export function StoryNodeSurface({
               void onRequestRest('short', restTargetCharacterId, clampedShortRestHitDiceToSpend)
             }
           >
-            짧은 휴식
+            {storyPresentation.shortRestLabel}
           </button>
           <label className="story-rest-hit-dice-control">
             <span>HD {restHitDiceMaximum}</span>
@@ -426,7 +336,7 @@ export function StoryNodeSurface({
               step={1}
               value={clampedShortRestHitDiceToSpend}
               disabled={isBusy || !restTargetCharacterId}
-              aria-label="스토리 노드 짧은 휴식 히트 다이스 사용 수"
+              aria-label={storyPresentation.shortRestHitDiceAriaLabel}
               onChange={(event) => {
                 const nextValue = Number(event.target.value);
                 setShortRestHitDiceToSpend(
@@ -443,39 +353,35 @@ export function StoryNodeSurface({
             disabled={isBusy || !restTargetCharacterId}
             onClick={() => void onRequestRest('long', restTargetCharacterId)}
           >
-            긴 휴식
+            {storyPresentation.longRestLabel}
           </button>
         </section>
       ) : null}
 
       {shouldShowGmControls ? (
-        <aside className="story-gm-panel" aria-label="HUMAN GM 조작">
+        <aside className="story-gm-panel" aria-label={storyPresentation.gmPanelAriaLabel}>
           <section className="story-gm-card story-gm-message">
-            <span className="story-node-eyebrow">장면/NPC 전송</span>
+            <span className="story-node-eyebrow">{storyPresentation.gmMessageEyebrow}</span>
             <label className="story-gm-message-mode">
               <input
                 type="checkbox"
                 checked={isGmNpcMessage}
                 onChange={(event) => setGmNpcMessage(event.target.checked)}
               />
-              NPC 대사로 전송
+              {storyPresentation.gmNpcMessageLabel}
             </label>
             {isGmNpcMessage ? (
               <input
                 className="story-gm-input"
                 value={gmMessageSpeaker}
-                placeholder="화자 이름"
+                placeholder={storyPresentation.gmSpeakerPlaceholder}
                 onChange={(event) => setGmMessageSpeaker(event.target.value)}
               />
             ) : null}
             <textarea
               className="story-gm-textarea"
               value={gmMessageContent}
-              placeholder={
-                isGmNpcMessage
-                  ? 'NPC 대사를 입력하세요.'
-                  : '플레이어에게 공개할 장면 묘사를 입력하세요.'
-              }
+              placeholder={storyPresentation.gmMessagePlaceholder}
               rows={3}
               maxLength={2000}
               onChange={(event) => setGmMessageContent(event.target.value)}
@@ -483,7 +389,7 @@ export function StoryNodeSurface({
             <input
               className="story-gm-input"
               value={gmMessagePrivateNote}
-              placeholder="비공개 GM 메모"
+              placeholder={storyPresentation.gmPrivateNotePlaceholder}
               maxLength={1000}
               onChange={(event) => setGmMessagePrivateNote(event.target.value)}
             />
@@ -492,12 +398,12 @@ export function StoryNodeSurface({
               disabled={isBusy || isGmMessagePending || !onGmMessage || !gmMessageContent.trim()}
               onClick={() => void handleGmMessageSubmit()}
             >
-              {isGmMessagePending ? '전송 중' : '전송'}
+              {storyPresentation.gmSubmitLabel}
             </button>
           </section>
 
           <section className="story-gm-card story-gm-node-move">
-            <span className="story-node-eyebrow">장면 이동</span>
+            <span className="story-node-eyebrow">{storyPresentation.gmNodeMoveEyebrow}</span>
             {gmNodeMoveOptions.length ? (
               <div className="story-gm-node-list">
                 {gmNodeMoveOptions.map((option) => (
@@ -510,7 +416,7 @@ export function StoryNodeSurface({
                     <strong>{option.label?.trim() || option.title}</strong>
                     <span>
                       {option.title}
-                      {option.isFallback ? ' · 기본 이동' : ''}
+                      {option.isFallback ? storyPresentation.gmDefaultMoveSuffix : ''}
                       {option.nodeType ? ` · ${option.nodeType}` : ''}
                     </span>
                     {option.condition ? <small>{option.condition}</small> : null}
@@ -518,7 +424,7 @@ export function StoryNodeSurface({
                 ))}
               </div>
             ) : (
-              <p className="story-gm-empty-text">현재 노드에서 바로 이동 가능한 노드가 없습니다.</p>
+              <p className="story-gm-empty-text">{storyPresentation.gmNodeMoveEmptyText}</p>
             )}
           </section>
 
@@ -538,7 +444,7 @@ export function StoryNodeSurface({
         </aside>
       ) : null}
 
-      <section className="story-party-strip" aria-label="파티 캐릭터">
+      <section className="story-party-strip" aria-label={storyPresentation.partyStripAriaLabel}>
         <div className="story-party-list">
           {Array.from({ length: 4 }).map((_, index) => {
             const character = characters[index] ?? null;
@@ -548,7 +454,9 @@ export function StoryNodeSurface({
                 <div className="story-party-card-wrap empty" key={`empty-${index}`}>
                   <div className="story-party-card placeholder" aria-hidden="true">
                     <StoryPartyFrameCorners />
-                    <span className="story-party-empty-label">빈 슬롯</span>
+                    <span className="story-party-empty-label">
+                      {storyPresentation.emptyPartySlotLabel}
+                    </span>
                   </div>
                 </div>
               );
@@ -556,7 +464,7 @@ export function StoryNodeSurface({
 
             const isMine = character.userId === currentUserId;
             const isSelected = selectedCharacter?.id === character.id;
-            const hpPercent = getHpPercent(character);
+            const hpPercent = getStoryCharacterHpPercent(character);
             const characterImage = getCharacterImage(character);
             const speechBubble = speechBubbleByCharacterId.get(character.id) ?? null;
             const isHighlighted = highlightedCharacterIds.has(character.id);
@@ -572,7 +480,7 @@ export function StoryNodeSurface({
                     type="button"
                     className={`story-speech-bubble${speechBubble.isFading ? ' fading' : ''}`}
                     onClick={onRpUtteranceClick}
-                    aria-label="메인 채팅에서 RP 대사 보기"
+                    aria-label={storyPresentation.rpSpeechBubbleAriaLabel}
                   >
                     {speechBubble.message}
                   </button>
@@ -590,7 +498,7 @@ export function StoryNodeSurface({
                   <span className="story-party-body">
                     <strong>
                       {character.name}
-                      {isMine ? <em>나</em> : null}
+                      {isMine ? <em>{storyPresentation.currentUserBadgeLabel}</em> : null}
                     </strong>
                     <small>{getCharacterClassLabel(character.className)} / Lv {character.level}</small>
                     <span

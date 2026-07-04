@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getMe } from "../services/api";
+import { getMe } from "../services/authApi";
 import type { AuthMode } from "../types/auth";
 import type { StoredUser, User } from "../types/session";
 

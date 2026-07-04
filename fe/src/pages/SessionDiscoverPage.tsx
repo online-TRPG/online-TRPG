@@ -15,7 +15,7 @@ import sidePanelImage from "../components/Side_Panel.webp";
 import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.webp";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
-import { getScenario } from "../services/api";
+import { getScenario } from "../services/scenarioApi";
 import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
 import "./SessionDiscoverPage.css";
 
