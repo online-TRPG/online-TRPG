@@ -767,6 +767,9 @@ export function PlayPage({
     selectedClass: selectedQuickCreateClass,
   });
   const currentNode = playerScenario?.currentNode ?? null;
+  const isCurrentNodePending = Boolean(
+    snapshot?.state.currentNodeId && !currentNode && !scenarioLoadError
+  );
   const {
     gmNodeMoveOptions,
     gmItemCatalog,
@@ -1576,6 +1579,10 @@ export function PlayPage({
                   <span className="eyebrow">{sessionCompletionPresentation.eyebrow}</span>
                   <h1>{sessionCompletionPresentation.title}</h1>
                   <p>{sessionCompletionPresentation.description}</p>
+                </div>
+              ) : isCurrentNodePending ? (
+                <div className="session-game-surface__placeholder">
+                  <h1>장면을 불러오는 중입니다</h1>
                 </div>
               ) : isStoryNode ? (
                 <StoryNodeSurface

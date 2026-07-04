@@ -86,6 +86,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     };
   }, [
     currentNodeId,
+    isRecruiting,
     latestConfirmedMapRef,
     resetMapSaveQueue,
     sessionId,
