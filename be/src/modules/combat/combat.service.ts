@@ -49,7 +49,7 @@ import type { ConditionInstance } from "../rules/condition-runtime.service";
 import { CoverPositionService } from "../rules/cover-position.service";
 import { DiceService } from "../rules/dice.service";
 import { ForcedMovementService } from "../rules/forced-movement.service";
-import type { ForcedMovementMode, ForcedMovementResolution } from "../rules/forced-movement.service";
+import type { ForcedMovementResolution } from "../rules/forced-movement.service";
 import { MonsterAbilityService } from "../rules/monster-ability.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 import { TerrainEffectService } from "../rules/terrain-effect.service";
@@ -65,6 +65,7 @@ import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { CombatActionService } from "./combat-action.service";
+import { CombatAutoMonsterTurnSchedulerService } from "./combat-auto-monster-turn-scheduler.service";
 import { CombatConditionService } from "./combat-condition.service";
 import { CombatCoverService } from "./combat-cover.service";
 import { CombatMapperService } from "./combat-mapper.service";
@@ -72,6 +73,7 @@ import { CombatMovementService } from "./combat-movement.service";
 import type { EnteredTerrainEffect } from "./combat-movement.service";
 import { CombatMonsterActionService } from "./combat-monster-action.service";
 import { CombatMonsterResourceService } from "./combat-monster-resource.service";
+import { CombatReactionContinuationService } from "./combat-reaction-continuation.service";
 import {
   CombatReactionService,
   type PendingCounterspellReaction,
@@ -166,9 +168,6 @@ const COMBAT_JUMP_EXTRA_MOVEMENT_FT = 10;
 @Injectable()
 export class CombatService {
   private readonly logger = new Logger(CombatService.name);
-  private readonly serverAutoMonsterTurnSessions = new Set<string>();
-  private readonly serverAutoMonsterTurnScheduledSessions = new Set<string>();
-  private readonly terrainEffects = new TerrainEffectService();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -183,41 +182,32 @@ export class CombatService {
     private readonly ruleEngine: RuleEngineService,
     private readonly srdEngine: SrdEngineLoaderService,
     private readonly monsterAbilities: MonsterAbilityService,
-    private readonly readyActions: ReadyActionService = new ReadyActionService(),
-    private readonly spellSlots: SpellSlotService = new SpellSlotService(),
-    private readonly concentrationRuntime: ConcentrationRuntimeService = new ConcentrationRuntimeService(),
-    private readonly conditionRuntime: ConditionRuntimeService = new ConditionRuntimeService(),
-    private readonly coverPositions: CoverPositionService = new CoverPositionService(),
-    private readonly forcedMovement: ForcedMovementService = new ForcedMovementService(),
-    private readonly spellScaling: SpellScalingService = new SpellScalingService(),
-    private readonly aoeTargeting: AoeTargetingService = new AoeTargetingService(),
-    private readonly aoeDamage: AoeDamageService = new AoeDamageService(diceService, ruleEngine),
-    private readonly ruleCatalog: RuleCatalogService = new RuleCatalogService(),
-    private readonly combatConditions: CombatConditionService = new CombatConditionService(prisma, conditionRuntime),
-    private readonly combatMovement: CombatMovementService = new CombatMovementService(),
-    private readonly combatCover: CombatCoverService = new CombatCoverService(coverPositions, ruleEngine, combatMovement),
-    private readonly combatMonsterResources: CombatMonsterResourceService = new CombatMonsterResourceService(prisma, sessionsService, diceService),
-    private readonly combatMonsterActions: CombatMonsterActionService = new CombatMonsterActionService(
-      monsterAbilities,
-      srdEngine,
-      combatMovement,
-      combatMonsterResources,
-    ),
-    private readonly combatReactions: CombatReactionService = new CombatReactionService(prisma, sessionsService),
-    private readonly combatSpells: CombatSpellService = new CombatSpellService(prisma, sessionsService, ruleCatalog, spellScaling, spellSlots),
-    private readonly combatStats: CombatStatsService = new CombatStatsService(srdEngine),
-    private readonly combatTargeting: CombatTargetingService = new CombatTargetingService(combatMovement, combatCover, combatStats),
-    private readonly combatTerrain: CombatTerrainService = new CombatTerrainService(),
-    private readonly combatActions: CombatActionService = new CombatActionService(),
-    private readonly combatTurns: CombatTurnService = new CombatTurnService(),
-    private readonly combatMapper: CombatMapperService = new CombatMapperService(
-      prisma,
-      sessionsService,
-      conditionRuntime,
-      concentrationRuntime,
-      combatConditions,
-      combatSpells,
-    ),
+    private readonly readyActions: ReadyActionService,
+    private readonly spellSlots: SpellSlotService,
+    private readonly concentrationRuntime: ConcentrationRuntimeService,
+    private readonly conditionRuntime: ConditionRuntimeService,
+    private readonly coverPositions: CoverPositionService,
+    private readonly forcedMovement: ForcedMovementService,
+    private readonly spellScaling: SpellScalingService,
+    private readonly aoeTargeting: AoeTargetingService,
+    private readonly aoeDamage: AoeDamageService,
+    private readonly ruleCatalog: RuleCatalogService,
+    private readonly terrainEffects: TerrainEffectService,
+    private readonly combatConditions: CombatConditionService,
+    private readonly combatMovement: CombatMovementService,
+    private readonly combatCover: CombatCoverService,
+    private readonly combatMonsterResources: CombatMonsterResourceService,
+    private readonly combatMonsterActions: CombatMonsterActionService,
+    private readonly combatReactions: CombatReactionService,
+    private readonly combatSpells: CombatSpellService,
+    private readonly combatStats: CombatStatsService,
+    private readonly combatTargeting: CombatTargetingService,
+    private readonly combatTerrain: CombatTerrainService,
+    private readonly combatActions: CombatActionService,
+    private readonly combatAutoMonsterTurnScheduler: CombatAutoMonsterTurnSchedulerService,
+    private readonly combatReactionContinuations: CombatReactionContinuationService,
+    private readonly combatTurns: CombatTurnService,
+    private readonly combatMapper: CombatMapperService,
   ) {}
 
   createCombatActionRuntime() {
@@ -311,8 +301,7 @@ export class CombatService {
       aoeDamage: this.aoeDamage,
       aoeTargeting: this.aoeTargeting,
       terrainEffects: this.terrainEffects,
-      serverAutoMonsterTurnSessions: this.serverAutoMonsterTurnSessions,
-      serverAutoMonsterTurnScheduledSessions: this.serverAutoMonsterTurnScheduledSessions,
+      combatAutoMonsterTurnScheduler: this.combatAutoMonsterTurnScheduler,
       ensureHost: this.ensureHost.bind(this),
       getGmRuntimeUserId: this.getGmRuntimeUserId.bind(this),
       findCombatParticipantOrThrow: this.findCombatParticipantOrThrow.bind(this),
@@ -809,7 +798,7 @@ export class CombatService {
       combat,
       target,
       map,
-      mode: this.normalizeForcedMovementMode(dto.mode),
+      mode: this.forcedMovement.normalizeMode(dto.mode),
       origin: dto.origin,
       distanceFt: dto.distanceFt,
     });
@@ -877,7 +866,7 @@ export class CombatService {
     combat: NonNullable<CombatWithParticipants>;
     target: CombatParticipantEntity;
     map: VttMapStateDto;
-    mode: ForcedMovementMode;
+    mode: ReturnType<ForcedMovementService["normalizeMode"]>;
     origin: { x: number; y: number };
     distanceFt: number;
   }): Promise<ForcedMovementEffectResult> {
@@ -896,7 +885,7 @@ export class CombatService {
         width: Math.ceil(params.map.width / params.map.gridSize),
         height: Math.ceil(params.map.height / params.map.gridSize),
       },
-      obstacles: this.mapForcedMovementObstacles(params.map),
+      obstacles: this.combatMovement.mapForcedMovementObstacles(params.map),
       tokens: params.map.tokens
         .filter((token) => token.id !== targetToken.id && token.hidden !== true)
         .map((token) => ({
@@ -904,7 +893,7 @@ export class CombatService {
           point: this.combatCover.toCoverGridPoint(params.map, token),
           blocksMovement: true,
         })),
-      hazards: this.mapForcedMovementHazards(params.map),
+      hazards: this.combatMovement.mapForcedMovementHazards(params.map),
     });
     const destination = {
       x: this.clampNumber(resolution.destination.x * params.map.gridSize, 0, Math.max(0, params.map.width - targetToken.size)),
@@ -1357,7 +1346,13 @@ export class CombatService {
 
     let response = attackResult.combat;
     const pendingReactionAfterAttack = await this.combatReactions.hasPendingCombatReaction(params.session.id);
-    if (!pendingReactionAfterAttack && continuation.autoEndTurn !== false && attackResult.combat.status === CombatStatus.ACTIVE) {
+    if (
+      this.combatReactionContinuations.shouldAutoEndTurnAfterContinuation({
+        autoEndTurn: continuation.autoEndTurn !== false,
+        combatStatus: attackResult.combat.status,
+        hasPendingCombatReaction: pendingReactionAfterAttack,
+      })
+    ) {
       const latestCombat = await this.getActiveCombatEntity(params.session.id);
       if (latestCombat.currentParticipantId === mover.id) {
         await this.advanceCurrentTurn(params.session.id, latestCombat);
@@ -1372,7 +1367,11 @@ export class CombatService {
       combat: response,
       map,
       message: `${params.prefixMessage} / ${mover.nameSnapshot} ${continuation.action.label}: ${attackResult.message}${
-        pendingReactionAfterAttack || continuation.autoEndTurn === false || response.status !== CombatStatus.ACTIVE ? "" : " / 턴 종료"
+        this.combatReactionContinuations.getAutoEndTurnMessageSuffix({
+          autoEndTurn: continuation.autoEndTurn !== false,
+          combatStatus: response.status,
+          hasPendingCombatReaction: pendingReactionAfterAttack,
+        })
       }`,
       pendingReaction: attackResult.pendingReaction ?? null,
     };
@@ -1574,35 +1573,6 @@ export class CombatService {
 
   private parseMonsterMultiattackTags(effectTags: string[]): Array<{ actionId: string; count: number }> {
     return this.combatTurns.parseMonsterMultiattackTags(this.createCombatTurnRuntime(), effectTags);
-  }
-
-  private mapForcedMovementObstacles(map: VttMapStateDto): Array<{ x: number; y: number }> {
-    return [
-      ...(map.wallCells ?? []).flatMap((cell) => this.combatMovement.cellGridPoints(map, cell)),
-      ...(map.doorCells ?? [])
-        .filter((door) => door.state !== "open" && door.state !== "broken")
-        .flatMap((cell) => this.combatMovement.cellGridPoints(map, cell)),
-    ];
-  }
-
-  private mapForcedMovementHazards(map: VttMapStateDto): Array<{ point: { x: number; y: number }; terrainEffectId: string }> {
-    return (map.terrainCells ?? []).flatMap((cell) => {
-      const terrainEffectId = this.combatMovement.extractTerrainEffectId(cell);
-      if (!terrainEffectId) {
-        return [];
-      }
-      return this.combatMovement.cellGridPoints(map, cell).map((point) => ({ point, terrainEffectId }));
-    });
-  }
-
-  private normalizeForcedMovementMode(value: string): ForcedMovementMode {
-    if (value === "push" || value === "pull" || value === "slide") {
-      return value;
-    }
-    throw conflict("COMBAT_409", "지원하지 않는 강제이동 방식입니다.", {
-      reason: "INVALID_FORCED_MOVEMENT_MODE",
-      mode: value,
-    });
   }
 
   private async applyEnteredTerrainEffects(
@@ -2180,19 +2150,20 @@ export class CombatService {
 
   private async resumeAutoMonsterTurnAfterReadyReaction(sessionId: string): Promise<void> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
-    if (session.gmMode === PrismaGmMode.HUMAN || (await this.hasPendingTriggeredReadyAction(sessionId))) {
-      return;
-    }
-    if (await this.combatReactions.hasPendingCombatReaction(sessionId)) {
-      return;
-    }
     let combat: NonNullable<CombatWithParticipants>;
     try {
       combat = await this.getActiveCombatEntity(sessionId);
     } catch {
       return;
     }
-    if (this.isCurrentTurnAutoMonster(combat)) {
+
+    const shouldResume = this.combatAutoMonsterTurnScheduler.shouldResumeAfterReaction({
+      isHumanGmSession: session.gmMode === PrismaGmMode.HUMAN,
+      hasPendingTriggeredReadyAction: await this.hasPendingTriggeredReadyAction(sessionId),
+      hasPendingCombatReaction: await this.combatReactions.hasPendingCombatReaction(sessionId),
+      isCurrentTurnAutoMonster: this.isCurrentTurnAutoMonster(combat),
+    });
+    if (shouldResume) {
       this.scheduleServerAutoMonsterTurns(sessionId);
     }
   }
@@ -3010,7 +2981,12 @@ export class CombatService {
     }
 
     let response = results[results.length - 1]?.combat ?? await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
-    if (continuation.autoEndTurn !== false && response.status === CombatStatus.ACTIVE) {
+    if (
+      this.combatReactionContinuations.shouldAutoEndTurnAfterContinuation({
+        autoEndTurn: continuation.autoEndTurn !== false,
+        combatStatus: response.status,
+      })
+    ) {
       const latestCombat = await this.getActiveCombatEntity(params.session.id);
       if (latestCombat.currentParticipantId === continuation.actorParticipantId) {
         await this.advanceCurrentTurn(params.session.id, latestCombat);
@@ -3023,7 +2999,10 @@ export class CombatService {
       combat: response,
       map: await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id),
       message: `${params.prefixMessage} / ${continuation.parentAction.label}: ${results.map((result) => result.message).join(" / ")}${
-        continuation.autoEndTurn === false || response.status !== CombatStatus.ACTIVE ? "" : " / 턴 종료"
+        this.combatReactionContinuations.getAutoEndTurnMessageSuffix({
+          autoEndTurn: continuation.autoEndTurn !== false,
+          combatStatus: response.status,
+        })
       }`,
       pendingReaction: null,
     };

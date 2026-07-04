@@ -4,6 +4,7 @@ import { RulesModule } from "../rules/rules.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { TurnLogsModule } from "../turn-logs/turn-logs.module";
 import { CombatActionService } from "./combat-action.service";
+import { CombatAutoMonsterTurnSchedulerService } from "./combat-auto-monster-turn-scheduler.service";
 import { CombatController } from "./combat.controller";
 import { CombatConditionService } from "./combat-condition.service";
 import { CombatCoverService } from "./combat-cover.service";
@@ -12,6 +13,7 @@ import { CombatMovementService } from "./combat-movement.service";
 import { CombatMonsterActionService } from "./combat-monster-action.service";
 import { CombatMonsterResourceService } from "./combat-monster-resource.service";
 import { CombatReactionService } from "./combat-reaction.service";
+import { CombatReactionContinuationService } from "./combat-reaction-continuation.service";
 import { CombatSpellService } from "./combat-spell.service";
 import { CombatStatsService } from "./combat-stats.service";
 import { CombatTargetingService } from "./combat-targeting.service";
@@ -26,12 +28,14 @@ import { SrdEngineLoaderService } from "./srd-engine-loader.service";
   providers: [
     CombatService,
     CombatActionService,
+    CombatAutoMonsterTurnSchedulerService,
     CombatConditionService,
     CombatCoverService,
     CombatMapperService,
     CombatMovementService,
     CombatMonsterActionService,
     CombatMonsterResourceService,
+    CombatReactionContinuationService,
     CombatReactionService,
     CombatSpellService,
     CombatStatsService,

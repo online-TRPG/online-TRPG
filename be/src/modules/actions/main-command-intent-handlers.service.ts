@@ -2,20 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { MainCommandIntent, MainCommandResponseDto, MainCommandStatus, MainCommandTargetType, SubmitMainCommandDto } from "@trpg/shared-types";
 import { AiService } from "../ai/ai.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { MainCommandApprovalPolicyService } from "./main-command-approval-policy.service";
 import type { InterpreterParsedForRouting, LoadedContext, VisibleSceneEntity } from "./main-commands.service";
-
-const APPROVAL_INTENTS = new Set<MainCommandIntent>([
-  MainCommandIntent.SPLIT_PARTY_TASK,
-  MainCommandIntent.COMBAT_MANEUVER,
-  MainCommandIntent.ENVIRONMENT_USE,
-  MainCommandIntent.IMPROVISED_ATTACK,
-  MainCommandIntent.CALLED_SHOT,
-  MainCommandIntent.READY_ACTION,
-  MainCommandIntent.REACTION_REQUEST,
-  MainCommandIntent.USE_ITEM_EXPLORE,
-  MainCommandIntent.USE_ITEM_COMBAT,
-  MainCommandIntent.USE_SPELL_CREATIVELY,
-]);
 
 export type MainCommandIntentHandlersRuntime = {
   aiService: AiService;
@@ -48,13 +36,18 @@ export type MainCommandIntentHandlersRuntime = {
 
 @Injectable()
 export class MainCommandIntentHandlersService {
+  constructor(private readonly mainCommandApprovalPolicy: MainCommandApprovalPolicyService) {}
+
   create(runtime: MainCommandIntentHandlersRuntime): MainCommandIntentHandlersRunner {
-    return new MainCommandIntentHandlersRunner(runtime);
+    return new MainCommandIntentHandlersRunner(runtime, this.mainCommandApprovalPolicy);
   }
 }
 
 export class MainCommandIntentHandlersRunner {
-  constructor(private readonly runtime: MainCommandIntentHandlersRuntime) {}
+  constructor(
+    private readonly runtime: MainCommandIntentHandlersRuntime,
+    private readonly mainCommandApprovalPolicy: MainCommandApprovalPolicyService,
+  ) {}
 
   private get aiService(): AiService {
     return this.runtime.aiService;
@@ -195,7 +188,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (APPROVAL_INTENTS.has(dto.intent)) {
+    if (this.mainCommandApprovalPolicy.requiresGmApproval(dto.intent)) {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,

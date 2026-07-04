@@ -162,8 +162,8 @@ export class ActionProcessorService {
     private readonly characterResources: CharacterResourceService,
     private readonly inventoryRuntime: InventoryRuntimeService,
     private readonly mapPositions: MapPositionService,
-    private readonly spellSlots: SpellSlotService = new SpellSlotService(),
-    private readonly ruleEngine: RuleEngineService = new RuleEngineService(),
+    private readonly spellSlots: SpellSlotService,
+    private readonly ruleEngine: RuleEngineService,
   ) {}
 
   async processNext(sessionId: string): Promise<void> {

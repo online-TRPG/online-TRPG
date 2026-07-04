@@ -28,7 +28,7 @@ import {
   listMyScenarios,
   reportScenario,
   unpublishScenarioRevision,
-} from "../services/api";
+} from "../services/scenarioApi";
 import type { Scenario, StoredUser } from "../types/session";
 import type {
   ApplyScenarioModerationActionDto,

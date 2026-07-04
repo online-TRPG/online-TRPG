@@ -9,12 +9,136 @@ import {
   SessionStatus,
 } from "@trpg/shared-types";
 import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
+import { CampaignArchiveRuntimeService } from "./campaign-archive-runtime.service";
+import { HumanGmRuntimeService } from "./human-gm-runtime.service";
+import { SessionAccessPolicyService } from "./session-access-policy.service";
+import { SessionCampaignArchiveAuditService } from "./session-campaign-archive-audit.service";
+import { SessionCampaignArchiveBuilderService } from "./session-campaign-archive-builder.service";
+import { SessionCampaignArchiveFlagStoreService } from "./session-campaign-archive-flag-store.service";
+import { SessionCampaignCalendarActionPolicyService } from "./session-campaign-calendar-action-policy.service";
+import { SessionCharacterSelectionService } from "./session-character-selection.service";
+import { SessionCharacterTransferClonePayloadService } from "./session-character-transfer-clone-payload.service";
+import { SessionCharacterTransferRequestStoreService } from "./session-character-transfer-request-store.service";
+import { SessionCharacterVaultItemService } from "./session-character-vault-item.service";
+import { SessionCompletionFlagStoreService } from "./session-completion-flag-store.service";
+import { SessionDeletePolicyService } from "./session-delete-policy.service";
+import { SessionEconomyService } from "./session-economy.service";
+import { SessionGmRuntimeParticipantAccessService } from "./session-gm-runtime-participant-access.service";
+import { SessionHumanGmAiAssistFailureAuditService } from "./session-human-gm-ai-assist-failure-audit.service";
+import { SessionHumanGmAiAssistSuggestionStoreService } from "./session-human-gm-ai-assist-suggestion-store.service";
+import { SessionHumanGmAssignmentPolicyService } from "./session-human-gm-assignment-policy.service";
+import { SessionHumanGmMessageStoreService } from "./session-human-gm-message-store.service";
+import { SessionHumanGmPrivateNoteStoreService } from "./session-human-gm-private-note-store.service";
+import { SessionInventoryService } from "./session-inventory.service";
+import { SessionInviteService } from "./session-invite.service";
+import { SessionJoinPolicyService } from "./session-join-policy.service";
+import { SessionLeaveResolutionService } from "./session-leave-resolution.service";
+import { SessionListFilterService } from "./session-list-filter.service";
+import { SessionListItemService } from "./session-list-item.service";
+import { SessionParticipantStatusService } from "./session-participant-status.service";
+import { SessionPublicIdService } from "./session-public-id.service";
+import { SessionRevealService } from "./session-reveal.service";
+import { SessionScenarioLinkService } from "./session-scenario-link.service";
+import { SessionScenarioNodeSnapshotService } from "./session-scenario-node-snapshot.service";
+import { SessionScenarioRevisionSnapshotService } from "./session-scenario-revision-snapshot.service";
+import { SessionSettingsService } from "./session-settings.service";
+import { SessionSnapshotService } from "./session-snapshot.service";
+import { SessionStartNodeService } from "./session-start-node.service";
+import { SessionStartPolicyService } from "./session-start-policy.service";
+import { SessionUpdatePolicyService } from "./session-update-policy.service";
+import { SessionVttCombatMovementSpendService } from "./session-vtt-combat-movement-spend.service";
+import { SessionVttDefaultMapReaderService } from "./session-vtt-default-map-reader.service";
+import { SessionVttInteractionPointService } from "./session-vtt-interaction-point.service";
+import { SessionVttMapBootstrapService } from "./session-vtt-map-bootstrap.service";
+import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
+import { SessionVttMapPersistenceService } from "./session-vtt-map-persistence.service";
+import { SessionVttMovementFramePublisherService } from "./session-vtt-movement-frame-publisher.service";
+import { SessionVttMovementPolicyService } from "./session-vtt-movement-policy.service";
+import { SessionVttObjectRuntimeService } from "./session-vtt-object-runtime.service";
+import { SessionVttPlayerMapUpdateService } from "./session-vtt-player-map-update.service";
 import { SessionsService } from "./sessions.service";
 import { getRestApprovalExpiresAt } from "../actions/rest-approval-policy";
 
+function createSessionsService(
+  prisma: never,
+  usersService: never,
+  scenariosService: never,
+  realtimeEvents: never,
+) {
+  const campaignArchiveRuntime = new CampaignArchiveRuntimeService();
+  const sessionInventory = new SessionInventoryService(prisma);
+  const sessionParticipantStatus = new SessionParticipantStatusService(
+    prisma,
+    realtimeEvents,
+    campaignArchiveRuntime,
+  );
+  const sessionVttMovementPolicy = new SessionVttMovementPolicyService();
+  const sessionVttMapNormalization = new SessionVttMapNormalizationService();
+  const sessionHumanGmMessageStore = new SessionHumanGmMessageStoreService();
+
+  return new SessionsService(
+    prisma,
+    usersService,
+    scenariosService,
+    realtimeEvents,
+    new HumanGmRuntimeService(sessionHumanGmMessageStore),
+    new SessionRevealService(),
+    new SessionSnapshotService(),
+    new SessionVttObjectRuntimeService(),
+    campaignArchiveRuntime,
+    new SessionCampaignArchiveAuditService(),
+    new SessionCampaignArchiveBuilderService(campaignArchiveRuntime),
+    new SessionCampaignArchiveFlagStoreService(),
+    new SessionEconomyService(),
+    new SessionCampaignCalendarActionPolicyService(),
+    new SessionCharacterTransferClonePayloadService(),
+    new SessionCharacterTransferRequestStoreService(),
+    new SessionCharacterVaultItemService(campaignArchiveRuntime),
+    new SessionCompletionFlagStoreService(),
+    new SessionGmRuntimeParticipantAccessService(prisma),
+    new SessionHumanGmAiAssistFailureAuditService(prisma),
+    sessionInventory,
+    sessionParticipantStatus,
+    new SessionCharacterSelectionService(
+      prisma,
+      realtimeEvents,
+      campaignArchiveRuntime,
+      sessionInventory,
+      sessionParticipantStatus,
+    ),
+    new SessionListItemService(),
+    new SessionPublicIdService(prisma),
+    new SessionInviteService(prisma),
+    new SessionSettingsService(),
+    new SessionStartPolicyService(campaignArchiveRuntime),
+    new SessionUpdatePolicyService(prisma),
+    new SessionHumanGmAssignmentPolicyService(prisma),
+    new SessionHumanGmAiAssistSuggestionStoreService(),
+    new SessionHumanGmPrivateNoteStoreService(),
+    new SessionDeletePolicyService(),
+    new SessionJoinPolicyService(prisma),
+    new SessionLeaveResolutionService(),
+    new SessionVttInteractionPointService(),
+    new SessionVttDefaultMapReaderService(prisma, sessionVttMapNormalization),
+    new SessionStartNodeService(),
+    new SessionAccessPolicyService(),
+    new SessionListFilterService(),
+    new SessionScenarioRevisionSnapshotService(),
+    new SessionScenarioNodeSnapshotService(prisma),
+    new SessionScenarioLinkService(prisma),
+    new SessionVttMapBootstrapService(prisma),
+    sessionVttMapNormalization,
+    new SessionVttMapPersistenceService(prisma, realtimeEvents),
+    new SessionVttMovementFramePublisherService(realtimeEvents),
+    new SessionVttCombatMovementSpendService(prisma),
+    sessionVttMovementPolicy,
+    new SessionVttPlayerMapUpdateService(sessionVttMovementPolicy),
+  );
+}
+
 describe("SessionsService P3 revision snapshot metadata", () => {
   it("records the selected scenario revision metadata into session state flags", () => {
-    const service = new SessionsService({} as never, {} as never, {} as never, {} as never);
+    const service = createSessionsService({} as never, {} as never, {} as never, {} as never);
     const flag = (service as never as {
       buildP3ScenarioRevisionSnapshotFlag: (scenario: {
         id: string;
@@ -65,27 +189,22 @@ describe("HumanGmMessageDto validation", () => {
   });
 });
 
-describe("SessionsService scenario level policy", () => {
+describe("CampaignArchiveRuntimeService scenario level policy", () => {
   function createService() {
-    return new SessionsService({} as never, {} as never, {} as never, {} as never) as never as {
-      ensureCharacterMatchesScenarioLevel: (params: {
-        characterName?: string | null;
-        characterLevel: number;
-        scenario: { title?: string | null; startLevel?: number | null; recommendedEndLevel?: number | null };
-      }) => void;
-      isCharacterLevelInScenarioRange: (
-        characterLevel: number,
-        scenario: { startLevel?: number | null; recommendedEndLevel?: number | null },
-      ) => boolean;
-    };
+    return new CampaignArchiveRuntimeService();
   }
 
   it("accepts only the scenario start level when no recommended end level is configured", () => {
     const service = createService();
     const scenario = { title: "고블린 동굴", startLevel: 1, recommendedEndLevel: null };
 
-    expect(service.isCharacterLevelInScenarioRange(1, scenario)).toBe(true);
-    expect(service.isCharacterLevelInScenarioRange(2, scenario)).toBe(false);
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "1레벨 영웅",
+        characterLevel: 1,
+        scenario,
+      }),
+    ).not.toThrow();
     expect(() =>
       service.ensureCharacterMatchesScenarioLevel({
         characterName: "고레벨 영웅",
@@ -99,10 +218,34 @@ describe("SessionsService scenario level policy", () => {
     const service = createService();
     const scenario = { title: "폭풍 금고", startLevel: 17, recommendedEndLevel: 20 };
 
-    expect(service.isCharacterLevelInScenarioRange(17, scenario)).toBe(true);
-    expect(service.isCharacterLevelInScenarioRange(20, scenario)).toBe(true);
-    expect(service.isCharacterLevelInScenarioRange(16, scenario)).toBe(false);
-    expect(service.isCharacterLevelInScenarioRange(21, scenario)).toBe(false);
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "17레벨 영웅",
+        characterLevel: 17,
+        scenario,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "20레벨 영웅",
+        characterLevel: 20,
+        scenario,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "16레벨 영웅",
+        characterLevel: 16,
+        scenario,
+      }),
+    ).toThrow(ConflictException);
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "21레벨 영웅",
+        characterLevel: 21,
+        scenario,
+      }),
+    ).toThrow(ConflictException);
   });
 });
 
@@ -178,7 +321,7 @@ describe("SessionsService pending rest approval projection", () => {
         ]),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -279,7 +422,7 @@ describe("SessionsService HUMAN GM messages", () => {
       emitStateDiffApplied: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -396,7 +539,7 @@ describe("SessionsService HUMAN GM private notes", () => {
         }),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -474,7 +617,7 @@ describe("SessionsService HUMAN GM AI assist suggestions", () => {
         }),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -513,7 +656,7 @@ describe("SessionsService HUMAN GM AI assist suggestions", () => {
         create: jest.fn(),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -621,7 +764,7 @@ describe("SessionsService HUMAN GM AI assist suggestions", () => {
       emitTurnLogCreated: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -727,7 +870,7 @@ describe("SessionsService HUMAN GM AI assist suggestions", () => {
       emitTurnLogCreated: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -783,7 +926,7 @@ describe("SessionsService HUMAN GM reveal", () => {
         throw new Error("transaction should not run");
       }),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -885,7 +1028,7 @@ describe("SessionsService HUMAN GM reveal", () => {
       emitSessionSnapshot: jest.fn(),
       emitCombatUpdated: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1017,7 +1160,7 @@ describe("SessionsService HUMAN GM combat conditions", () => {
       emitSessionSnapshot: jest.fn(),
       emitCombatUpdated: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1169,7 +1312,7 @@ describe("SessionsService HUMAN GM combat conditions", () => {
       emitSessionSnapshot: jest.fn(),
       emitCombatUpdated: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1314,7 +1457,7 @@ describe("SessionsService HUMAN GM combat HP override", () => {
       emitSessionSnapshot: jest.fn(),
       emitCombatUpdated: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1497,7 +1640,7 @@ describe("SessionsService HUMAN GM inventory removal", () => {
       emitSessionSnapshot: jest.fn(),
       emitCharacterUpdated: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1568,7 +1711,7 @@ describe("SessionsService HUMAN GM inventory removal", () => {
         update: jest.fn().mockResolvedValue({}),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       {} as never,
       {} as never,
       {} as never,
@@ -1649,7 +1792,7 @@ describe("SessionsService HUMAN GM DC override", () => {
       emitStateDiffApplied: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1715,7 +1858,7 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
         findUnique: jest.fn().mockResolvedValue(participant),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -1931,7 +2074,7 @@ describe("SessionsService session listing", () => {
     };
 
     return {
-      service: new SessionsService(prisma as never, usersService as never, {} as never, {} as never),
+      service: createSessionsService(prisma as never, usersService as never, {} as never, {} as never),
       prisma,
       usersService,
     };
@@ -2394,7 +2537,7 @@ describe("SessionsService VTT map structures", () => {
     const prisma = {
       $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const runtimeService = new SessionsService(
+    const runtimeService = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -2474,7 +2617,7 @@ describe("SessionsService VTT map structures", () => {
     const prisma = {
       $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const runtimeService = new SessionsService(
+    const runtimeService = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -2550,7 +2693,7 @@ describe("SessionsService VTT map structures", () => {
         findMany: jest.fn().mockResolvedValue([{ itemDefinitionId: "item.rope" }]),
       },
     };
-    const runtimeService = new SessionsService(
+    const runtimeService = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -2726,7 +2869,7 @@ describe("SessionsService legacy VTT map updates", () => {
         update: jest.fn().mockResolvedValue({}),
       },
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -2806,7 +2949,7 @@ describe("SessionsService legacy VTT map updates", () => {
   });
 
   it("ignores non-host whole-map writes and returns the canonical player map", async () => {
-    const service = new SessionsService(
+    const service = createSessionsService(
       {} as never,
       {} as never,
       {} as never,
@@ -2946,7 +3089,7 @@ describe("SessionsService P4 economy API", () => {
       emitStateDiffApplied: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -3084,7 +3227,7 @@ describe("SessionsService P5 campaign calendar API", () => {
       emitStateDiffApplied: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -3257,7 +3400,7 @@ describe("SessionsService P5 long campaign list integrity", () => {
     prisma.$transaction.mockImplementation(async (operations: Array<Promise<unknown>>) =>
       Promise.all(operations),
     );
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,
@@ -3483,7 +3626,7 @@ describe("SessionsService P6 campaign archive, vault, and transfer", () => {
       emitSessionStatusUpdated: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new SessionsService(
+    const service = createSessionsService(
       prisma as never,
       {} as never,
       {} as never,

@@ -44,6 +44,8 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     ) as unknown as {
       processNext: (sessionId: string) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -91,6 +93,8 @@ describe("ActionProcessorService session action queue", () => {
     };
     const service = new ActionProcessorService(
       prisma as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -162,6 +166,8 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     ) as unknown as {
       processNext: (sessionId: string) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -219,6 +225,8 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     ) as unknown as {
       processClaimedAction: (claimedAction: typeof action) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -269,6 +277,8 @@ const createBaseMap = (): VttMapStateDto => ({
 describe("ActionProcessorService map-only runtime effects", () => {
   it("rejects direct VTT object mutations before a success turn log can be created", async () => {
     const service = new ActionProcessorService(
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -434,6 +444,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       realtimeEvents as never,
       {} as never,
       actionEconomy as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1067,6 +1079,8 @@ describe("ActionProcessorService rule targets", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     ) as unknown as {
       createRuleTargets: (sessionCharacters: unknown[], combatParticipants: unknown[]) => Array<{
         id: string;
@@ -1172,6 +1186,8 @@ describe("ActionProcessorService rest runtime effects", () => {
     };
     const service = new ActionProcessorService(
       prisma as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

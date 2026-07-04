@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,8 +24,38 @@ async function readJsonLines(fileName) {
     .map((line) => JSON.parse(line));
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function withFileRetry(operation) {
+  const retryableCodes = new Set(['EBUSY', 'EACCES', 'EPERM', 'UNKNOWN']);
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!retryableCodes.has(error?.code) || attempt === 4) {
+        throw error;
+      }
+      await sleep(75 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 async function writeJson(filePath, payload) {
-  await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await withFileRetry(() => writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8'));
+  try {
+    await withFileRetry(() => rename(tempPath, filePath));
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 await ensureDir(publicSrdDir);

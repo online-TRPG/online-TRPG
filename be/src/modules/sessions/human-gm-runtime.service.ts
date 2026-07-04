@@ -24,6 +24,7 @@ import {
 } from "@trpg/shared-types";
 import { randomUUID } from "crypto";
 import { mapSessionCharacter } from "../../common/mappers/domain.mapper";
+import { SessionHumanGmMessageStoreService } from "./session-human-gm-message-store.service";
 import type { SessionsService } from "./sessions.service";
 
 type HumanGmRuntime = ReturnType<SessionsService["createHumanGmRuntime"]>;
@@ -31,19 +32,22 @@ type HumanGmOverrideLogResult = Awaited<ReturnType<HumanGmRuntime["createHumanGm
 
 @Injectable()
 export class HumanGmRuntimeService {
+  constructor(private readonly sessionHumanGmMessageStore: SessionHumanGmMessageStoreService) {}
+
   async createHumanGmMessage(runtime: HumanGmRuntime, userId: string, sessionId: string, dto: HumanGmMessageDto): Promise<SessionSnapshotDto> {
     const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
     const { state, sessionScenario } = await runtime.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = runtime.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const gmMessages = Array.isArray(flags.gmMessages) ? [...(flags.gmMessages as unknown[])] : [];
     let gmTurnLog: HumanGmOverrideLogResult | null = null;
 
     const gmMessageId = randomUUID();
-    gmMessages.push({
+    const messageType = dto.asNpc ? "npc" : "gm";
+    const speakerName = dto.speakerName?.trim() || null;
+    const gmMessage = this.sessionHumanGmMessageStore.createMessage({
       id: gmMessageId,
-      type: dto.asNpc ? "npc" : "gm",
-      speakerName: dto.speakerName?.trim() || null,
+      type: messageType,
+      speakerName,
       content: dto.content.trim(),
       createdAt: new Date().toISOString(),
       authorUserId: userId,
@@ -63,10 +67,7 @@ export class HumanGmRuntimeService {
       await tx.gameState.update({
         where: { sessionScenarioId: sessionScenario.id },
         data: {
-          flagsJson: JSON.stringify({
-            ...flags,
-            gmMessages: gmMessages.slice(-50),
-          }),
+          flagsJson: JSON.stringify(this.sessionHumanGmMessageStore.append(flags, gmMessage)),
         },
       });
       await tx.session.update({
@@ -83,17 +84,17 @@ export class HumanGmRuntimeService {
         gmUserId: userId,
         publicNarration: dto.content,
         privateNote: dto.privateNote,
-        targetId: dto.speakerName?.trim() || null,
+        targetId: speakerName,
         statePatch: {
           gmMessageCreated: true,
           gmMessageId,
-          messageType: dto.asNpc ? "npc" : "gm",
-          speakerName: dto.speakerName?.trim() || null,
+          messageType,
+          speakerName,
         },
         metadata: {
           gmMessageId,
-          speakerName: dto.speakerName?.trim() || null,
-          messageType: dto.asNpc ? "npc" : "gm",
+          speakerName,
+          messageType,
         },
       });
     });

@@ -16,7 +16,7 @@ import {
   getCampaignArchive,
   getSessionDetail,
   rejectCharacterTransfer,
-} from "../services/api";
+} from "../services/sessionApi";
 import type { SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
 import type { CampaignArchiveResponseDto } from "@trpg/shared-types";
 

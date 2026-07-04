@@ -14,6 +14,40 @@ import {
   SubmitMainCommandDto,
 } from "@trpg/shared-types";
 import { MainCommandsService } from "./main-commands.service";
+import { MainCommandAiQueryService } from "./main-command-ai-query.service";
+import { MainCommandApprovalPolicyService } from "./main-command-approval-policy.service";
+import { MainCommandCheckBuilderService } from "./main-command-check-builder.service";
+import { MainCommandCheckEffectAttachmentService } from "./main-command-check-effect-attachment.service";
+import { MainCommandCheckEffectParserService } from "./main-command-check-effect-parser.service";
+import { MainCommandCheckMovementService } from "./main-command-check-movement.service";
+import { MainCommandCheckResolutionService } from "./main-command-check-resolution.service";
+import { MainCommandCheckResultLogService } from "./main-command-check-result-log.service";
+import { MainCommandCheckResultNarrationService } from "./main-command-check-result-narration.service";
+import { MainCommandCheckRevealService } from "./main-command-check-reveal.service";
+import { MainCommandCheckRevealSyncService } from "./main-command-check-reveal-sync.service";
+import { MainCommandContextLoaderService } from "./main-command-context-loader.service";
+import { MainCommandEndingNodeService } from "./main-command-ending-node.service";
+import { MainCommandHintContextService } from "./main-command-hint-context.service";
+import { MainCommandInterpreterPayloadService } from "./main-command-interpreter-payload.service";
+import { MainCommandInterpreterRouteResponseService } from "./main-command-interpreter-route-response.service";
+import { MainCommandInterpreterRouterService } from "./main-command-interpreter-router.service";
+import { MainCommandInventoryLabelService } from "./main-command-inventory-label.service";
+import { MainCommandIntentHandlersService } from "./main-command-intent-handlers.service";
+import { MainCommandNpcDialogueService } from "./main-command-npc-dialogue.service";
+import { MainCommandPersistenceService } from "./main-command-persistence.service";
+import { MainCommandPostActionRevealService } from "./main-command-post-action-reveal.service";
+import { MainCommandProgressEvidenceService } from "./main-command-progress-evidence.service";
+import { MainCommandRuleFragmentService } from "./main-command-rule-fragment.service";
+import { MainCommandRuleQueryService } from "./main-command-rule-query.service";
+import { MainCommandSceneEntityService } from "./main-command-scene-entity.service";
+import { MainCommandSceneInfoService } from "./main-command-scene-info.service";
+import { MainCommandSceneTransitionResolutionService } from "./main-command-scene-transition-resolution.service";
+import { MainCommandSceneTransitionResponseService } from "./main-command-scene-transition-response.service";
+import { MainCommandSceneTransitionStateService } from "./main-command-scene-transition-state.service";
+import { MainCommandTransitionCandidateService } from "./main-command-transition-candidate.service";
+import { MainCommandTransitionEvaluatorService } from "./main-command-transition-evaluator.service";
+import { MainCommandValidatorService } from "./main-command-validator.service";
+import { MainCommandVttCheckResultService } from "./main-command-vtt-check-result.service";
 
 type HarnessInterpreterResult = {
   parsed: {
@@ -54,6 +88,122 @@ const defaultInterpreterResult: HarnessInterpreterResult = {
     },
   },
 };
+
+function createMainCommandsService(
+  prisma: never,
+  sessionsService: never,
+  aiService: never,
+  turnLogsService: never,
+  realtimeEvents: never,
+) {
+  const checkEffectParser = new MainCommandCheckEffectParserService();
+  const contextLoader = new MainCommandContextLoaderService(prisma, sessionsService);
+  const approvalPolicy = new MainCommandApprovalPolicyService();
+  const intentHandlers = new MainCommandIntentHandlersService(approvalPolicy);
+  const checkBuilder = new MainCommandCheckBuilderService();
+  const checkEffectAttachment = new MainCommandCheckEffectAttachmentService();
+  const checkMovement = new MainCommandCheckMovementService(sessionsService);
+  const checkReveal = new MainCommandCheckRevealService(sessionsService);
+  const checkResultLog = new MainCommandCheckResultLogService(turnLogsService, realtimeEvents);
+  const checkResultNarration = new MainCommandCheckResultNarrationService(aiService);
+  const checkResolution = new MainCommandCheckResolutionService(
+    checkEffectParser,
+    checkResultNarration,
+  );
+  const sceneEntity = new MainCommandSceneEntityService();
+  const validator = new MainCommandValidatorService(sceneEntity);
+  const transitionEvaluator = new MainCommandTransitionEvaluatorService();
+  const hintContext = new MainCommandHintContextService(
+    prisma,
+    sessionsService,
+    transitionEvaluator,
+  );
+  const aiQuery = new MainCommandAiQueryService(aiService, hintContext);
+  const interpreterPayload = new MainCommandInterpreterPayloadService(sceneEntity);
+  const interpreterRouter = new MainCommandInterpreterRouterService(validator, sceneEntity);
+  const inventoryLabel = new MainCommandInventoryLabelService();
+  const npcDialogue = new MainCommandNpcDialogueService(aiService, sceneEntity);
+  const persistence = new MainCommandPersistenceService(prisma, turnLogsService, realtimeEvents);
+  const interpreterRouteResponse = new MainCommandInterpreterRouteResponseService(
+    interpreterRouter,
+    persistence,
+  );
+  const checkRevealSync = new MainCommandCheckRevealSyncService(
+    sessionsService,
+    realtimeEvents,
+    persistence,
+  );
+  const postActionReveal = new MainCommandPostActionRevealService(
+    sessionsService,
+    realtimeEvents,
+    persistence,
+  );
+  const ruleFragments = new MainCommandRuleFragmentService();
+  const ruleQuery = new MainCommandRuleQueryService(aiService, interpreterPayload, ruleFragments);
+  const progressEvidence = new MainCommandProgressEvidenceService(prisma, transitionEvaluator);
+  const sceneInfo = new MainCommandSceneInfoService(sceneEntity);
+  const transitionCandidates = new MainCommandTransitionCandidateService(
+    prisma,
+    transitionEvaluator,
+  );
+  const sceneTransitionState = new MainCommandSceneTransitionStateService(prisma);
+  const sceneTransitionResponse = new MainCommandSceneTransitionResponseService();
+  const sceneTransitionResolution = new MainCommandSceneTransitionResolutionService(
+    sessionsService,
+    realtimeEvents,
+    sceneTransitionState,
+    sceneTransitionResponse,
+  );
+  const endingNode = new MainCommandEndingNodeService(sessionsService);
+  const vttCheckResult = new MainCommandVttCheckResultService(
+    sessionsService,
+    turnLogsService,
+    realtimeEvents,
+    checkEffectParser,
+    checkResultNarration,
+  );
+
+  return new MainCommandsService(
+    prisma,
+    sessionsService,
+    aiService,
+    turnLogsService,
+    realtimeEvents,
+    checkEffectParser,
+    contextLoader,
+    intentHandlers,
+    checkBuilder,
+    checkEffectAttachment,
+    checkMovement,
+    checkReveal,
+    checkResultLog,
+    checkResultNarration,
+    checkResolution,
+    sceneEntity,
+    validator,
+    transitionEvaluator,
+    hintContext,
+    aiQuery,
+    interpreterPayload,
+    interpreterRouter,
+    inventoryLabel,
+    npcDialogue,
+    persistence,
+    interpreterRouteResponse,
+    checkRevealSync,
+    postActionReveal,
+    ruleFragments,
+    ruleQuery,
+    progressEvidence,
+    sceneInfo,
+    transitionCandidates,
+    sceneTransitionState,
+    sceneTransitionResponse,
+    sceneTransitionResolution,
+    endingNode,
+    vttCheckResult,
+  );
+}
 
 function createMainCommandHarness(options?: {
   screenType?: MainCommandScreenType;
@@ -132,7 +282,7 @@ function createMainCommandHarness(options?: {
     emitTurnLogCreated: jest.fn(),
     emitSessionSnapshot: jest.fn(),
   };
-  const service = new MainCommandsService(
+  const service = createMainCommandsService(
     prisma as never,
     sessionsService as never,
     aiService as never,
@@ -192,7 +342,7 @@ describe("MainCommandsService.submitMainCommand permission", () => {
     const realtimeEvents = {};
 
     return {
-      service: new MainCommandsService(
+      service: createMainCommandsService(
         prisma as never,
         sessionsService as never,
         aiService as never,
@@ -267,7 +417,7 @@ describe("MainCommandsService.submitMainCommand RP action", () => {
       emitTurnLogCreated: jest.fn(),
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new MainCommandsService(
+    const service = createMainCommandsService(
       {} as never,
       sessionsService as never,
       aiService as never,
@@ -1024,7 +1174,7 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
 
 describe("MainCommandsService transition condition evaluation", () => {
   const createService = () =>
-    new MainCommandsService(
+    createMainCommandsService(
       {} as never,
       {} as never,
       {} as never,
@@ -1332,7 +1482,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
     const realtimeEvents = {
       emitSessionSnapshot: jest.fn(),
     };
-    const service = new MainCommandsService(
+    const service = createMainCommandsService(
       {} as never,
       sessionsService as never,
       { runInterpreter: jest.fn() } as never,
@@ -1525,28 +1675,20 @@ describe("MainCommandsService scene transition branch resolution", () => {
 
 describe("MainCommandsService check result narration", () => {
   const createService = () =>
-    new MainCommandsService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-    ) as unknown as {
-      buildMainCommandCheckResultMessage: (
-        effect: Record<string, unknown>,
-        outcome: string,
-      ) => string;
-    };
+    new MainCommandCheckResultNarrationService({} as never);
 
   const baseEffect = {
     type: "mainCommandCheck",
     requestId: "request-1",
     nodeId: "node-1",
+    sessionCharacterId: "session-character-1",
     screenType: MainCommandScreenType.STORY,
     playerText: "뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
     actionSummary: "밀라 보스턴에 대한 뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
     targetId: "npc-mila",
     targetName: "밀라 보스턴",
+    targetSummary: null,
+    targetDisposition: null,
     itemId: null,
     itemName: null,
     mapPoint: null,
@@ -1558,7 +1700,7 @@ describe("MainCommandsService check result narration", () => {
   };
 
   it("uses scene-like failure narration for intimidation checks instead of echoing raw input", () => {
-    const message = createService().buildMainCommandCheckResultMessage(
+    const message = createService().buildTemplateMessage(
       {
         ...baseEffect,
         intent: MainCommandIntent.SOCIAL_INTIMIDATE,
@@ -1599,11 +1741,11 @@ describe("MainCommandsService check result narration", () => {
     ];
 
     for (const intent of intents) {
-      const success = service.buildMainCommandCheckResultMessage(
+      const success = service.buildTemplateMessage(
         { ...baseEffect, intent, itemName: "밧줄" },
         ActionOutcome.SUCCESS,
       );
-      const failure = service.buildMainCommandCheckResultMessage(
+      const failure = service.buildTemplateMessage(
         { ...baseEffect, intent, itemName: "밧줄" },
         ActionOutcome.FAILURE,
       );
@@ -1618,18 +1760,7 @@ describe("MainCommandsService check result narration", () => {
   });
 
   it("does not expose internal action type labels in fallback narration", () => {
-    const service = new MainCommandsService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-    ) as unknown as {
-      buildMainCommandCheckResultMessage: (
-        effect: Record<string, unknown>,
-        outcome: ActionOutcome,
-      ) => string;
-    };
+    const service = createService();
     const effect = {
       type: "mainCommandCheck",
       requestId: "request-1",
@@ -1653,8 +1784,8 @@ describe("MainCommandsService check result narration", () => {
       actionCandidate: null,
     };
 
-    const success = service.buildMainCommandCheckResultMessage(effect, ActionOutcome.SUCCESS);
-    const failure = service.buildMainCommandCheckResultMessage(effect, ActionOutcome.FAILURE);
+    const success = service.buildTemplateMessage(effect, ActionOutcome.SUCCESS);
+    const failure = service.buildTemplateMessage(effect, ActionOutcome.FAILURE);
 
     expect(success).not.toContain("standard");
     expect(failure).not.toContain("standard");

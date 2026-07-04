@@ -19,6 +19,10 @@ type RaceTraitDisplayEntry = {
   aliases?: string[];
 };
 
+type CharacterAbilitySummarySource = {
+  abilities: Record<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', number>;
+};
+
 const skillLabelMap: Map<string, string> = new Map([
   ['Acrobatics', '곡예'],
   ['Arcana', '비전학'],
@@ -114,6 +118,22 @@ const abilityLabelMap: Record<string, string> = {
   wis: '지혜',
   cha: '매력',
 };
+
+const abilitySummaryOrder: Array<keyof CharacterAbilitySummarySource['abilities']> = [
+  'str',
+  'dex',
+  'con',
+  'int',
+  'wis',
+  'cha',
+];
+
+export function getAbilitySummary(character: CharacterAbilitySummarySource) {
+  return abilitySummaryOrder.map((ability) => ({
+    label: abilityLabelMap[ability] ?? ability,
+    value: character.abilities[ability],
+  }));
+}
 
 const featureInfoMap: Record<string, Omit<CharacterFeatureDisplayInfo, 'tone'>> = {
   'feat.alert': {

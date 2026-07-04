@@ -18,7 +18,7 @@ type MovementNode = {
 
 @Injectable()
 export class CombatMovementService {
-  constructor(private readonly terrainEffects: TerrainEffectService = new TerrainEffectService()) {}
+  constructor(private readonly terrainEffects: TerrainEffectService) {}
 
   normalizeCombatMovementPath(
     map: VttMapStateDto,
@@ -142,6 +142,25 @@ export class CombatMovementService {
         !destinationEffectIds.has(entered.terrainEffectId) &&
         this.terrainEffects.supportsTrigger(entered.effect, "on_exit"),
     );
+  }
+
+  mapForcedMovementObstacles(map: VttMapStateDto): Array<{ x: number; y: number }> {
+    return [
+      ...(map.wallCells ?? []).flatMap((cell) => this.cellGridPoints(map, cell)),
+      ...(map.doorCells ?? [])
+        .filter((door) => door.state !== "open" && door.state !== "broken")
+        .flatMap((cell) => this.cellGridPoints(map, cell)),
+    ];
+  }
+
+  mapForcedMovementHazards(map: VttMapStateDto): Array<{ point: { x: number; y: number }; terrainEffectId: string }> {
+    return (map.terrainCells ?? []).flatMap((cell) => {
+      const terrainEffectId = this.extractTerrainEffectId(cell);
+      if (!terrainEffectId) {
+        return [];
+      }
+      return this.cellGridPoints(map, cell).map((point) => ({ point, terrainEffectId }));
+    });
   }
 
   resolveTerrainEffectsAtPoint(

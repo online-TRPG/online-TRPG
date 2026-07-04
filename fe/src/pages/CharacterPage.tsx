@@ -8,141 +8,116 @@
  * 4) handler 함수: 모달 열기/닫기, 폼 제출, 능력치/스킬/인벤토리 수정
  * 5) JSX: 좌측 메뉴, 캐릭터 카드 그리드, 선택 캐릭터 상세, 생성/삭제 모달
  */
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import defaultArcherImage from '../assets/images/Profile_Default_Archer.webp';
-import defaultRogueImage from '../assets/images/Profile_Default_Rouge.webp';
-import defaultWarriorImage from '../assets/images/Profile_Default_Warrior.webp';
-import defaultWizardImage from '../assets/images/Profile_Default_Wizard.webp';
+import { FormEvent, useEffect, useMemo } from 'react';
 import parchmentScrollImage from '../assets/images/parchment_scroll.webp';
 import boxBulletinNarrowFrame from '../components/Box_Bulletin_Narrow_Frame.webp';
 import boxBulletinNarrowPlanks from '../components/Box_Bulletin_Narrow_Planks.webp';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import profileBorderStats from '../components/Profile_Border_Stats.webp';
 import sidePanelImage from '../components/Side_Panel.webp';
-import {
-  getClassLabel,
-  localizeAbilityText,
-  localizeSrdTermText,
-  loadClassOptions,
-  loadClassFeatureManifest,
-  loadFeSpellPools,
-  loadRaceData,
-  loadSpellCatalog,
-  normalizeClassValue,
-  type CanonicalClassFeatureEntry,
-  type ClassOption,
-  type ClassFeatureReference,
-  type ClassOptionValue,
-  type RaceAbilityBonus,
-  type RaceData,
-  type StaticFeSpellPools,
-  type StaticSpellCatalogEntry,
-} from '../services/staticSrd';
-import { getPreferredScenario, splitScenariosBySource } from '../data/sessionVisuals';
+import { splitScenariosBySource } from '../data/sessionVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import type {
   ClassDefinitionResponseDto,
-  CharacterAvatarAssetResponseDto,
-  ItemResponseDto,
   LevelUpCharacterDto,
   RaceResponseDto,
-  RuleCatalogReferenceDto,
-  StartingSpellsDto,
   UpdatePreparedSpellsDto,
 } from '@trpg/shared-types';
 import {
-  getSrdClassDefinition,
   normalizeSrdCharacterClassKey,
-  resolveAvailableAbilityScoreImprovementLevels,
-  resolveCharacterSpellSelectionRequirements,
-  resolveCrossedAbilityScoreImprovementLevels,
   resolveKnownSpellDelta,
-  resolveMaximumCastableSpellLevel,
-  resolvePreparedSpellAbility,
-  resolvePreparedSpellLimit as resolveSrdPreparedSpellLimit,
-  resolveSubclassChoiceLevel,
 } from '@trpg/srd-data/rules';
 import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
 import { getUserFacingItemName } from '../features/sessionPlay/utils/displayNames';
+import { getCharacterImage } from '../features/characters/characterAvatarPresentation';
 import {
-  getCharacterFeatureDisplayInfo,
-  summarizeCharacterFeatures,
-} from '../features/characters/characterFeaturePresentation';
+  POINT_BUY_TOTAL,
+  abilityDisplayLabels,
+  abilityKeys,
+  buildPointBuyState,
+  buildCreateStatSummaryCards,
+  deriveLevelStats,
+  formatStat,
+  getPointBuyAdjustment,
+  getRecommendedAbilities,
+  normalizeIntegerValue,
+  normalizeLevel,
+  type AbilityKey,
+} from '../features/characters/characterBuildRules';
 import {
-  SpellSelectionGrid,
-  type SpellSelectionGridDetail,
-  type SpellSelectionGridOption,
-} from '../features/spells/SpellSelectionGrid';
-import { getSpellDisplayLabel } from '../features/spells/spellDisplay';
+  allSkillsKo,
+  buildCharacterCreateReviewViewModel,
+  buildCharacterCreateStepViewState,
+  buildCreateStatReferenceViewModel,
+  characterCreateSteps,
+  getClassOptionByValue,
+  getCharacterClassLabel,
+  getCreateStatSelectionLabel,
+  getSkillLabel,
+} from '../features/characters/characterCreateDefaults';
+import {
+  buildCharacterLevelUpPreviewRows,
+  buildLevelUpFeaturePreviewItems,
+} from '../features/characters/characterLevelUpPreview';
+import {
+  buildCreationAsiFeatChoiceState,
+  buildLevelUpAsiFeatChoiceState,
+  buildSubclassChoiceState,
+  createEmptyAbilityScoreIncreases,
+  featOptions,
+  getActiveFeatureChoiceDefinitions,
+  getAsiChoiceId,
+  getFeatureChoiceContext,
+  isAsiFeatChoiceSelectedElsewhere,
+  isLevelUpAsiAbilityChoiceCapped,
+  buildFeatureChoiceViewModels,
+} from '../features/characters/characterFeatureChoices';
+import {
+  buildCreateFeaturePreviewItems,
+  countFeaturePreviewStatuses,
+  featureSourceLabels,
+  featureStatusLabels,
+  groupFeaturePreviewItemsByLevel,
+} from '../features/characters/characterFeaturePreview';
+import { summarizeCharacterFeatures } from '../features/characters/characterFeaturePresentation';
+import { buildCharacterDetailViewModel } from '../features/characters/characterDetailPresentation';
+import {
+  buildSpellCatalogById,
+  buildCharacterCreateSpellSelectionModel,
+  buildCharacterLevelUpSpellSelectionModel,
+  buildCharacterSpellDisplayModel,
+  getPreparedSpellAbilityKey,
+  resolveCharacterPreparedSpellLimit,
+} from '../features/characters/characterSpellSelectionRules';
+import { useCharacterCatalogs } from '../features/characters/useCharacterCatalogs';
+import { useCharacterCreateDraft } from '../features/characters/useCharacterCreateDraft';
+import { useCharacterCreateModalLifecycle } from '../features/characters/useCharacterCreateModalLifecycle';
+import { useCharacterCreateToast } from '../features/characters/useCharacterCreateToast';
+import { useCharacterDeleteFlow } from '../features/characters/useCharacterDeleteFlow';
+import { useCharacterLevelUpDraft } from '../features/characters/useCharacterLevelUpDraft';
+import { useCharacterLevelUpFlow } from '../features/characters/useCharacterLevelUpFlow';
+import { useCharacterSelection } from '../features/characters/useCharacterSelection';
+import {
+  buildItemKoNameByKey,
+  buildStartingEquipmentSlotViewModels,
+  buildStartingEquipmentSummary,
+  formatStartingEquipmentOption,
+} from '../features/characters/characterStartingEquipment';
+import {
+  buildAncestryLabelMap,
+  buildAncestryOptions,
+  buildCreateRaceChoiceState,
+  buildSelectedCharacterRaceInfo,
+  buildSelectedCreateRaceInfo,
+  findRaceByAncestryValue,
+  getCreateRaceFeatureAncestryKey,
+  getRaceTraitSummariesForCharacter,
+} from '../features/characters/characterRacePresentation';
+import { useCharacterAvatarPicker } from '../features/characters/useCharacterAvatarPicker';
+import { SpellSelectionGrid } from '../features/spells/SpellSelectionGrid';
 import { getSpellPresentation } from '../features/spells/spellPresentation';
-import {
-  deleteCharacterAvatarAsset,
-  listCharacterAvatarAssets,
-  listItems,
-  listRuleCatalog,
-  uploadCharacterAvatarAsset,
-} from '../services/api';
 import './CharacterPage.css';
-
-// shared-types(CJS) value import 가 rollup 추적 실패 케이스라(메모) inline 동일값.
-const POINT_BUY_TOTAL = 27;
-const POINT_BUY_MIN_BASE = 8;
-const POINT_BUY_MAX_BASE = 15;
-const POINT_BUY_COST: Readonly<Record<number, number>> = {
-  8: 0,
-  9: 1,
-  10: 2,
-  11: 3,
-  12: 4,
-  13: 5,
-  14: 7,
-  15: 9,
-};
-// shared-types/src/constants/skills.ts 와 동기화 유지 — BE seed (be/src/database/seed/classes.ts ALL_SKILLS) 가 정답.
-// 영문 코드/한국어 어느 쪽 입력도 한국어 정규형으로 normalize 한다.
-const DND5E_SKILLS_INLINE: ReadonlyArray<{ code: string; ko: string }> = [
-  { code: 'Acrobatics', ko: '곡예' },
-  { code: 'AnimalHandling', ko: '동물 조련' },
-  { code: 'Arcana', ko: '비전학' },
-  { code: 'Athletics', ko: '운동' },
-  { code: 'Deception', ko: '기만' },
-  { code: 'History', ko: '역사' },
-  { code: 'Insight', ko: '통찰' },
-  { code: 'Intimidation', ko: '위협' },
-  { code: 'Investigation', ko: '조사' },
-  { code: 'Medicine', ko: '의학' },
-  { code: 'Nature', ko: '자연' },
-  { code: 'Perception', ko: '감지' },
-  { code: 'Performance', ko: '공연' },
-  { code: 'Persuasion', ko: '설득' },
-  { code: 'Religion', ko: '종교' },
-  { code: 'SleightOfHand', ko: '손재주' },
-  { code: 'Stealth', ko: '은신' },
-  { code: 'Survival', ko: '생존' },
-];
-const SKILL_KO_BY_CODE_INLINE = new Map(
-  DND5E_SKILLS_INLINE.map((s) => [s.code.toLowerCase(), s.ko])
-);
-const SKILL_KO_SET_INLINE = new Set(DND5E_SKILLS_INLINE.map((s) => s.ko));
-function normalizeSkillToKo(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  if (SKILL_KO_SET_INLINE.has(trimmed)) return trimmed;
-  return SKILL_KO_BY_CODE_INLINE.get(trimmed.toLowerCase()) ?? null;
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      resolve(result.split(',')[1] ?? '');
-    };
-    reader.onerror = () => reject(reader.error ?? new Error('파일을 읽지 못했습니다.'));
-    reader.readAsDataURL(file);
-  });
-}
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface CharacterPageProps {
@@ -168,1872 +143,6 @@ interface CharacterPageProps {
   onReturnToSession?: () => void;
 }
 
-type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
-type ScalingAbilityKey = 'str' | 'dex' | 'int';
-type CharacterCreateStepKey =
-  | 'profile'
-  | 'stats'
-  | 'skills'
-  | 'features'
-  | 'equipment'
-  | 'spells'
-  | 'review';
-
-type CharacterFeaturePreviewSource = 'race' | 'class' | 'subclass' | 'choice' | 'asi';
-type CharacterFeaturePreviewItem = {
-  id: string;
-  label: string;
-  source: CharacterFeaturePreviewSource;
-  summary: string;
-  level?: number | null;
-  status: 'automatic' | 'required' | 'selected' | 'pending';
-};
-type CharacterFeatureTimelineGroup = {
-  level: number;
-  items: CharacterFeaturePreviewItem[];
-};
-
-function createEmptyAbilityScoreIncreases(): Record<AbilityKey, number> {
-  return { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
-}
-
-function getCrossedAsiLevels(
-  classKey: string,
-  currentLevel: number,
-  targetLevel: number
-): number[] {
-  return resolveCrossedAbilityScoreImprovementLevels(classKey, currentLevel, targetLevel);
-}
-
-function getCreationAsiLevels(classKey: string, level: number): number[] {
-  return resolveAvailableAbilityScoreImprovementLevels(classKey, normalizeLevel(level));
-}
-
-interface InventoryDraftItem {
-  id: string;
-  name: string;
-  quantity: number;
-}
-
-interface ClassStatProfile {
-  base: {
-    maxHp: number;
-    armorClass: number;
-    speed: number;
-    abilities: Record<ScalingAbilityKey, number>;
-  };
-  growth: {
-    maxHp: number;
-    armorClass: number;
-    abilities: Record<ScalingAbilityKey, number>;
-  };
-}
-
-const CHARACTER_CREATE_STEPS: ReadonlyArray<{
-  key: CharacterCreateStepKey;
-  label: string;
-  helper: string;
-}> = [
-  { key: 'profile', label: '기본 정보', helper: '이름, 시나리오, 초상화를 정합니다.' },
-  { key: 'stats', label: '코어 스탯', helper: '레벨과 능력치를 배분합니다.' },
-  { key: 'skills', label: '기술', helper: '숙련 기술과 도구 숙련을 고릅니다.' },
-  { key: 'features', label: '특성', helper: '자동 획득과 선택 필요 특성을 확인합니다.' },
-  { key: 'equipment', label: '장비', helper: '시작 장비와 인벤토리를 확인합니다.' },
-  { key: 'spells', label: '주문', helper: '캔트립과 시작 주문을 고릅니다.' },
-  { key: 'review', label: '확인', helper: '완성된 캐릭터 구성을 검토합니다.' },
-] as const;
-
-type ClassName = ClassOptionValue;
-type ImplementedSpellOption = { id: string; label: string; level?: number | null };
-
-const defaultAncestry = 'Human';
-
-const implementedSubclassOptions: Record<string, Array<{ value: string; label: string }>> = {
-  barbarian: [{ value: 'berserker', label: 'Berserker / 광전사' }],
-  bard: [{ value: 'lore', label: 'College of Lore / 지식 학파' }],
-  cleric: [{ value: 'life', label: 'Life Domain / 생명 권역' }],
-  druid: [{ value: 'land', label: 'Circle of the Land / 대지의 회합' }],
-  fighter: [{ value: 'champion', label: 'Champion / 챔피언' }],
-  monk: [{ value: 'open_hand', label: 'Way of the Open Hand / 열린 손의 길' }],
-  paladin: [{ value: 'devotion', label: 'Oath of Devotion / 헌신의 맹세' }],
-  ranger: [{ value: 'hunter', label: 'Hunter / 사냥꾼' }],
-  rogue: [{ value: 'thief', label: 'Thief / 도둑' }],
-  sorcerer: [{ value: 'draconic_bloodline', label: 'Draconic Bloodline / 용 혈통' }],
-  warlock: [{ value: 'fiend', label: 'Fiend / 악마 후원자' }],
-  wizard: [{ value: 'evocation', label: 'Evocation / 방출학파' }],
-};
-
-function getImplementedSpellOptions(
-  className: string | null | undefined,
-  kind: 'cantrip' | 'slot',
-  level = 1,
-  ruleCatalog: RuleCatalogReferenceDto[] = [],
-  spellCatalogById?: Map<string, StaticSpellCatalogEntry>,
-  spellPools?: StaticFeSpellPools | null
-): ImplementedSpellOption[] {
-  const classKey = normalizeSrdCharacterClassKey(className ?? '');
-  if (!hasSrdSpellcastingProgression(classKey)) return [];
-  const maxSpellLevel = resolveImplementedSpellMaxLevel(classKey, level);
-  const catalogOptions = getCatalogSpellOptions(ruleCatalog, kind, maxSpellLevel, spellCatalogById);
-  if (catalogOptions.length) {
-    return kind === 'cantrip' && !shouldOfferCantripOptions(classKey, level)
-      ? []
-      : catalogOptions;
-  }
-  if (kind === 'cantrip') {
-    return shouldOfferCantripOptions(classKey, level)
-      ? toFallbackSpellOptions(spellPools?.characterBuilder.cantrips ?? [], spellCatalogById, 0)
-      : [];
-  }
-  const slotSpellsByLevel = spellPools?.characterBuilder.slotSpellsByLevel ?? {};
-  return [
-    ...toFallbackSpellOptions(slotSpellsByLevel['1'] ?? [], spellCatalogById, 1),
-    ...(maxSpellLevel >= 2 ? toFallbackSpellOptions(slotSpellsByLevel['2'] ?? [], spellCatalogById, 2) : []),
-    ...(maxSpellLevel >= 3 ? toFallbackSpellOptions(slotSpellsByLevel['3'] ?? [], spellCatalogById, 3) : []),
-    ...(maxSpellLevel >= 4 ? toFallbackSpellOptions(slotSpellsByLevel['4'] ?? [], spellCatalogById, 4) : []),
-  ];
-}
-
-function toFallbackSpellOptions(
-  spellIds: string[],
-  spellCatalogById: Map<string, StaticSpellCatalogEntry> | undefined,
-  fallbackLevel: number
-): ImplementedSpellOption[] {
-  return spellIds.map((spellId) => {
-    const catalogEntry = spellCatalogById?.get(spellId);
-    return {
-      id: spellId,
-      label: getSpellDisplayLabel({
-        spellId,
-        catalogEntry,
-      }),
-      level: catalogEntry?.level ?? fallbackLevel,
-    };
-  });
-}
-
-function hasSrdSpellcastingProgression(classKey: string) {
-  return Boolean(getSrdClassDefinition(classKey)?.spellcastingProgression?.length);
-}
-
-function shouldOfferCantripOptions(classKey: string, level: number) {
-  return resolveCharacterSpellSelectionRequirements({
-    classKey,
-    level,
-  }).cantripCount > 0;
-}
-
-function resolveImplementedSpellMaxLevel(classKey: string, level: number) {
-  return resolveMaximumCastableSpellLevel(classKey, level);
-}
-
-function getCatalogSpellOptions(
-  ruleCatalog: RuleCatalogReferenceDto[],
-  kind: 'cantrip' | 'slot',
-  maxSpellLevel: number,
-  spellCatalogById?: Map<string, StaticSpellCatalogEntry>
-): ImplementedSpellOption[] {
-  if (!ruleCatalog.length) return [];
-  const normalizedMaxSpellLevel =
-    kind === 'slot' ? Math.max(0, Math.min(9, Math.floor(maxSpellLevel))) : 0;
-  return ruleCatalog
-    .filter((entry) => entry.kind === 'spell_definitions' && entry.executable)
-    .map((entry) => ({
-      id: entry.id,
-      label: getSpellDisplayLabel({
-        spellId: entry.id,
-        label: entry.label,
-        catalogEntry: spellCatalogById?.get(entry.id),
-      }),
-      level: getCatalogSpellLevel(entry),
-    }))
-    .filter((spell) =>
-      kind === 'cantrip'
-        ? spell.level === 0
-        : typeof spell.level === 'number' &&
-          spell.level >= 1 &&
-          spell.level <= normalizedMaxSpellLevel
-    )
-    .sort((left, right) => {
-      const leftLevel = left.level ?? 99;
-      const rightLevel = right.level ?? 99;
-      if (leftLevel !== rightLevel) return leftLevel - rightLevel;
-      return left.label.localeCompare(right.label);
-    });
-}
-
-function getCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | null {
-  if (typeof entry.spellLevel === 'number') return entry.spellLevel;
-  const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
-  if (!tag) return null;
-  const level = Number(tag.slice('spell_level:'.length));
-  return Number.isInteger(level) ? level : null;
-}
-
-function getImplementedSpellLabel(
-  spellId: string,
-  ruleCatalog: RuleCatalogReferenceDto[] = [],
-  spellCatalogById?: Map<string, StaticSpellCatalogEntry>
-) {
-  const catalogEntry = ruleCatalog.find((entry) => entry.id === spellId);
-  return getSpellDisplayLabel({
-    spellId,
-    label: catalogEntry?.label,
-    catalogEntry: spellCatalogById?.get(spellId),
-  });
-}
-
-function getPreparedSpellAbilityKey(className: string | null | undefined): AbilityKey | null {
-  return resolvePreparedSpellAbility(className ?? '') as AbilityKey | null;
-}
-
-function usesDynamicPreparedSpellPool(
-  className: string | null | undefined,
-  level: number,
-  ruleCatalog: RuleCatalogReferenceDto[] = [],
-  spellPools?: StaticFeSpellPools | null
-) {
-  return resolveCharacterSpellSelectionRequirements({
-    classKey: className,
-    level,
-    executableSpellPools: {
-      slotSpells: getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools)
-        .map((spell) => spell.id),
-    },
-  }).usesDynamicPreparedPool;
-}
-
-function resolveCharacterPreparedSpellLimit(
-  className: string | null | undefined,
-  level: number | null | undefined,
-  abilities: Partial<Record<AbilityKey, number>> | null | undefined
-) {
-  return resolveSrdPreparedSpellLimit({
-    classKey: className,
-    level,
-    abilities,
-  });
-}
-
-function resolveStartingSlotSpellCount(
-  klass: ClassDefinitionResponseDto | null | undefined,
-  className: string | null | undefined,
-  level: number,
-  ruleCatalog: RuleCatalogReferenceDto[] = [],
-  spellPools?: StaticFeSpellPools | null
-) {
-  if (!klass) return 0;
-  return resolveCharacterSpellSelectionRequirements({
-    classKey: className,
-    level,
-    executableSpellPools: {
-      slotSpells: getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools)
-        .map((spell) => spell.id),
-    },
-  }).knownOrSpellbookSpellCount;
-}
-
-function buildSpellSelectionDetail(
-  option: ImplementedSpellOption,
-  ruleCatalog: RuleCatalogReferenceDto[],
-  spellCatalogById: Map<string, StaticSpellCatalogEntry>
-): SpellSelectionGridDetail {
-  const srdSpell = spellCatalogById.get(option.id);
-  const catalogEntry = ruleCatalog.find((entry) => entry.id === option.id);
-  const specs = [
-    formatSpellLevelLabel(srdSpell?.level ?? option.level ?? catalogEntry?.spellLevel ?? null),
-    srdSpell?.schoolKo ?? null,
-    srdSpell?.castingTime?.raw ? `시전 ${srdSpell.castingTime.raw}` : null,
-    srdSpell?.range?.raw
-      ? `거리 ${srdSpell.range.raw}`
-      : typeof catalogEntry?.rangeFt === 'number'
-        ? `거리 ${catalogEntry.rangeFt}ft`
-        : null,
-    catalogEntry?.targetingType ? formatTargetingType(catalogEntry.targetingType) : null,
-    srdSpell?.duration?.raw ? `지속 ${srdSpell.duration.raw}` : null,
-    srdSpell?.components?.raw ? `구성 ${srdSpell.components.raw}` : null,
-    srdSpell?.concentration ? '집중' : null,
-    srdSpell?.ritual ? '의식' : null,
-  ].filter((spec): spec is string => Boolean(spec));
-
-  return {
-    specs,
-    summary: srdSpell?.playReference ?? buildRuntimeTagSummary(catalogEntry?.runtimeTags ?? []),
-    higherLevel: srdSpell?.higherLevel ?? null,
-    scaling: srdSpell?.scaling ?? null,
-    tags: normalizeRuntimeTagsForDisplay(catalogEntry?.runtimeTags ?? []),
-  };
-}
-
-function attachSpellDetails(
-  options: ImplementedSpellOption[],
-  ruleCatalog: RuleCatalogReferenceDto[],
-  spellCatalogById: Map<string, StaticSpellCatalogEntry>
-): SpellSelectionGridOption[] {
-  return options.map((option) => ({
-    ...option,
-    detail: buildSpellSelectionDetail(option, ruleCatalog, spellCatalogById),
-  }));
-}
-
-function buildSpellDisplayOptions(
-  spellIds: string[],
-  ruleCatalog: RuleCatalogReferenceDto[],
-  spellCatalogById: Map<string, StaticSpellCatalogEntry>
-): SpellSelectionGridOption[] {
-  const uniqueSpellIds = Array.from(new Set(spellIds.map((spellId) => spellId.trim()).filter(Boolean)));
-  return attachSpellDetails(
-    uniqueSpellIds.map((spellId) => {
-      const srdSpell = spellCatalogById.get(spellId);
-      const catalogEntry = ruleCatalog.find((entry) => entry.id === spellId);
-      return {
-        id: spellId,
-        label: getImplementedSpellLabel(spellId, ruleCatalog, spellCatalogById),
-        level: srdSpell?.level ?? catalogEntry?.spellLevel ?? null,
-      };
-    }),
-    ruleCatalog,
-    spellCatalogById
-  );
-}
-
-function formatSpellLevelLabel(level: number | null | undefined) {
-  if (level === 0) return '캔트립';
-  if (typeof level === 'number') return `${level}레벨`;
-  return null;
-}
-
-function formatTargetingType(targetingType: string) {
-  const labels: Record<string, string> = {
-    self: '대상 자신',
-    creature: '대상 크리처',
-    area: '범위 효과',
-    point: '지점 지정',
-    none: '대상 없음',
-  };
-  return labels[targetingType] ?? `대상 ${targetingType}`;
-}
-
-function normalizeRuntimeTagsForDisplay(tags: string[]) {
-  return tags
-    .filter((tag) => !tag.startsWith('spell_level:'))
-    .map((tag) => tag.replace(/_/g, ' '))
-    .slice(0, 8);
-}
-
-function buildRuntimeTagSummary(tags: string[]) {
-  const usefulTags = normalizeRuntimeTagsForDisplay(tags).slice(0, 5);
-  if (!usefulTags.length) {
-    return '상세 설명이 준비되지 않은 주문입니다. 카드의 레벨, 거리, 태그를 기준으로 선택하세요.';
-  }
-  return `주요 효과: ${usefulTags.join(', ')}`;
-}
-
-function resolveStartingCantripCount(
-  klass: ClassDefinitionResponseDto | null | undefined,
-  className: string | null | undefined,
-  level: number,
-  ruleCatalog: RuleCatalogReferenceDto[] = []
-) {
-  if (!klass) return 0;
-  return resolveCharacterSpellSelectionRequirements({
-    classKey: className,
-    level,
-    executableSpellPools: {
-      cantrips: getImplementedSpellOptions(className, 'cantrip', level, ruleCatalog).map((spell) => spell.id),
-    },
-  }).cantripCount;
-}
-
-// 직업별 기본 초상화 프리셋입니다. 사용자가 이미지를 올리기 전 기본 이미지로 씁니다.
-const avatarPresets = [
-  { id: 'preset_wizard', label: '위자드', image: defaultWizardImage },
-  { id: 'preset_archer', label: '레인저', image: defaultArcherImage },
-  { id: 'preset_rogue', label: '로그', image: defaultRogueImage },
-  { id: 'preset_warrior', label: '파이터', image: defaultWarriorImage },
-] as const;
-
-// 직업별 추천 HP/AC/공격 보너스/능력치 성장 기준입니다.
-const classStatProfiles: Record<ClassName, ClassStatProfile> = {
-  Barbarian: {
-    base: {
-      maxHp: 14,
-      armorClass: 14,
-      speed: 30,
-      abilities: {
-        str: 15,
-        dex: 12,
-        int: 8,
-      },
-    },
-    growth: {
-      maxHp: 7,
-      armorClass: 0,
-      abilities: {
-        str: 0.3,
-        dex: 0,
-        int: 0,
-      },
-    },
-  },
-  Bard: {
-    base: {
-      maxHp: 10,
-      armorClass: 13,
-      speed: 30,
-      abilities: {
-        str: 8,
-        dex: 14,
-        int: 10,
-      },
-    },
-    growth: {
-      maxHp: 5,
-      armorClass: 0,
-      abilities: {
-        str: 0,
-        dex: 0.2,
-        int: 0,
-      },
-    },
-  },
-  Cleric: {
-    base: {
-      maxHp: 10,
-      armorClass: 16,
-      speed: 30,
-      abilities: {
-        str: 12,
-        dex: 10,
-        int: 8,
-      },
-    },
-    growth: {
-      maxHp: 5,
-      armorClass: 0,
-      abilities: {
-        str: 0,
-        dex: 0,
-        int: 0,
-      },
-    },
-  },
-  Druid: {
-    base: {
-      maxHp: 10,
-      armorClass: 13,
-      speed: 30,
-      abilities: {
-        str: 8,
-        dex: 14,
-        int: 10,
-      },
-    },
-    growth: {
-      maxHp: 5,
-      armorClass: 0,
-      abilities: {
-        str: 0,
-        dex: 0.2,
-        int: 0,
-      },
-    },
-  },
-  Fighter: {
-    base: {
-      maxHp: 20,
-      armorClass: 18,
-      speed: 28,
-      abilities: {
-        str: 14,
-        dex: 10,
-        int: 8,
-      },
-    },
-    growth: {
-      maxHp: 2,
-      armorClass: 0.5,
-      abilities: {
-        str: 0.5,
-        dex: 0,
-        int: 0,
-      },
-    },
-  },
-  Monk: {
-    base: {
-      maxHp: 10,
-      armorClass: 15,
-      speed: 30,
-      abilities: {
-        str: 10,
-        dex: 15,
-        int: 8,
-      },
-    },
-    growth: {
-      maxHp: 5,
-      armorClass: 0,
-      abilities: {
-        str: 0,
-        dex: 0.4,
-        int: 0,
-      },
-    },
-  },
-  Paladin: {
-    base: {
-      maxHp: 12,
-      armorClass: 18,
-      speed: 30,
-      abilities: {
-        str: 15,
-        dex: 8,
-        int: 8,
-      },
-    },
-    growth: {
-      maxHp: 6,
-      armorClass: 0,
-      abilities: {
-        str: 0.3,
-        dex: 0,
-        int: 0,
-      },
-    },
-  },
-  Ranger: {
-    base: {
-      maxHp: 16,
-      armorClass: 16,
-      speed: 32,
-      abilities: {
-        str: 10,
-        dex: 14,
-        int: 10,
-      },
-    },
-    growth: {
-      maxHp: 1.5,
-      armorClass: 0.35,
-      abilities: {
-        str: 0,
-        dex: 0.5,
-        int: 0,
-      },
-    },
-  },
-  Rogue: {
-    base: {
-      maxHp: 14,
-      armorClass: 14,
-      speed: 36,
-      abilities: {
-        str: 9,
-        dex: 15,
-        int: 11,
-      },
-    },
-    growth: {
-      maxHp: 1.2,
-      armorClass: 0.25,
-      abilities: {
-        str: 0,
-        dex: 0.4,
-        int: 0.2,
-      },
-    },
-  },
-  Sorcerer: {
-    base: {
-      maxHp: 8,
-      armorClass: 12,
-      speed: 30,
-      abilities: {
-        str: 8,
-        dex: 14,
-        int: 10,
-      },
-    },
-    growth: {
-      maxHp: 4,
-      armorClass: 0,
-      abilities: {
-        str: 0,
-        dex: 0.2,
-        int: 0,
-      },
-    },
-  },
-  Warlock: {
-    base: {
-      maxHp: 10,
-      armorClass: 13,
-      speed: 30,
-      abilities: {
-        str: 8,
-        dex: 14,
-        int: 10,
-      },
-    },
-    growth: {
-      maxHp: 5,
-      armorClass: 0,
-      abilities: {
-        str: 0,
-        dex: 0.2,
-        int: 0,
-      },
-    },
-  },
-  Wizard: {
-    base: {
-      maxHp: 12,
-      armorClass: 12,
-      speed: 30,
-      abilities: {
-        str: 8,
-        dex: 10,
-        int: 15,
-      },
-    },
-    growth: {
-      maxHp: 1,
-      armorClass: 0.1,
-      abilities: {
-        str: 0,
-        dex: 0,
-        int: 0.5,
-      },
-    },
-  },
-};
-
-const abilityDisplayLabels: Record<AbilityKey, string> = {
-  str: '근력',
-  dex: '민첩',
-  con: '건강',
-  int: '지능',
-  wis: '지혜',
-  cha: '매력',
-};
-
-// 클래스 시드의 skillChoices 가 한국어이므로 표시·전송 모두 한국어를 정규형으로 사용한다.
-const allSkillsKo: readonly string[] = DND5E_SKILLS_INLINE.map((entry) => entry.ko);
-const presetIdByClassName: Map<string, string> = new Map([
-  ['Barbarian', 'preset_warrior'],
-  ['Bard', 'preset_wizard'],
-  ['Cleric', 'preset_warrior'],
-  ['Druid', 'preset_archer'],
-  ['Wizard', 'preset_wizard'],
-  ['Monk', 'preset_rogue'],
-  ['Paladin', 'preset_warrior'],
-  ['Ranger', 'preset_archer'],
-  ['Rogue', 'preset_rogue'],
-  ['Sorcerer', 'preset_wizard'],
-  ['Warlock', 'preset_wizard'],
-  ['Fighter', 'preset_warrior'],
-  ['Archer', 'preset_archer'],
-  ['Warrior', 'preset_warrior'],
-]);
-
-const fightingStyleOptions = [
-  { value: 'archery', label: 'Archery', effect: '원거리 무기 공격 명중 굴림 +2' },
-  { value: 'defense', label: 'Defense', effect: '갑옷 착용 중 AC +1' },
-  {
-    value: 'dueling',
-    label: 'Dueling',
-    effect: '한 손 근접 무기 하나만 들고 싸우면 피해 +2',
-  },
-  {
-    value: 'great_weapon_fighting',
-    label: 'Great Weapon Fighting',
-    effect: '양손/겸용 근접 무기 피해 주사위 1 또는 2 재굴림',
-  },
-  {
-    value: 'protection',
-    label: 'Protection',
-    effect: '방패 착용 중 5ft 이내 아군 피격 시 reaction으로 공격 불리점 부여',
-  },
-  {
-    value: 'two_weapon_fighting',
-    label: 'Two-Weapon Fighting',
-    effect: '쌍수 보조 공격 피해에도 능력 수정치 추가',
-  },
-];
-
-const favoredEnemyOptions = [
-  { value: 'aberrations', label: '변이체' },
-  { value: 'beasts', label: '야수' },
-  { value: 'celestials', label: '천상체' },
-  { value: 'constructs', label: '구조체' },
-  { value: 'dragons', label: '용' },
-  { value: 'elementals', label: '정령' },
-  { value: 'fey', label: '요정' },
-  { value: 'fiends', label: '악마' },
-  { value: 'giants', label: '거인' },
-  { value: 'monstrosities', label: '괴수' },
-  { value: 'oozes', label: '점액체' },
-  { value: 'plants', label: '식물' },
-  { value: 'undead', label: '언데드' },
-  { value: 'humanoid', label: '인간형 2종' },
-];
-
-const favoredHumanoidOptions = [
-  { value: 'dwarves', label: '드워프' },
-  { value: 'elves', label: '엘프' },
-  { value: 'halflings', label: '하플링' },
-  { value: 'humans', label: '인간' },
-  { value: 'dragonborn', label: '드래곤본' },
-  { value: 'gnomes', label: '노움' },
-  { value: 'half-elves', label: '하프엘프' },
-  { value: 'half-orcs', label: '하프오크' },
-  { value: 'tieflings', label: '티플링' },
-  { value: 'gnolls', label: '놀' },
-  { value: 'goblins', label: '고블린' },
-  { value: 'hobgoblins', label: '홉고블린' },
-  { value: 'kobolds', label: '코볼드' },
-  { value: 'lizardfolk', label: '리자드포크' },
-  { value: 'orcs', label: '오크' },
-];
-
-const draconicAncestryOptions = [
-  { value: 'black', label: 'Black / 산성' },
-  { value: 'blue', label: 'Blue / 번개' },
-  { value: 'brass', label: 'Brass / 화염' },
-  { value: 'bronze', label: 'Bronze / 번개' },
-  { value: 'copper', label: 'Copper / 산성' },
-  { value: 'gold', label: 'Gold / 화염' },
-  { value: 'green', label: 'Green / 독' },
-  { value: 'red', label: 'Red / 화염' },
-  { value: 'silver', label: 'Silver / 냉기' },
-  { value: 'white', label: 'White / 냉기' },
-];
-
-type FeatureChoiceOption = {
-  value: string;
-  label: string;
-  summary?: string;
-};
-
-type FeatureChoiceContext = {
-  ancestryKey: string;
-  classKey: string;
-  level: number;
-  features: string[];
-  proficientSkills: string[];
-};
-
-type FeatureChoiceDefinition = {
-  id: string;
-  label: string;
-  helper: string;
-  featurePrefix: string;
-  removedPrefixes: string[];
-  mode: 'single' | 'multi';
-  requiredSelections: number;
-  applies: (context: FeatureChoiceContext) => boolean;
-  getOptions: (context: FeatureChoiceContext) => FeatureChoiceOption[];
-  getSelectedSummary?: (selectedValues: string[], context: FeatureChoiceContext) => string;
-};
-
-const featureChoiceDefinitions: FeatureChoiceDefinition[] = [
-  {
-    id: 'choice.dragonborn.draconic_ancestry',
-    label: 'Draconic Ancestry / 용 혈통',
-    helper: '선택한 혈통이 브레스 피해 유형과 피해 저항을 함께 결정합니다.',
-    featurePrefix: 'draconic_ancestry:',
-    removedPrefixes: ['draconic_ancestry:'],
-    mode: 'single',
-    requiredSelections: 1,
-    applies: (context) => context.ancestryKey === 'dragonborn',
-    getOptions: () => draconicAncestryOptions,
-  },
-  {
-    id: 'choice.class.fighting_style',
-    label: 'Fighting Style / 전투 유파',
-    helper: '직업의 전투 방식을 하나 선택해야 합니다.',
-    featurePrefix: 'fighting_style:',
-    removedPrefixes: ['fighting_style:'],
-    mode: 'single',
-    requiredSelections: 1,
-    applies: (context) =>
-      context.classKey === 'fighter' ||
-      ((context.classKey === 'paladin' || context.classKey === 'ranger') && context.level >= 2),
-    getOptions: () =>
-      fightingStyleOptions.map((option) => ({
-        value: option.value,
-        label: option.label,
-        summary: option.effect,
-      })),
-    getSelectedSummary: ([selected]) =>
-      fightingStyleOptions.find((option) => option.value === selected)?.effect ??
-      '선택한 전투 유파가 적용됩니다.',
-  },
-  {
-    id: 'choice.ranger.favored_enemy',
-    label: 'Favored Enemy / 주적',
-    helper: '레인저의 주적 유형을 선택해야 합니다.',
-    featurePrefix: 'favored_enemy:',
-    removedPrefixes: ['favored_enemy:', 'favored_enemy_humanoid:'],
-    mode: 'single',
-    requiredSelections: 1,
-    applies: (context) => context.classKey === 'ranger',
-    getOptions: () => favoredEnemyOptions,
-  },
-  {
-    id: 'choice.ranger.favored_enemy_humanoid',
-    label: 'Favored Enemy: Humanoid / 인간형 주적',
-    helper: '주적을 인간형으로 선택했다면 인간형 종족 2개를 골라야 합니다.',
-    featurePrefix: 'favored_enemy_humanoid:',
-    removedPrefixes: ['favored_enemy_humanoid:'],
-    mode: 'multi',
-    requiredSelections: 2,
-    applies: (context) =>
-      context.classKey === 'ranger' && getFeatureValue(context.features, 'favored_enemy:') === 'humanoid',
-    getOptions: () => favoredHumanoidOptions,
-  },
-  {
-    id: 'choice.rogue.expertise',
-    label: 'Expertise / 전문화',
-    helper: '숙련 기술 2개, 또는 숙련 기술 1개와 Thieves’ tools를 선택합니다.',
-    featurePrefix: 'expertise:',
-    removedPrefixes: ['expertise:'],
-    mode: 'multi',
-    requiredSelections: 2,
-    applies: (context) => context.classKey === 'rogue',
-    getOptions: (context) => [
-      ...context.proficientSkills.map((skill) => ({
-        value: skill,
-        label: getSkillLabel(skill),
-      })),
-      { value: 'thieves_tools', label: "Thieves' tools" },
-    ],
-  },
-];
-
-const startingEquipmentConcreteChoiceOptions = {
-  simpleWeapon: {
-    label: '단순 무기',
-    options: [
-      { value: 'dagger', label: '단검' },
-      { value: 'dart', label: '다트' },
-      { value: 'handaxe', label: '핸드액스' },
-      { value: 'javelin', label: '재블린' },
-      { value: 'light-crossbow', label: '라이트 크로스보우' },
-      { value: 'mace', label: '메이스' },
-      { value: 'quarterstaff', label: '쿼터스태프' },
-      { value: 'shortbow', label: '쇼트보우' },
-    ],
-  },
-  simpleMeleeWeapon: {
-    label: '단순 근접 무기',
-    options: [
-      { value: 'dagger', label: '단검' },
-      { value: 'handaxe', label: '핸드액스' },
-      { value: 'javelin', label: '재블린' },
-      { value: 'mace', label: '메이스' },
-      { value: 'quarterstaff', label: '쿼터스태프' },
-    ],
-  },
-  martialWeapon: {
-    label: '군용 무기',
-    options: [
-      { value: 'greataxe', label: '그레이트액스' },
-      { value: 'longsword', label: '롱소드' },
-      { value: 'longbow', label: '롱보우' },
-      { value: 'rapier', label: '레이피어' },
-      { value: 'scimitar', label: '시미터' },
-      { value: 'shortsword', label: '쇼트소드' },
-      { value: 'warhammer', label: '워해머' },
-    ],
-  },
-  martialMeleeWeapon: {
-    label: '군용 근접 무기',
-    options: [
-      { value: 'greataxe', label: '그레이트액스' },
-      { value: 'longsword', label: '롱소드' },
-      { value: 'rapier', label: '레이피어' },
-      { value: 'scimitar', label: '시미터' },
-      { value: 'shortsword', label: '쇼트소드' },
-      { value: 'warhammer', label: '워해머' },
-    ],
-  },
-  instrument: {
-    label: '악기',
-    options: [{ value: 'lute', label: '류트' }],
-  },
-} as const;
-
-type StartingEquipmentConcreteChoice =
-  (typeof startingEquipmentConcreteChoiceOptions)[keyof typeof startingEquipmentConcreteChoiceOptions];
-
-const classFeatureIdsByClassKey: Record<string, string[]> = {
-  barbarian: ['class.barbarian.feature.rage', 'class.barbarian.feature.unarmored_defense'],
-  bard: ['class.bard.feature.spellcasting', 'class.bard.feature.bardic_inspiration'],
-  cleric: ['class.cleric.feature.spellcasting', 'class.cleric.feature.divine_domain'],
-  druid: ['class.druid.feature.druidic', 'class.druid.feature.spellcasting'],
-  fighter: ['class.fighter.feature.second_wind', 'class.fighter.feature.fighting_style'],
-  monk: ['class.monk.feature.unarmored_defense', 'class.monk.feature.martial_arts'],
-  paladin: ['class.paladin.feature.divine_sense', 'class.paladin.feature.lay_on_hands'],
-  ranger: ['class.ranger.feature.favored_enemy', 'class.ranger.feature.natural_explorer'],
-  rogue: [
-    'class.rogue.feature.expertise',
-    'class.rogue.feature.sneak_attack',
-    'class.rogue.feature.thieves_cant',
-  ],
-  sorcerer: ['class.sorcerer.feature.spellcasting', 'class.sorcerer.feature.sorcerous_origin'],
-  warlock: ['class.warlock.feature.otherworldly_patron', 'class.warlock.feature.pact_magic'],
-  wizard: ['class.wizard.feature.spellcasting', 'class.wizard.feature.arcane_recovery'],
-};
-const managedClassFeatureIds = new Set(Object.values(classFeatureIdsByClassKey).flat());
-
-const classChoiceFeaturePrefixes = [
-  'fighting_style:',
-  'favored_enemy:',
-  'favored_enemy_humanoid:',
-  'expertise:',
-];
-
-const featureSourceLabels: Record<CharacterFeaturePreviewSource, string> = {
-  race: '종족',
-  class: '직업',
-  subclass: '서브클래스',
-  choice: '선택',
-  asi: 'ASI/Feat',
-};
-
-const featureStatusLabels: Record<CharacterFeaturePreviewItem['status'], string> = {
-  automatic: '자동 획득',
-  required: '선택 필요',
-  selected: '선택 완료',
-  pending: '대기',
-};
-
-const featureStatusSortOrder: Record<CharacterFeaturePreviewItem['status'], number> = {
-  required: 0,
-  selected: 1,
-  pending: 2,
-  automatic: 3,
-};
-
-const featOptions = [
-  {
-    id: 'feat.alert',
-    label: 'Alert / 경계',
-    summary: '기습에 대비하고 전투 시작 반응성이 뛰어난 캐릭터를 표현하는 Feat입니다.',
-    tags: ['선제권', '방어', '전투 시작'],
-  },
-] as const;
-
-const featOptionById: Map<string, (typeof featOptions)[number]> = new Map(
-  featOptions.map((feat) => [feat.id, feat] as const)
-);
-const ASI_CHOICE_PREFIX = 'asi:';
-
-function getAsiChoiceId(ability: AbilityKey) {
-  return `${ASI_CHOICE_PREFIX}${ability}`;
-}
-
-function getAbilityFromAsiChoiceId(choiceId: string): AbilityKey | null {
-  if (!choiceId.startsWith(ASI_CHOICE_PREFIX)) return null;
-  const ability = choiceId.slice(ASI_CHOICE_PREFIX.length);
-  return (Object.keys(abilityDisplayLabels) as AbilityKey[]).includes(ability as AbilityKey)
-    ? (ability as AbilityKey)
-    : null;
-}
-
-function buildAbilityScoreIncreasesFromAsiFeatChoices(choices: string[]) {
-  return choices.reduce((acc, choice) => {
-    const ability = getAbilityFromAsiChoiceId(choice);
-    if (ability) {
-      acc[ability] += 2;
-    }
-    return acc;
-  }, createEmptyAbilityScoreIncreases());
-}
-
-function getFeatSelectionsFromAsiFeatChoices(choices: string[]) {
-  return choices.filter((choice) => choice.startsWith('feat.'));
-}
-
-function getSelectedAsiFeatChoiceIds(features: string[] | undefined): string[] {
-  return (features ?? []).filter(
-    (feature) => feature.startsWith('feat.') || feature.startsWith(ASI_CHOICE_PREFIX)
-  );
-}
-
-function replaceSelectedAsiFeatChoiceIds(features: string[] | undefined, choiceIds: string[]) {
-  return Array.from(
-    new Set([
-      ...(features ?? []).filter(
-        (feature) => !feature.startsWith('feat.') && !feature.startsWith(ASI_CHOICE_PREFIX)
-      ),
-      ...choiceIds,
-    ])
-  );
-}
-
-function normalizeAsiFeatChoicesForClassLevel(
-  className: string,
-  level: number | undefined,
-  features: string[] | undefined
-) {
-  const allowedChoiceCount = getCreationAsiLevels(className, level ?? 1).length;
-  return getSelectedAsiFeatChoiceIds(features).slice(0, allowedChoiceCount);
-}
-
-function splitClassFeatureSummary(summary: string): string[] {
-  return summary
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function normalizeFeatureLookupLabel(label: string) {
-  return label
-    .trim()
-    .replace(/\s+d\d+$/i, '')
-    .replace(/\s+\d+회$/i, '')
-    .replace(/\s+\d+\/휴식$/i, '')
-    .replace(/\s+CR\s*[\d/]+$/i, '')
-    .replace(/\s+/g, ' ');
-}
-
-function normalizeFeatureAliasKey(label: string) {
-  return normalizeFeatureLookupLabel(label)
-    .toLowerCase()
-    .replace(/[^a-z0-9가-힣]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
-
-function isAbilityScoreImprovementLabel(label: string) {
-  const normalizedLabel = normalizeFeatureLookupLabel(label).toLowerCase();
-  return (
-    normalizedLabel === '능력치 향상' ||
-    normalizedLabel === 'ability score improvement' ||
-    normalizedLabel === 'asi'
-  );
-}
-
-function findCanonicalClassFeature(
-  classFeatureManifest: CanonicalClassFeatureEntry[],
-  classKey: string,
-  label: string,
-  level: number
-): CanonicalClassFeatureEntry | null {
-  const normalizedLabel = normalizeFeatureLookupLabel(label);
-  const aliasKey = normalizeFeatureAliasKey(label);
-  const levelCandidates = classFeatureManifest.filter(
-    (feature) =>
-      feature.classKey === classKey &&
-      (feature.level === level ||
-        feature.availableAtLevels.includes(level) ||
-        feature.availableAtLevels.length === 0)
-  );
-  const candidates = levelCandidates.length
-    ? levelCandidates
-    : classFeatureManifest.filter((feature) => feature.classKey === classKey);
-
-  return (
-    candidates.find((feature) => feature.aliases.includes(aliasKey)) ??
-    candidates.find((feature) => normalizeFeatureLookupLabel(feature.nameKo) === normalizedLabel) ??
-    candidates.find((feature) => normalizedLabel.startsWith(normalizeFeatureLookupLabel(feature.nameKo))) ??
-    candidates.find((feature) => normalizeFeatureLookupLabel(feature.nameKo).startsWith(normalizedLabel)) ??
-    null
-  );
-}
-
-function inferClassFeatureDisplayId(
-  classKey: string,
-  label: string,
-  level: number,
-  classFeatureManifest: CanonicalClassFeatureEntry[]
-) {
-  if (isAbilityScoreImprovementLabel(label)) {
-    return `class.${classKey || 'unknown'}.feature.ability_score_improvement`;
-  }
-
-  const canonicalFeature = findCanonicalClassFeature(classFeatureManifest, classKey, label, level);
-  if (canonicalFeature) return canonicalFeature.id;
-
-  return null;
-}
-
-function findClassFeatureReference(
-  classInfo: ClassOption | null | undefined,
-  label: string,
-  level: number
-): ClassFeatureReference | null {
-  if (!classInfo) return null;
-  const normalizedLabel = normalizeFeatureLookupLabel(label);
-  const references = classInfo.featureReferences ?? [];
-  const levelMatches = references.filter(
-    (reference) =>
-      reference.availableAtLevels.length === 0 || reference.availableAtLevels.includes(level)
-  );
-  const candidates = levelMatches.length ? levelMatches : references;
-  return (
-    candidates.find((reference) => normalizeFeatureLookupLabel(reference.nameKo) === normalizedLabel) ??
-    candidates.find((reference) => normalizedLabel.startsWith(normalizeFeatureLookupLabel(reference.nameKo))) ??
-    candidates.find((reference) => normalizeFeatureLookupLabel(reference.nameKo).startsWith(normalizedLabel)) ??
-    null
-  );
-}
-
-function buildSpellcastingFeatureDescription(classInfo: ClassOption | null | undefined) {
-  if (!classInfo?.spellcastingSummary.length) return null;
-  return classInfo.spellcastingSummary.join(' ');
-}
-
-function buildClassFeaturePreviewItem(params: {
-  classInfo: ClassOption | null | undefined;
-  classKey: string;
-  label: string;
-  level: number;
-  index: number;
-  idPrefix: string;
-  status: CharacterFeaturePreviewItem['status'];
-  summaryFallback: string;
-  classFeatureManifest: CanonicalClassFeatureEntry[];
-}): CharacterFeaturePreviewItem {
-  const canonicalFeature = findCanonicalClassFeature(
-    params.classFeatureManifest,
-    params.classKey,
-    params.label,
-    params.level
-  );
-  const reference = findClassFeatureReference(params.classInfo, params.label, params.level);
-  const isSpellcastingLabel =
-    params.label === '주문시전' || params.label === '계약 마법' || params.label === 'Pact Magic';
-  const inferredDisplayId = inferClassFeatureDisplayId(
-    params.classKey,
-    params.label,
-    params.level,
-    params.classFeatureManifest
-  );
-  const displayInfo = getCharacterFeatureDisplayInfo(
-    canonicalFeature?.id ?? reference?.id ?? inferredDisplayId ?? ''
-  );
-  const spellcastingDescription = isSpellcastingLabel
-    ? buildSpellcastingFeatureDescription(params.classInfo)
-    : null;
-
-  return {
-    id:
-      canonicalFeature?.id ??
-      reference?.id ??
-      inferredDisplayId ??
-      `${params.idPrefix}.${params.classKey || 'unknown'}.${params.level}.${params.index}`,
-    label: canonicalFeature?.nameKo ?? reference?.nameKo ?? displayInfo?.label ?? params.label,
-    source:
-      canonicalFeature?.category === 'subclass' || reference?.category === 'subclass'
-        ? 'subclass'
-        : 'class',
-    level: params.level,
-    summary:
-      canonicalFeature?.summaryKo ||
-      reference?.summaryKo ||
-      spellcastingDescription ||
-      displayInfo?.description ||
-      params.summaryFallback,
-    status: params.status,
-  };
-}
-
-function groupFeaturePreviewItemsByLevel(
-  items: CharacterFeaturePreviewItem[]
-): CharacterFeatureTimelineGroup[] {
-  const groups = new Map<number, CharacterFeaturePreviewItem[]>();
-  for (const item of items) {
-    const level = item.level && item.level > 0 ? item.level : 1;
-    groups.set(level, [...(groups.get(level) ?? []), item]);
-  }
-  return Array.from(groups.entries())
-    .sort(([left], [right]) => left - right)
-    .map(([level, groupedItems]) => ({
-      level,
-      items: [...groupedItems].sort((left, right) => {
-        const statusDiff = featureStatusSortOrder[left.status] - featureStatusSortOrder[right.status];
-        if (statusDiff !== 0) return statusDiff;
-        return left.label.localeCompare(right.label, 'ko');
-      }),
-    }));
-}
-
-function countFeaturePreviewStatuses(items: CharacterFeaturePreviewItem[]) {
-  return items.reduce(
-    (acc, item) => {
-      acc.total += 1;
-      acc[item.status] += 1;
-      return acc;
-    },
-    {
-      total: 0,
-      automatic: 0,
-      required: 0,
-      selected: 0,
-      pending: 0,
-    } as Record<CharacterFeaturePreviewItem['status'] | 'total', number>
-  );
-}
-
-function buildChoiceFeaturePreviewItems(params: {
-  ancestryKey: string;
-  classKey: string;
-  level: number;
-  features: string[];
-  proficientSkills: string[];
-  subclassRequired: boolean;
-  subclassName?: string | null;
-}): CharacterFeaturePreviewItem[] {
-  const context: FeatureChoiceContext = {
-    ancestryKey: params.ancestryKey,
-    classKey: params.classKey,
-    level: params.level,
-    features: params.features,
-    proficientSkills: params.proficientSkills,
-  };
-  const items: CharacterFeaturePreviewItem[] = getActiveFeatureChoiceDefinitions(context).map(
-    (definition) => ({
-      id: definition.id,
-      label: definition.label,
-      source: 'choice',
-      summary: getFeatureChoiceSummary(definition, context),
-      status: isFeatureChoiceComplete(definition, context) ? 'selected' : 'required',
-    })
-  );
-
-  if (params.subclassRequired) {
-    items.push({
-      id: `choice.${params.classKey}.subclass`,
-      label: 'Subclass / 서브클래스',
-      source: 'subclass',
-      summary: params.subclassName
-        ? `선택한 서브클래스: ${params.subclassName}`
-        : '현재 시작 레벨에서는 서브클래스를 선택해야 합니다.',
-      status: params.subclassName ? 'selected' : 'required',
-    });
-  }
-
-  return items;
-}
-
-// D&D식 능력치 보정치 계산 함수입니다. 예: 14 -> +2, 8 -> -1.
-function calcModifier(score: number) {
-  return Math.floor((score - 10) / 2);
-}
-
-function formatModifier(score: number) {
-  const modifier = calcModifier(score);
-  return modifier >= 0 ? `+${modifier}` : `${modifier}`;
-}
-
-function getAbilityModifierTooltip(ability: AbilityKey, score: number) {
-  const label = abilityDisplayLabels[ability];
-  const modifier = formatModifier(score);
-  return `실제 ${label} 관련 액션을 할 때 ${modifier} 값만큼 보정됩니다.`;
-}
-
-function roundStat(value: number) {
-  return Math.round(value * 10) / 10;
-}
-
-function normalizeComputedStat(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function normalizeIntegerValue(value: number, min = 0) {
-  return Math.max(min, Math.round(Number(value) || 0));
-}
-
-function clampAbilitiesToPointBuyRange(
-  abilities: Record<AbilityKey, number>,
-  abilityIncreases: Record<AbilityKey, number>
-) {
-  const clampBase = (ability: AbilityKey) =>
-    Math.min(
-      POINT_BUY_MAX_BASE,
-      Math.max(POINT_BUY_MIN_BASE, abilities[ability] - abilityIncreases[ability])
-    ) + abilityIncreases[ability];
-
-  return {
-    str: clampBase('str'),
-    dex: clampBase('dex'),
-    con: clampBase('con'),
-    int: clampBase('int'),
-    wis: clampBase('wis'),
-    cha: clampBase('cha'),
-  };
-}
-
-function formatStat(value: number) {
-  return Number.isInteger(value) ? `${value}` : `${roundStat(value).toFixed(1)}`;
-}
-
-function normalizeLevel(value: number) {
-  return Math.max(1, Number(value) || 1);
-}
-
-function getProficiencyBonusForLevel(level: number) {
-  const normalizedLevel = normalizeLevel(level);
-  if (normalizedLevel >= 17) return 6;
-  if (normalizedLevel >= 13) return 5;
-  if (normalizedLevel >= 9) return 4;
-  if (normalizedLevel >= 5) return 3;
-  return 2;
-}
-
-function getClassStatProfile(className: string): ClassStatProfile {
-  return classStatProfiles[normalizeClassValue(className)];
-}
-
-// 직업과 레벨을 기준으로 HP/AC/공격 보너스/피해 보너스 추천값을 계산합니다.
-function getRecommendedStats(className: string, level: number) {
-  const normalizedLevel = normalizeLevel(level);
-  const profile = getClassStatProfile(className);
-  const growthSteps = normalizedLevel - 1;
-
-  return {
-    maxHp: normalizeIntegerValue(
-      normalizeComputedStat(profile.base.maxHp + profile.growth.maxHp * growthSteps),
-      1
-    ),
-    armorClass: normalizeIntegerValue(
-      normalizeComputedStat(profile.base.armorClass + profile.growth.armorClass * growthSteps),
-      1
-    ),
-    speed: normalizeIntegerValue(profile.base.speed, 0),
-    proficiencyBonus: getProficiencyBonusForLevel(normalizedLevel),
-  };
-}
-
-function getRecommendedAbilities(
-  className: string,
-  level: number,
-  currentAbilities?: CharacterPayload['abilities']
-) {
-  const normalizedLevel = normalizeLevel(level);
-  const profile = getClassStatProfile(className);
-  const growthSteps = normalizedLevel - 1;
-
-  return {
-    str: normalizeIntegerValue(
-      normalizeComputedStat(
-        profile.base.abilities.str + profile.growth.abilities.str * growthSteps
-      ),
-      1
-    ),
-    dex: normalizeIntegerValue(
-      normalizeComputedStat(
-        profile.base.abilities.dex + profile.growth.abilities.dex * growthSteps
-      ),
-      1
-    ),
-    con: normalizeIntegerValue(currentAbilities?.con ?? 10, 1),
-    int: normalizeIntegerValue(
-      normalizeComputedStat(
-        profile.base.abilities.int + profile.growth.abilities.int * growthSteps
-      ),
-      1
-    ),
-    wis: normalizeIntegerValue(currentAbilities?.wis ?? 10, 1),
-    cha: normalizeIntegerValue(currentAbilities?.cha ?? 10, 1),
-  };
-}
-
-function applyLevelDeltaStats(
-  current: Pick<CharacterPayload, 'className' | 'maxHp' | 'armorClass' | 'proficiencyBonus'>,
-  levelDelta: number,
-  nextLevel: number
-) {
-  const profile = getClassStatProfile(current.className);
-
-  return {
-    maxHp: normalizeIntegerValue(
-      normalizeComputedStat(
-        (current.maxHp ?? profile.base.maxHp) + profile.growth.maxHp * levelDelta
-      ),
-      1
-    ),
-    armorClass: normalizeIntegerValue(
-      normalizeComputedStat(
-        (current.armorClass ?? profile.base.armorClass) + profile.growth.armorClass * levelDelta
-      ),
-      1
-    ),
-    proficiencyBonus: getProficiencyBonusForLevel(nextLevel),
-  };
-}
-
-function applyLevelDeltaAbilities(
-  current: Pick<CharacterPayload, 'className' | 'abilities'>,
-  levelDelta: number
-) {
-  const profile = getClassStatProfile(current.className);
-  const abilities = current.abilities ?? {
-    str: profile.base.abilities.str,
-    dex: profile.base.abilities.dex,
-    con: 10,
-    int: profile.base.abilities.int,
-    wis: 10,
-    cha: 10,
-  };
-
-  return {
-    ...abilities,
-    str: normalizeIntegerValue(
-      normalizeComputedStat(abilities.str + profile.growth.abilities.str * levelDelta),
-      1
-    ),
-    dex: normalizeIntegerValue(
-      normalizeComputedStat(abilities.dex + profile.growth.abilities.dex * levelDelta),
-      1
-    ),
-    int: normalizeIntegerValue(
-      normalizeComputedStat(abilities.int + profile.growth.abilities.int * levelDelta),
-      1
-    ),
-    con: normalizeIntegerValue(abilities.con, 1),
-    wis: normalizeIntegerValue(abilities.wis, 1),
-    cha: normalizeIntegerValue(abilities.cha, 1),
-  };
-}
-
-// 새 캐릭터 모달을 열 때 사용할 기본 캐릭터 payload를 생성합니다.
-function createDefaultCharacter(): CharacterPayload {
-  const defaultClassName: ClassName = 'Wizard';
-  const recommendedStats = getRecommendedStats(defaultClassName, 1);
-
-  // Point Buy 출발 상태: 모든 base = 8 (cost 0). 사용자가 +로 27포인트 채움.
-  // ancestry 가 빈 값(=종족 미선택)이므로 race bonus 없음.
-  const baseEightAbilities = { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 };
-
-  return {
-    name: '',
-    ancestry: '',
-    className: defaultClassName,
-    subclassName: null,
-    avatarType: 'PRESET',
-    avatarPresetId: 'preset_wizard',
-    avatarUrl: null,
-    scenarioId: null,
-    level: 1,
-    abilities: baseEightAbilities,
-    proficiencyBonus: recommendedStats.proficiencyBonus,
-    proficientSkills: [],
-    features: [],
-    startingEquipmentItemSelections: {},
-    maxHp: recommendedStats.maxHp,
-    armorClass: recommendedStats.armorClass,
-    speed: recommendedStats.speed,
-    inventory: [],
-    equippedWeaponId: null,
-    offhandWeaponId: null,
-  };
-}
-
-// 직업명 문자열을 보고 어울리는 기본 캐릭터 이미지를 고릅니다.
-function getCharacterArt(className: string) {
-  const normalized = className.toLowerCase();
-  if (
-    normalized.includes('wizard') ||
-    normalized.includes('mage') ||
-    normalized.includes('sorcer') ||
-    normalized.includes('warlock') ||
-    normalized.includes('bard')
-  ) {
-    return defaultWizardImage;
-  }
-  if (
-    normalized.includes('archer') ||
-    normalized.includes('ranger') ||
-    normalized.includes('druid') ||
-    normalized.includes('bow')
-  ) {
-    return defaultArcherImage;
-  }
-  if (
-    normalized.includes('rogue') ||
-    normalized.includes('rouge') ||
-    normalized.includes('thief') ||
-    normalized.includes('monk')
-  ) {
-    return defaultRogueImage;
-  }
-  if (
-    normalized.includes('barbarian') ||
-    normalized.includes('cleric') ||
-    normalized.includes('fighter') ||
-    normalized.includes('paladin') ||
-    normalized.includes('warrior') ||
-    normalized.includes('knight')
-  ) {
-    return defaultWarriorImage;
-  }
-  return defaultWizardImage;
-}
-
-function getAvatarPresetImage(avatarPresetId?: string | null) {
-  return avatarPresets.find((preset) => preset.id === avatarPresetId)?.image ?? null;
-}
-
-function getCharacterImage(character: Pick<PersistentCharacter, 'avatarUrl' | 'avatarPresetId' | 'className'>) {
-  if (character.avatarUrl) return character.avatarUrl;
-  return getAvatarPresetImage(character.avatarPresetId) ?? getCharacterArt(character.className);
-}
-
-function getCharacterClassLabel(className: string) {
-  const normalized = className.trim();
-  return getClassLabel(normalized || '모험가');
-}
-
-function getCharacterAncestryLabel(ancestry: string, ancestryLabelMap: Map<string, string>) {
-  const normalized = ancestry.trim();
-  return ancestryLabelMap.get(normalized) ?? (normalized || '미정');
-}
-
-function getSkillLabel(skill: string) {
-  // 영문 코드("Arcana")로 저장된 legacy 캐릭터도 한국어로 표시되도록 normalize.
-  // 매칭 실패 시 입력값 그대로 (예측 못한 한국어 변형 보존).
-  const trimmed = skill.trim();
-  return normalizeSkillToKo(trimmed) ?? trimmed;
-}
-
-function getPresetIdForClassName(className: string) {
-  return presetIdByClassName.get(className) ?? 'preset_wizard';
-}
-
-function getFeatureValue(features: string[] | undefined, prefix: string) {
-  return (features ?? []).find((feature) => feature.startsWith(prefix))?.slice(prefix.length) ?? '';
-}
-
-function getFeatureValues(features: string[] | undefined, prefix: string) {
-  return (features ?? [])
-    .filter((feature) => feature.startsWith(prefix))
-    .map((feature) => feature.slice(prefix.length));
-}
-
-function getFeatureChoiceContext(params: {
-  ancestry: string;
-  className: string;
-  level?: number;
-  features?: string[];
-  proficientSkills?: string[];
-}): FeatureChoiceContext {
-  return {
-    ancestryKey: params.ancestry.trim().toLowerCase().replace(/_/g, '-'),
-    classKey: normalizeSrdCharacterClassKey(params.className),
-    level: normalizeLevel(params.level ?? 1),
-    features: params.features ?? [],
-    proficientSkills: params.proficientSkills ?? [],
-  };
-}
-
-function getActiveFeatureChoiceDefinitions(context: FeatureChoiceContext) {
-  return featureChoiceDefinitions.filter((definition) => definition.applies(context));
-}
-
-function getFeatureChoiceSelectedValues(
-  definition: FeatureChoiceDefinition,
-  features: string[] | undefined
-) {
-  return definition.mode === 'single'
-    ? [getFeatureValue(features, definition.featurePrefix)].filter(Boolean)
-    : getFeatureValues(features, definition.featurePrefix);
-}
-
-function isFeatureChoiceComplete(
-  definition: FeatureChoiceDefinition,
-  context: FeatureChoiceContext
-) {
-  const selectedValues = getFeatureChoiceSelectedValues(definition, context.features);
-  if (definition.mode === 'single') {
-    return selectedValues.length >= definition.requiredSelections;
-  }
-  return (
-    selectedValues.length === definition.requiredSelections &&
-    new Set(selectedValues).size === definition.requiredSelections
-  );
-}
-
-function getFeatureChoiceSummary(
-  definition: FeatureChoiceDefinition,
-  context: FeatureChoiceContext
-) {
-  const selectedValues = getFeatureChoiceSelectedValues(definition, context.features);
-  if (!selectedValues.length) return definition.helper;
-  if (definition.getSelectedSummary) {
-    return definition.getSelectedSummary(selectedValues, context);
-  }
-  const options = definition.getOptions(context);
-  return `선택됨: ${selectedValues
-    .map((value) => options.find((option) => option.value === value)?.label ?? value)
-    .join(', ')}`;
-}
-
-function replaceFeatureTags(
-  features: string[] | undefined,
-  removedPrefixes: string[],
-  addedFeatures: string[]
-) {
-  const next = (features ?? []).filter(
-    (feature) => !removedPrefixes.some((prefix) => feature.startsWith(prefix))
-  );
-  return Array.from(new Set([...next, ...addedFeatures.filter(Boolean)]));
-}
-
-function buildClassFeaturesForSubmit(className: string, features: string[] | undefined) {
-  const classKey = normalizeSrdCharacterClassKey(className);
-  const baseFeatures = classFeatureIdsByClassKey[classKey] ?? [];
-  const unmanagedFeatures = (features ?? []).filter(
-    (feature) =>
-      !managedClassFeatureIds.has(feature) &&
-      !classChoiceFeaturePrefixes.some((prefix) => feature.startsWith(prefix))
-  );
-  const choiceFeatures = (features ?? []).filter((feature) =>
-    classChoiceFeaturePrefixes.some((prefix) => feature.startsWith(prefix))
-  );
-  return Array.from(new Set([...unmanagedFeatures, ...baseFeatures, ...choiceFeatures]));
-}
-
-function hasRequiredClassFeatureChoices(
-  className: string,
-  level: number | undefined,
-  features: string[] | undefined
-) {
-  const context = getFeatureChoiceContext({
-    ancestry: '',
-    className,
-    level,
-    features,
-    proficientSkills: [],
-  });
-  return getActiveFeatureChoiceDefinitions(context)
-    .filter(
-      (definition) =>
-        definition.id.startsWith(`choice.${context.classKey}.`) ||
-        definition.id === 'choice.class.fighting_style'
-    )
-    .every((definition) => isFeatureChoiceComplete(definition, context));
-}
-
-function hasRequiredRaceFeatureChoices(
-  ancestry: string,
-  level: number | undefined,
-  features: string[] | undefined
-) {
-  const context = getFeatureChoiceContext({
-    ancestry,
-    className: '',
-    level,
-    features,
-    proficientSkills: [],
-  });
-  return getActiveFeatureChoiceDefinitions(context)
-    .filter((definition) => definition.id.startsWith(`choice.${context.ancestryKey}.`))
-    .every((definition) => isFeatureChoiceComplete(definition, context));
-}
-
-function getStartingEquipmentItemSelectionKey(slotIndex: number, itemIndex: number) {
-  return `${slotIndex}:${itemIndex}`;
-}
-
-function getStartingEquipmentConcreteChoice(
-  itemKey: string
-): StartingEquipmentConcreteChoice | null {
-  switch (itemKey) {
-    case 'simple-weapon-1':
-    case 'simple-weapon-2':
-      return startingEquipmentConcreteChoiceOptions.simpleWeapon;
-    case 'simple-melee-weapon-1':
-    case 'simple-melee-weapon-2':
-      return startingEquipmentConcreteChoiceOptions.simpleMeleeWeapon;
-    case 'martial-weapon-1':
-    case 'martial-weapon-2':
-      return startingEquipmentConcreteChoiceOptions.martialWeapon;
-    case 'martial-melee-weapon-1':
-      return startingEquipmentConcreteChoiceOptions.martialMeleeWeapon;
-    case 'musical-instrument-1':
-      return startingEquipmentConcreteChoiceOptions.instrument;
-    default:
-      return null;
-  }
-}
-
-function clearStartingEquipmentItemSelectionsForSlot(
-  selections: Record<string, string> | undefined,
-  slotIndex: number
-) {
-  if (!selections) return {};
-  return Object.fromEntries(
-    Object.entries(selections).filter(([key]) => !key.startsWith(`${slotIndex}:`))
-  );
-}
-
-function hasRequiredStartingEquipmentItemSelections(
-  selectedClass: ClassDefinitionResponseDto | null | undefined,
-  payload: CharacterPayload
-) {
-  if (!selectedClass) return true;
-  return getClassStartingEquipmentSlots(selectedClass).every((slot, slotIndex) => {
-    const selectedOptionIndex = payload.startingEquipmentSelection?.[slotIndex] ?? 0;
-    const selectedOption = slot.options[selectedOptionIndex] ?? slot.options[0];
-    if (!selectedOption) return false;
-
-    return selectedOption.items.every((item, itemIndex) => {
-      const choice = getStartingEquipmentConcreteChoice(item.itemKey);
-      if (!choice) return true;
-      const selectionKey = getStartingEquipmentItemSelectionKey(slotIndex, itemIndex);
-      return Boolean(payload.startingEquipmentItemSelections?.[selectionKey]);
-    });
-  });
-}
-
-function getClassStartingEquipmentSlots(selectedClass: ClassDefinitionResponseDto) {
-  if (selectedClass.key !== 'fighter') {
-    return selectedClass.startingEquipment.slots;
-  }
-
-  return selectedClass.startingEquipment.slots.map((slot) => ({
-    ...slot,
-    options: slot.options.filter(
-      (option) => !option.items.some((item) => item.itemKey === 'martial-weapon-2')
-    ),
-  }));
-}
-
-function normalizeRaceLookupValue(value: string) {
-  return value.trim().toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
-}
-
-function createZeroRaceAbilityIncreases(): RaceResponseDto['abilityIncreases'] {
-  return {
-    str: 0,
-    dex: 0,
-    con: 0,
-    int: 0,
-    wis: 0,
-    cha: 0,
-  };
-}
-
-function findRaceByAncestryValue(races: RaceResponseDto[], ancestry: string | null | undefined) {
-  const normalized = (ancestry ?? '').trim().toLowerCase();
-  if (!normalized) return null;
-  return races.find((race) => race.key === normalized) ?? races.find((race) => race.koName === ancestry) ?? null;
-}
-
-function getRaceByValue(raceCatalog: RaceData[], value: string): RaceData | null {
-  const normalizedValue = normalizeRaceLookupValue(value);
-  if (!normalizedValue) return null;
-  return (
-    raceCatalog.find((option) =>
-      [
-        option.value,
-        option.label,
-        option.id,
-        option.id.includes('.') ? option.id.slice(option.id.lastIndexOf('.') + 1) : option.id,
-        ...option.ancestryAliases,
-      ].some((candidate) => normalizeRaceLookupValue(candidate) === normalizedValue)
-    ) ?? null
-  );
-}
-
-function getRaceLookupValueFromFeature(feature: string) {
-  const normalized = feature.trim();
-  const dotRaceMatch = /^race\.([^.]+)\.trait\./i.exec(normalized);
-  if (dotRaceMatch?.[1]) return dotRaceMatch[1];
-
-  const legacyRaceMatch = /^race\s+(.+?)\s+trait\s+/i.exec(normalized);
-  if (legacyRaceMatch?.[1]) return legacyRaceMatch[1];
-
-  return null;
-}
-
-function getRaceByCharacterFeature(raceCatalog: RaceData[], features: string[] | undefined) {
-  for (const feature of features ?? []) {
-    const raceLookupValue = getRaceLookupValueFromFeature(feature);
-    if (!raceLookupValue) continue;
-
-    const race = getRaceByValue(raceCatalog, raceLookupValue);
-    if (race) return race;
-  }
-
-  return null;
-}
-
-function buildRaceAbilityBonusesFromIncreases(
-  abilityIncreases: RaceResponseDto['abilityIncreases']
-): RaceAbilityBonus[] {
-  return (Object.entries(abilityIncreases) as Array<[AbilityKey, number]>)
-    .filter(([, amount]) => amount !== 0)
-    .map(([ability, amount]) => ({ ability, amount }));
-}
-
-function buildSelectedRaceInfo(
-  selectedRace: RaceResponseDto | null,
-  staticRaceInfo: RaceData | null
-): RaceData | null {
-  if (!selectedRace) return staticRaceInfo;
-  return {
-    id: selectedRace.id,
-    value: selectedRace.key,
-    label: selectedRace.koName,
-    ancestryAliases: [
-      selectedRace.key,
-      selectedRace.koName,
-      staticRaceInfo?.id,
-      staticRaceInfo?.value,
-      staticRaceInfo?.label,
-      ...(staticRaceInfo?.ancestryAliases ?? []),
-    ].filter((alias): alias is string => Boolean(alias)),
-    size: selectedRace.size,
-    speed: selectedRace.baseSpeed,
-    speedRaw: `${selectedRace.baseSpeed} ft.`,
-    abilityScoreIncreaseRaw: buildRaceAbilityBonusesFromIncreases(selectedRace.abilityIncreases)
-      .map(formatAbilityBonus)
-      .join(', '),
-    abilityBonuses: buildRaceAbilityBonusesFromIncreases(selectedRace.abilityIncreases),
-    languages: selectedRace.languages,
-    traitSummaries: staticRaceInfo?.traitSummaries ?? [],
-    subraceTraitSummaries: staticRaceInfo?.subraceTraitSummaries ?? [],
-  };
-}
-
-function getRaceTraitSummariesForCharacter(raceInfo: RaceData | null, character: PersistentCharacter | null) {
-  if (!raceInfo) return [];
-
-  const lookupValues = [
-    character?.ancestry,
-    ...(character?.features ?? []).map(getRaceLookupValueFromFeature),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .map(normalizeRaceLookupValue);
-
-  const matchingSubraceSummaries = raceInfo.subraceTraitSummaries
-    .filter((subrace) =>
-      subrace.aliases.some((alias) => lookupValues.includes(normalizeRaceLookupValue(alias)))
-    )
-    .flatMap((subrace) => subrace.traits);
-
-  return [...raceInfo.traitSummaries, ...matchingSubraceSummaries];
-}
-
-function getClassOptionByValue(classCatalog: ClassOption[], value: string): ClassOption | null {
-  const normalized = normalizeClassValue(value);
-  return classCatalog.find((option) => option.value === normalized) ?? null;
-}
-
-function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
-  if (abilityBonus.ability === 'any') {
-    return `자유 능력치 +${abilityBonus.amount}${abilityBonus.note ? ` (${abilityBonus.note})` : ''}`;
-  }
-
-  const abilityLabel = abilityDisplayLabels[abilityBonus.ability];
-  return `${abilityLabel} +${abilityBonus.amount}${abilityBonus.note ? ` (${abilityBonus.note})` : ''}`;
-}
-
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function CharacterPage({
   user,
@@ -2055,200 +164,102 @@ export function CharacterPage({
   onReturnToSession,
 }: CharacterPageProps) {
   // 모달/선택/폼 상태입니다. 생성과 수정 모달이 같은 formState를 공유합니다.
-  const [classCatalog, setClassCatalog] = useState<ClassOption[]>([]);
-  const [classFeatureManifest, setClassFeatureManifest] = useState<CanonicalClassFeatureEntry[]>([]);
-  const [raceCatalog, setRaceCatalog] = useState<RaceData[]>([]);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [isCreateModalOpen, setCreateModalOpen] = useState(false);
-  const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
-  const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
-  const [skillInput, setSkillInput] = useState('');
-  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
-  const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
-  const [formValidationError, setFormValidationError] = useState<string | null>(null);
-  const [createToast, setCreateToast] = useState<{ id: number; message: string } | null>(null);
-  const [avatarAssets, setAvatarAssets] = useState<CharacterAvatarAssetResponseDto[]>([]);
-  const [avatarAssetError, setAvatarAssetError] = useState<string | null>(null);
-  const [avatarUploadBusy, setAvatarUploadBusy] = useState(false);
-  const [deletingAvatarAssetId, setDeletingAvatarAssetId] = useState<string | null>(null);
-  const [createStepIndex, setCreateStepIndex] = useState(0);
-  const [isStatsReferenceOpen, setStatsReferenceOpen] = useState(false);
-  const [isLevelUpModalOpen, setLevelUpModalOpen] = useState(false);
-  const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
-  const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
-  const [spellCatalog, setSpellCatalog] = useState<StaticSpellCatalogEntry[]>([]);
-  const [spellPools, setSpellPools] = useState<StaticFeSpellPools | null>(null);
-  const [levelUpDraft, setLevelUpDraft] = useState<{
-    targetLevel: number;
-    subclassName: string;
-    cantrips: string[];
-    knownSpells: string[];
-    forgottenCantrips: string[];
-    forgottenSpells: string[];
-    preparedSpells: string[];
-    abilityScoreIncreases: Record<AbilityKey, number>;
-    featSelections: string[];
-    asiFeatChoices: string[];
-  }>({
-    targetLevel: 2,
-    subclassName: '',
-    cantrips: [],
-    knownSpells: [],
-    forgottenCantrips: [],
-    forgottenSpells: [],
-    preparedSpells: [],
-    abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
-    featSelections: [],
-    asiFeatChoices: [],
+  const {
+    catalogError,
+    classCatalog,
+    classFeatureManifest,
+    itemCatalog,
+    raceCatalog,
+    ruleCatalog,
+    spellCatalog,
+    spellPools,
+  } = useCharacterCatalogs();
+  const {
+    isCreateModalOpen,
+    editingCharacterId,
+    skillInput,
+    setSkillInput,
+    formState,
+    setFormState,
+    formValidationError,
+    createStepIndex,
+    isStatsReferenceOpen,
+    setStatsReferenceOpen,
+    openCreateModal: openCreateDraftModal,
+    openEditModal: openEditDraftModal,
+    closeCreateModal: closeCreateDraftModal,
+    goToPreviousCreateStep,
+    goToNextCreateStep: goToNextCreateDraftStep,
+    submitDraft: submitCreateDraft,
+    syncDerivedStats,
+    adjustAbilityBase: adjustCreateAbilityBase,
+    updateAbilityScore,
+    addSkill: addCreateSkill,
+    removeSkill: removeCreateSkill,
+    setName: setCreateName,
+    selectScenario,
+    selectAncestry,
+    selectClass,
+    setSubclass: setCreateSubclass,
+    setAsiFeatChoice,
+    setSingleFeatureChoice,
+    toggleMultiFeatureChoice,
+    selectStartingEquipmentSlot,
+    selectStartingEquipmentItem,
+    setStartingCantrips,
+    setStartingSlotSpells,
+    setStartingPreparedSpells,
+  } = useCharacterCreateDraft({
+    scenarios,
+    races,
+    classDefinitions,
+    ruleCatalog,
+    spellPools,
   });
-  const didAutoOpenCreateRef = useRef(false);
-  const createToastTimeoutRef = useRef<number | null>(null);
+  const {
+    selectedCharacter,
+    usedCharacterIds,
+    characterCardViewModels,
+    setSelectedCharacterId,
+  } = useCharacterSelection({ characters, snapshot });
+  const {
+    isDeleteModalOpen,
+    deleteWarning,
+    dismissDeleteWarning,
+    closeDeleteModal,
+    requestDeleteSelectedCharacter,
+    confirmDeleteSelectedCharacter,
+  } = useCharacterDeleteFlow({
+    selectedCharacter,
+    usedCharacterIds,
+    onDeleteCharacter,
+  });
+  const levelUpDraftState = useCharacterLevelUpDraft({
+    selectedCharacter,
+  });
+  const levelUpDraft = levelUpDraftState.draft;
+  const { createToast, clearCreateToast, showCreateToast } = useCharacterCreateToast({
+    isCreateModalOpen,
+    formValidationError,
+    externalError: error,
+  });
 
-  function clearCreateToastTimer() {
-    if (createToastTimeoutRef.current) {
-      window.clearTimeout(createToastTimeoutRef.current);
-      createToastTimeoutRef.current = null;
-    }
-  }
+  const {
+    avatarPickerViewModel,
+    avatarAssetError,
+    avatarUploadBusy,
+    uploadAvatarAsset,
+    applyUploadedAvatar,
+    deleteUploadedAvatar,
+    selectAvatarPreset,
+  } = useCharacterAvatarPicker({
+    user,
+    formState,
+    setFormState,
+    onNotify: showCreateToast,
+  });
 
-  function showCreateToast(message: string) {
-    const nextToast = { id: Date.now(), message };
-    setCreateToast(nextToast);
-    clearCreateToastTimer();
-    createToastTimeoutRef.current = window.setTimeout(() => {
-      setCreateToast((current) => (current?.id === nextToast.id ? null : current));
-      createToastTimeoutRef.current = null;
-    }, 3000);
-  }
-
-  function applyUploadedAvatar(asset: CharacterAvatarAssetResponseDto) {
-    setFormState((current) => ({
-      ...current,
-      avatarType: 'UPLOAD',
-      avatarPresetId: null,
-      avatarUrl: asset.publicUrl,
-    }));
-  }
-
-  async function handleAvatarUpload(file: File | null) {
-    if (!file) return;
-    const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
-    if (!allowedTypes.has(file.type)) {
-      const message = '초상화는 PNG, JPEG, WebP 이미지만 업로드할 수 있습니다.';
-      setAvatarAssetError(message);
-      showCreateToast(message);
-      return;
-    }
-
-    setAvatarUploadBusy(true);
-    setAvatarAssetError(null);
-    try {
-      const dataBase64 = await fileToBase64(file);
-      const asset = await uploadCharacterAvatarAsset(user, {
-        fileName: file.name,
-        contentType: file.type,
-        dataBase64,
-      });
-      setAvatarAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
-      applyUploadedAvatar(asset);
-      showCreateToast('업로드한 이미지를 초상화로 선택했습니다.');
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : '초상화 업로드에 실패했습니다.';
-      setAvatarAssetError(message);
-      showCreateToast(message);
-    } finally {
-      setAvatarUploadBusy(false);
-    }
-  }
-
-  async function handleAvatarAssetDelete(asset: CharacterAvatarAssetResponseDto) {
-    const ok = window.confirm(
-      `"${asset.fileName}" 초상화를 삭제할까요?\n이 이미지를 사용 중인 내 캐릭터는 기본 초상화로 되돌아갑니다.`
-    );
-    if (!ok) return;
-
-    setDeletingAvatarAssetId(asset.id);
-    setAvatarAssetError(null);
-    try {
-      await deleteCharacterAvatarAsset(user, asset.id);
-      setAvatarAssets((current) => current.filter((item) => item.id !== asset.id));
-      setFormState((current) =>
-        current.avatarUrl === asset.publicUrl
-          ? {
-              ...current,
-              avatarType: 'DEFAULT',
-              avatarPresetId: null,
-              avatarUrl: null,
-            }
-          : current
-      );
-      showCreateToast('초상화를 삭제했습니다.');
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : '초상화 삭제에 실패했습니다.';
-      setAvatarAssetError(message);
-      showCreateToast(message);
-    } finally {
-      setDeletingAvatarAssetId(null);
-    }
-  }
-
-  useEffect(() => {
-    listItems()
-      .then(setItemCatalog)
-      .catch(() => undefined);
-    listRuleCatalog()
-      .then(setRuleCatalog)
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    let ignore = false;
-    listCharacterAvatarAssets(user)
-      .then((assets) => {
-        if (!ignore) {
-          setAvatarAssets(assets);
-          setAvatarAssetError(null);
-        }
-      })
-      .catch((caught) => {
-        if (!ignore) {
-          setAvatarAssetError(
-            caught instanceof Error ? caught.message : '초상화 라이브러리를 불러오지 못했습니다.'
-          );
-        }
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [user]);
-
-  useEffect(() => {
-    if (!isCreateModalOpen) {
-      clearCreateToastTimer();
-      setCreateToast(null);
-      return;
-    }
-    if (formValidationError) {
-      showCreateToast(formValidationError);
-    }
-  }, [formValidationError, isCreateModalOpen]);
-
-  useEffect(() => {
-    if (!isCreateModalOpen || !error) return;
-    showCreateToast(error);
-  }, [error, isCreateModalOpen]);
-
-  useEffect(() => () => clearCreateToastTimer(), []);
-
-  const itemKoNameByKey = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of itemCatalog) {
-      map.set(item.key, item.koName);
-    }
-    return map;
-  }, [itemCatalog]);
+  const itemKoNameByKey = useMemo(() => buildItemKoNameByKey(itemCatalog), [itemCatalog]);
 
   // className → ClassDefinition(시드) 룩업. 매칭되면 시작 장비 강제.
   const selectedClass = useMemo<ClassDefinitionResponseDto | null>(() => {
@@ -2256,31 +267,27 @@ export function CharacterPage({
     if (!classKey) return null;
     return classDefinitions.find((c) => c.key === classKey) ?? null;
   }, [formState.className, classDefinitions]);
+  const startingEquipmentSlotViewModels = useMemo(
+    () =>
+      selectedClass
+        ? buildStartingEquipmentSlotViewModels({
+            selectedClass,
+            startingEquipmentSelection: formState.startingEquipmentSelection,
+            startingEquipmentItemSelections: formState.startingEquipmentItemSelections,
+          })
+        : [],
+    [
+      formState.startingEquipmentItemSelections,
+      formState.startingEquipmentSelection,
+      selectedClass,
+    ]
+  );
   const resolvedStartingEquipmentSummary = useMemo(() => {
-    if (!selectedClass) return [];
-
-    return getClassStartingEquipmentSlots(selectedClass).flatMap((slot, slotIndex) => {
-      const selectedOptionIndex = formState.startingEquipmentSelection?.[slotIndex] ?? 0;
-      const selectedOption = slot.options[selectedOptionIndex] ?? slot.options[0];
-      if (!selectedOption) return [];
-
-      return selectedOption.items.map((item, itemIndex) => {
-        const concreteChoice = getStartingEquipmentConcreteChoice(item.itemKey);
-        const selectionKey = getStartingEquipmentItemSelectionKey(slotIndex, itemIndex);
-        const selectedConcreteKey = formState.startingEquipmentItemSelections?.[selectionKey];
-        const concreteLabel = concreteChoice
-          ? (concreteChoice.options.find((option) => option.value === selectedConcreteKey)?.label ??
-            `${concreteChoice.label} 미선택`)
-          : null;
-        const label = concreteLabel ?? itemKoNameByKey.get(item.itemKey) ?? item.itemKey;
-
-        return {
-          key: `${slotIndex}:${itemIndex}:${item.itemKey}`,
-          label,
-          quantity: item.quantity,
-          pending: Boolean(concreteChoice && !selectedConcreteKey),
-        };
-      });
+    return buildStartingEquipmentSummary({
+      selectedClass,
+      startingEquipmentSelection: formState.startingEquipmentSelection,
+      startingEquipmentItemSelections: formState.startingEquipmentItemSelections,
+      itemKoNameByKey,
     });
   }, [
     formState.startingEquipmentItemSelections,
@@ -2288,242 +295,87 @@ export function CharacterPage({
     itemKoNameByKey,
     selectedClass,
   ]);
-  const selectedCreateClassKey = normalizeSrdCharacterClassKey(formState.className ?? '');
-  const selectedCreateSubclassOptions =
-    implementedSubclassOptions[selectedCreateClassKey] ?? [];
-  const selectedCreateSubclassChoiceLevel =
-    resolveSubclassChoiceLevel(selectedCreateClassKey);
-  const isCreateSubclassRequired =
-    selectedCreateSubclassChoiceLevel !== null &&
-    (formState.level ?? 1) >= selectedCreateSubclassChoiceLevel;
-  const spellCatalogById = useMemo(
-    () => new Map(spellCatalog.map((spell) => [spell.id, spell] as const)),
-    [spellCatalog]
-  );
-  const cantripOptions = useMemo(
+  const selectedCreateSubclassState = buildSubclassChoiceState({
+    className: formState.className,
+    level: formState.level,
+    hasExistingSubclass: Boolean(formState.subclassName),
+  });
+  const selectedCreateClassKey = selectedCreateSubclassState.classKey;
+  const selectedCreateSubclassOptions = selectedCreateSubclassState.options;
+  const selectedCreateSubclassChoiceLevel = selectedCreateSubclassState.choiceLevel;
+  const isCreateSubclassRequired = selectedCreateSubclassState.isRequired;
+  const spellCatalogById = useMemo(() => buildSpellCatalogById(spellCatalog), [spellCatalog]);
+  const createSpellSelection = useMemo(
     () =>
-      getImplementedSpellOptions(
-        formState.className,
-        'cantrip',
-        formState.level ?? 1,
+      buildCharacterCreateSpellSelectionModel({
+        selectedClass,
+        className: formState.className,
+        classKey: selectedCreateClassKey,
+        level: formState.level,
+        abilities: formState.abilities,
+        startingSpells: formState.startingSpells,
         ruleCatalog,
         spellCatalogById,
-        spellPools
-      ),
-    [formState.className, formState.level, ruleCatalog, spellCatalogById, spellPools]
-  );
-  const detailedCantripOptions = useMemo(
-    () => attachSpellDetails(cantripOptions, ruleCatalog, spellCatalogById),
-    [cantripOptions, ruleCatalog, spellCatalogById]
-  );
-  const selectedStartingCantripCount = resolveStartingCantripCount(
-    selectedClass,
-    formState.className,
-    formState.level ?? 1,
-    ruleCatalog
-  );
-  const slotSpellOptions = useMemo(
-    () =>
-      getImplementedSpellOptions(
-        formState.className,
-        'slot',
-        formState.level ?? 1,
-        ruleCatalog,
-        spellCatalogById,
-        spellPools
-      ),
-    [formState.className, formState.level, ruleCatalog, spellCatalogById, spellPools]
-  );
-  const detailedSlotSpellOptions = useMemo(
-    () => attachSpellDetails(slotSpellOptions, ruleCatalog, spellCatalogById),
-    [slotSpellOptions, ruleCatalog, spellCatalogById]
-  );
-  const selectedStartingSlotSpellCount = resolveStartingSlotSpellCount(
-    selectedClass,
-    formState.className,
-    formState.level ?? 1,
-    ruleCatalog,
-    spellPools
-  );
-  const selectedStartingSlotSpells = useMemo(
-    () =>
-      Array.from(
-        new Set((formState.startingSpells?.spells ?? []).map((spell) => spell.trim()).filter(Boolean))
-      ),
-    [formState.startingSpells?.spells]
-  );
-  const selectedStartingPreparedSpells = formState.startingSpells?.preparedSpells ?? [];
-  const isStartingDynamicPreparedCaster = usesDynamicPreparedSpellPool(
-    formState.className,
-    formState.level ?? 1,
-    ruleCatalog,
-    spellPools
-  );
-  const startingPreparedSpellOptions = useMemo(() => {
-    if (isStartingDynamicPreparedCaster) {
-      return detailedSlotSpellOptions;
-    }
-
-    return selectedStartingSlotSpells.map((spellId) => ({
-      id: spellId,
-      label: getImplementedSpellLabel(spellId, ruleCatalog, spellCatalogById),
-      level: slotSpellOptions.find((spell) => spell.id === spellId)?.level,
-      detail: buildSpellSelectionDetail(
-        slotSpellOptions.find((spell) => spell.id === spellId) ?? {
-          id: spellId,
-          label: getImplementedSpellLabel(spellId, ruleCatalog, spellCatalogById),
-          level: null,
-        },
-        ruleCatalog,
-        spellCatalogById
-      ),
-    }));
-  }, [
-    detailedSlotSpellOptions,
-    isStartingDynamicPreparedCaster,
-    ruleCatalog,
-    selectedStartingSlotSpells,
-    slotSpellOptions,
-    spellCatalogById,
-  ]);
-  const startingPreparedSpellLimit = useMemo(() => {
-    const rawLimit = resolveCharacterPreparedSpellLimit(
+        spellPools,
+      }),
+    [
+      formState.abilities,
       formState.className,
       formState.level,
-      formState.abilities
-    );
-    return rawLimit === null ? null : Math.min(rawLimit, startingPreparedSpellOptions.length);
-  }, [
-    formState.abilities,
-    formState.className,
-    formState.level,
-    startingPreparedSpellOptions.length,
-  ]);
+      formState.startingSpells,
+      ruleCatalog,
+      selectedClass,
+      selectedCreateClassKey,
+      spellCatalogById,
+      spellPools,
+    ]
+  );
+  const detailedCantripOptions = createSpellSelection.cantripGridOptions;
+  const selectedStartingCantripCount = createSpellSelection.cantripCount;
+  const slotSpellOptions = createSpellSelection.slotSpellOptions;
+  const detailedSlotSpellOptions = createSpellSelection.slotSpellGridOptions;
+  const selectedStartingSlotSpellCount = createSpellSelection.slotSpellCount;
+  const selectedStartingSlotSpells = createSpellSelection.selectedSlotSpellIds;
+  const selectedStartingPreparedSpells = createSpellSelection.selectedPreparedSpellIds;
+  const isStartingDynamicPreparedCaster = createSpellSelection.isDynamicPreparedCaster;
+  const startingSpellReviewCounts = createSpellSelection.reviewCounts;
+  const startingPreparedSpellOptions = createSpellSelection.preparedSpellOptions;
+  const startingPreparedSpellLimit = createSpellSelection.preparedSpellLimit;
+  const startingSpellSectionState = createSpellSelection.sectionState;
 
   // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
   const selectedRace = useMemo<RaceResponseDto | null>(() => {
     return findRaceByAncestryValue(races, formState.ancestry);
   }, [formState.ancestry, races]);
-  const baseRaceOptions = useMemo(() => races.filter((race) => !race.parentRaceId), [races]);
-  const selectedCreateBaseRace = useMemo<RaceResponseDto | null>(() => {
-    if (!selectedRace) return null;
-    if (!selectedRace.parentRaceId) return selectedRace;
-    return races.find((race) => race.id === selectedRace.parentRaceId) ?? null;
-  }, [races, selectedRace]);
-  const selectedCreateSubraceOptions = useMemo(
-    () =>
-      selectedCreateBaseRace
-        ? races.filter((race) => race.parentRaceId === selectedCreateBaseRace.id)
-        : [],
-    [races, selectedCreateBaseRace]
+  const selectedCreateRaceChoiceState = useMemo(
+    () => buildCreateRaceChoiceState(races, selectedRace),
+    [races, selectedRace]
   );
-  const selectedCreateSubraceKey =
-    selectedRace && selectedRace.parentRaceId === selectedCreateBaseRace?.id ? selectedRace.key : '';
-  const isCreateSubraceRequired = selectedCreateSubraceOptions.length > 0;
-
-  function applyCreateAncestryChange(nextAncestry: string) {
-    const nextRace = findRaceByAncestryValue(races, nextAncestry);
-    setFormState((current) => {
-      const currentRace = findRaceByAncestryValue(races, current.ancestry);
-      const currentFinals = current.abilities ?? {
-        str: 10,
-        dex: 10,
-        con: 10,
-        int: 10,
-        wis: 10,
-        cha: 10,
-      };
-      const currentBonus = currentRace?.abilityIncreases ?? createZeroRaceAbilityIncreases();
-      const nextBonus = nextRace?.abilityIncreases ?? createZeroRaceAbilityIncreases();
-      const nextAbilities = {
-        str: currentFinals.str - currentBonus.str + nextBonus.str,
-        dex: currentFinals.dex - currentBonus.dex + nextBonus.dex,
-        con: currentFinals.con - currentBonus.con + nextBonus.con,
-        int: currentFinals.int - currentBonus.int + nextBonus.int,
-        wis: currentFinals.wis - currentBonus.wis + nextBonus.wis,
-        cha: currentFinals.cha - currentBonus.cha + nextBonus.cha,
-      };
-
-      return {
-        ...current,
-        ancestry: nextAncestry,
-        features:
-          nextAncestry.toLowerCase() === 'dragonborn'
-            ? current.features
-            : replaceFeatureTags(current.features, ['draconic_ancestry:'], []),
-        abilities: clampAbilitiesToPointBuyRange(nextAbilities, nextBonus),
-      };
-    });
-  }
+  const baseRaceOptions = selectedCreateRaceChoiceState.baseRaceOptions;
+  const selectedCreateBaseRace = selectedCreateRaceChoiceState.selectedBaseRace;
+  const selectedCreateSubraceOptions = selectedCreateRaceChoiceState.subraceOptions;
+  const selectedCreateSubraceKey = selectedCreateRaceChoiceState.selectedSubraceKey;
+  const isCreateSubraceRequired = selectedCreateRaceChoiceState.isSubraceRequired;
 
   // Point Buy 계산 결과(base/cost/총비용/남은 포인트). selectedRace 없으면 검증 비활성화.
   const pointBuyState = useMemo(() => {
-    const finals = formState.abilities ?? {
-      str: 10,
-      dex: 10,
-      con: 10,
-      int: 10,
-      wis: 10,
-      cha: 10,
-    };
-    const increases = selectedRace?.abilityIncreases ?? createZeroRaceAbilityIncreases();
-    const bases = {
-      str: finals.str - increases.str,
-      dex: finals.dex - increases.dex,
-      con: finals.con - increases.con,
-      int: finals.int - increases.int,
-      wis: finals.wis - increases.wis,
-      cha: finals.cha - increases.cha,
-    };
-    const costs = {
-      str: POINT_BUY_COST[bases.str] ?? null,
-      dex: POINT_BUY_COST[bases.dex] ?? null,
-      con: POINT_BUY_COST[bases.con] ?? null,
-      int: POINT_BUY_COST[bases.int] ?? null,
-      wis: POINT_BUY_COST[bases.wis] ?? null,
-      cha: POINT_BUY_COST[bases.cha] ?? null,
-    };
-    const totalCost = (Object.values(costs) as Array<number | null>).reduce<number>(
-      (sum, c) => sum + (c ?? 0),
-      0
-    );
-    const hasInvalid = Object.values(costs).some((c) => c === null);
-    const remaining = POINT_BUY_TOTAL - totalCost;
-    return {
-      bases,
-      costs,
-      totalCost,
-      remaining,
-      isValid: !hasInvalid && remaining === 0,
-      enforced: Boolean(selectedRace),
-    };
+    return buildPointBuyState(formState.abilities, selectedRace?.abilityIncreases);
   }, [
     formState.abilities,
-    selectedRace,
+    selectedRace?.abilityIncreases,
   ]);
 
   // 레벨별 자동 계산: 시드된 클래스일 때 proficiencyBonus/maxHp 강제. BE와 동일 공식.
   const derivedLevelStats = useMemo(() => {
     if (!selectedClass) return null;
-    const hdMaxAvg: Record<string, { max: number; avg: number }> = {
-      d6: { max: 6, avg: 4 },
-      d8: { max: 8, avg: 5 },
-      d10: { max: 10, avg: 6 },
-      d12: { max: 12, avg: 7 },
-    };
-    const hd = hdMaxAvg[selectedClass.hitDie];
-    if (!hd) return null;
-    const level = formState.level ?? 1;
-    const con = formState.abilities?.con ?? 10;
-    const conMod = Math.floor((con - 10) / 2);
-    const proficiencyBonus = Math.floor((level - 1) / 4) + 2;
-    const hpBonus =
-      (selectedRace?.key === 'hill-dwarf' ? level : 0) +
-      (selectedClass.key === 'sorcerer' && formState.subclassName === 'draconic_bloodline'
-        ? level
-        : 0);
-    const maxHp = hd.max + conMod + (level - 1) * Math.max(hd.avg + conMod, 1) + hpBonus;
-    return { proficiencyBonus, maxHp, hpBonus };
+    return deriveLevelStats({
+      hitDie: selectedClass.hitDie,
+      classKey: selectedClass.key,
+      raceKey: selectedRace?.key,
+      subclassName: formState.subclassName,
+      level: formState.level,
+      conScore: formState.abilities?.con,
+    });
   }, [
     selectedClass,
     selectedRace?.key,
@@ -2531,156 +383,42 @@ export function CharacterPage({
     formState.abilities?.con,
     formState.subclassName,
   ]);
+  const createStatSummaryCards = useMemo(
+    () =>
+      buildCreateStatSummaryCards({
+        maxHp: formState.maxHp,
+        armorClass: formState.armorClass,
+        speed: formState.speed,
+        proficiencyBonus: formState.proficiencyBonus,
+        level: formState.level,
+        conScore: formState.abilities?.con,
+        hitDie: selectedClass?.hitDie,
+        derivedLevelStats,
+      }),
+    [
+      derivedLevelStats,
+      formState.abilities?.con,
+      formState.armorClass,
+      formState.level,
+      formState.maxHp,
+      formState.proficiencyBonus,
+      formState.speed,
+      selectedClass?.hitDie,
+    ]
+  );
 
   // derivedLevelStats 가 바뀌면 formState 의 prof/maxHp 동기화 (사용자가 못 바꾸는 값).
   useEffect(() => {
-    if (!derivedLevelStats) return;
-    setFormState((current) => {
-      if (
-        current.proficiencyBonus === derivedLevelStats.proficiencyBonus &&
-        current.maxHp === derivedLevelStats.maxHp
-      ) {
-        return current;
-      }
-      return {
-        ...current,
-        proficiencyBonus: derivedLevelStats.proficiencyBonus,
-        maxHp: derivedLevelStats.maxHp,
-      };
-    });
-  }, [derivedLevelStats]);
-
-  // base(8~15) 를 1 증가시키면 final = base+1+bonus 로 갱신. 비용 한도 + 상/하한 검증.
-  // 캐릭터 생성 단계의 ASI/Feat 선택은 특성 탭의 별도 선택값으로만 다루고,
-  // 코어 스탯 Point Buy 계산에는 섞지 않습니다.
-  function adjustAbilityBase(ability: AbilityKey, delta: 1 | -1): void {
-    setFormState((current) => {
-      const currentFinal = current.abilities?.[ability] ?? 10;
-      const bonus = selectedRace?.abilityIncreases[ability] ?? 0;
-      const currentBase = currentFinal - bonus;
-      const nextBase = currentBase + delta;
-      if (nextBase < POINT_BUY_MIN_BASE || nextBase > POINT_BUY_MAX_BASE) {
-        return current;
-      }
-      if (delta > 0) {
-        const currentAbilities = current.abilities ?? {
-          str: 10,
-          dex: 10,
-          con: 10,
-          int: 10,
-          wis: 10,
-          cha: 10,
-        };
-        const currentBases = {
-          str: currentAbilities.str - (selectedRace?.abilityIncreases.str ?? 0),
-          dex: currentAbilities.dex - (selectedRace?.abilityIncreases.dex ?? 0),
-          con: currentAbilities.con - (selectedRace?.abilityIncreases.con ?? 0),
-          int: currentAbilities.int - (selectedRace?.abilityIncreases.int ?? 0),
-          wis: currentAbilities.wis - (selectedRace?.abilityIncreases.wis ?? 0),
-          cha: currentAbilities.cha - (selectedRace?.abilityIncreases.cha ?? 0),
-        };
-        const currentTotalCost = (Object.values(currentBases) as number[]).reduce(
-          (sum, base) => sum + (POINT_BUY_COST[base] ?? 0),
-          0
-        );
-        const nextCost = POINT_BUY_COST[nextBase] ?? 0;
-        const currentCost = POINT_BUY_COST[currentBase] ?? 0;
-        const stepCost = nextCost - currentCost;
-        const remaining = POINT_BUY_TOTAL - currentTotalCost;
-        if (stepCost > remaining) {
-          return current;
-        }
-      }
-      const currentAbilities = current.abilities ?? {
-        str: 10,
-        dex: 10,
-        con: 10,
-        int: 10,
-        wis: 10,
-        cha: 10,
-      };
-      return {
-        ...current,
-        abilities: { ...currentAbilities, [ability]: nextBase + bonus },
-      };
-    });
-  }
-
-  useEffect(() => {
-    let ignore = false;
-    setCatalogError(null);
-
-    Promise.all([
-      loadClassOptions(),
-      loadClassFeatureManifest(),
-      loadRaceData(),
-      loadSpellCatalog(),
-      loadFeSpellPools(),
-    ])
-      .then(([loadedClasses, loadedClassFeatures, loadedRaces, loadedSpells, loadedSpellPools]) => {
-        if (ignore) {
-          return;
-        }
-        setClassCatalog(loadedClasses);
-        setClassFeatureManifest(loadedClassFeatures);
-        setRaceCatalog(loadedRaces);
-        setSpellCatalog(loadedSpells);
-        setSpellPools(loadedSpellPools);
-      })
-      .catch((caught) => {
-        if (!ignore) {
-          setCatalogError(
-            caught instanceof Error
-              ? caught.message
-              : '정적 SRD 직업/종족/주문 데이터를 불러오지 못했습니다.'
-          );
-        }
-      });
-
-    return () => {
-      ignore = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isCreateModalOpen) return undefined;
-
-    const { overflow } = document.body.style;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, [isCreateModalOpen]);
-
-  useEffect(() => {
-    if (!deleteWarning) return undefined;
-
-    const timeout = window.setTimeout(() => {
-      setDeleteWarning(null);
-    }, 4200);
-
-    return () => window.clearTimeout(timeout);
-  }, [deleteWarning]);
-
-  useEffect(() => {
-    if (!characters.length) {
-      setSelectedCharacterId(null);
-      return;
-    }
-
-    setSelectedCharacterId((current) =>
-      current && characters.some((character) => character.id === current)
-        ? current
-        : characters[0].id
-    );
-  }, [characters]);
+    syncDerivedStats(derivedLevelStats);
+  }, [derivedLevelStats, syncDerivedStats]);
 
   // 선택된 캐릭터와 선택 폼에서 쓰는 종족/직업 정보를 메모이즈합니다.
-  const selectedCharacter = useMemo(
-    () => characters.find((character) => character.id === selectedCharacterId) ?? null,
-    [characters, selectedCharacterId]
-  );
-  const selectedCharacterClassKey = normalizeSrdCharacterClassKey(selectedCharacter?.className ?? '');
+  const selectedCharacterSubclassState = buildSubclassChoiceState({
+    className: selectedCharacter?.className,
+    level: levelUpDraft.targetLevel,
+    hasExistingSubclass: Boolean(selectedCharacter?.subclassName),
+  });
+  const selectedCharacterClassKey = selectedCharacterSubclassState.classKey;
   const selectedCharacterClassInfo = useMemo(
     () =>
       selectedCharacter
@@ -2688,11 +426,8 @@ export function CharacterPage({
         : undefined,
     [classCatalog, selectedCharacter]
   );
-  const selectedSubclassOptions = selectedCharacter
-    ? (implementedSubclassOptions[selectedCharacterClassKey] ?? [])
-    : [];
-  const selectedSubclassChoiceLevel =
-    resolveSubclassChoiceLevel(selectedCharacterClassKey);
+  const selectedSubclassOptions = selectedCharacter ? selectedCharacterSubclassState.options : [];
+  const selectedSubclassChoiceLevel = selectedCharacterSubclassState.choiceLevel;
   const isSelectedCharacterPreparedCaster =
     getPreparedSpellAbilityKey(selectedCharacter?.className) !== null;
   const isSelectedCharacterWizard = selectedCharacterClassKey === 'wizard';
@@ -2717,130 +452,86 @@ export function CharacterPage({
   const canSelectKnownSpellGrowth =
     selectedKnownSpellDelta?.targetHasKnownSpellProgression === true;
   const isLevelUpSubclassRequired = Boolean(
-    selectedCharacter &&
-      !selectedCharacter.subclassName &&
-      selectedSubclassChoiceLevel !== null &&
-      levelUpDraft.targetLevel >= selectedSubclassChoiceLevel
+    selectedCharacter && selectedCharacterSubclassState.isSelectionRequired
   );
   const selectedKnownSlotSpells = useMemo(
     () => selectedCharacter?.spells?.spells ?? [],
     [selectedCharacter]
   );
-  const selectedLevelUpLearnableSlotSpells = useMemo(() => {
-    if (!selectedCharacter || !canSelectKnownSpellGrowth) return [];
-    const known = new Set(selectedKnownSlotSpells);
-    return getImplementedSpellOptions(
-      selectedCharacter.className,
-      'slot',
-      levelUpDraft.targetLevel,
-      ruleCatalog,
-      spellCatalogById,
-      spellPools
-    ).filter((spell) => !known.has(spell.id));
-  }, [
-    canSelectKnownSpellGrowth,
-    levelUpDraft.targetLevel,
-    ruleCatalog,
-    selectedCharacter,
-    selectedKnownSlotSpells,
-    spellCatalogById,
-    spellPools,
-  ]);
-  const selectedLevelUpLearnableSlotSpellOptions = useMemo(
-    () => attachSpellDetails(selectedLevelUpLearnableSlotSpells, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedLevelUpLearnableSlotSpells, spellCatalogById]
-  );
-  const selectedLevelUpForgottenSlotSpellOptions = useMemo(
-    () => buildSpellDisplayOptions(selectedKnownSlotSpells, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedKnownSlotSpells, spellCatalogById]
-  );
-  const selectedLevelUpLearnableCantrips = useMemo(() => {
-    if (
-      !selectedCharacter ||
-      selectedKnownSpellDelta?.targetHasCantripProgression !== true
-    ) return [];
-    const known = new Set(selectedCurrentCantrips);
-    return getImplementedSpellOptions(
-      selectedCharacter.className,
-      'cantrip',
-      levelUpDraft.targetLevel,
-      ruleCatalog,
-      spellCatalogById,
-      spellPools
-    ).filter(
-      (spell) => !known.has(spell.id)
-    );
-  }, [
-    levelUpDraft.targetLevel,
-    ruleCatalog,
-    selectedCharacter,
-    selectedCurrentCantrips,
-    selectedKnownSpellDelta?.targetHasCantripProgression,
-    spellCatalogById,
-    spellPools,
-  ]);
-  const selectedLevelUpLearnableCantripOptions = useMemo(
-    () => attachSpellDetails(selectedLevelUpLearnableCantrips, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedLevelUpLearnableCantrips, spellCatalogById]
-  );
-  const selectedLevelUpForgottenCantripOptions = useMemo(
-    () => buildSpellDisplayOptions(selectedCurrentCantrips, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedCurrentCantrips, spellCatalogById]
-  );
-  const selectedPreparedCandidateSlotSpells = useMemo(
+  const selectedLevelUpSpellSelection = useMemo(
     () =>
-      isSelectedCharacterPreparedCaster
-        ? Array.from(new Set([...selectedKnownSlotSpells, ...levelUpDraft.knownSpells]))
-        : [],
+      buildCharacterLevelUpSpellSelectionModel({
+        className: selectedCharacter?.className,
+        targetLevel: levelUpDraft.targetLevel,
+        knownSlotSpellIds: selectedKnownSlotSpells,
+        currentCantripIds: selectedCurrentCantrips,
+        draftKnownSpellIds: levelUpDraft.knownSpells,
+        canSelectKnownSpellGrowth,
+        canSelectCantripGrowth: selectedKnownSpellDelta?.targetHasCantripProgression === true,
+        isPreparedCaster: isSelectedCharacterPreparedCaster,
+        ruleCatalog,
+        spellCatalogById,
+        spellPools,
+      }),
     [
+      canSelectKnownSpellGrowth,
       isSelectedCharacterPreparedCaster,
       levelUpDraft.knownSpells,
+      levelUpDraft.targetLevel,
+      ruleCatalog,
+      selectedCharacter?.className,
+      selectedCurrentCantrips,
       selectedKnownSlotSpells,
+      selectedKnownSpellDelta?.targetHasCantripProgression,
+      spellCatalogById,
+      spellPools,
     ]
   );
-  const selectedLevelUpPreparedSpellOptions = useMemo(
-    () => buildSpellDisplayOptions(selectedPreparedCandidateSlotSpells, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedPreparedCandidateSlotSpells, spellCatalogById]
+  const selectedLevelUpLearnableSlotSpells =
+    selectedLevelUpSpellSelection.learnableSlotSpells;
+  const selectedLevelUpLearnableSlotSpellOptions =
+    selectedLevelUpSpellSelection.learnableSlotSpellOptions;
+  const selectedLevelUpForgottenSlotSpellOptions =
+    selectedLevelUpSpellSelection.forgottenSlotSpellOptions;
+  const selectedLevelUpLearnableCantrips = selectedLevelUpSpellSelection.learnableCantrips;
+  const selectedLevelUpLearnableCantripOptions =
+    selectedLevelUpSpellSelection.learnableCantripOptions;
+  const selectedLevelUpForgottenCantripOptions =
+    selectedLevelUpSpellSelection.forgottenCantripOptions;
+  const selectedPreparedCandidateSlotSpells =
+    selectedLevelUpSpellSelection.preparedCandidateSlotSpellIds;
+  const selectedLevelUpPreparedSpellOptions =
+    selectedLevelUpSpellSelection.preparedSpellOptions;
+  const selectedSpellDisplay = useMemo(
+    () =>
+      buildCharacterSpellDisplayModel({
+        cantripIds: selectedCurrentCantrips,
+        knownSpellIds: selectedKnownSlotSpells,
+        preparedSpellIds: selectedCharacter?.spells?.preparedSpells ?? [],
+        isWizard: isSelectedCharacterWizard,
+        ruleCatalog,
+        spellCatalogById,
+      }),
+    [
+      isSelectedCharacterWizard,
+      ruleCatalog,
+      selectedCharacter?.spells?.preparedSpells,
+      selectedCurrentCantrips,
+      selectedKnownSlotSpells,
+      spellCatalogById,
+    ]
   );
-  const selectedPreparedSpells = useMemo(
-    () => selectedCharacter?.spells?.preparedSpells ?? [],
-    [selectedCharacter]
-  );
-  const selectedDisplayCantrips = useMemo(
-    () => selectedCurrentCantrips.filter((spellId) => spellId.trim().length > 0),
-    [selectedCurrentCantrips]
-  );
-  const selectedDisplayKnownSpells = useMemo(
-    () => selectedKnownSlotSpells.filter((spellId) => spellId.trim().length > 0),
-    [selectedKnownSlotSpells]
-  );
-  const selectedDisplayPreparedSpells = useMemo(
-    () => selectedPreparedSpells.filter((spellId) => spellId.trim().length > 0),
-    [selectedPreparedSpells]
-  );
-  const selectedDisplayCantripOptions = useMemo(
-    () => buildSpellDisplayOptions(selectedDisplayCantrips, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedDisplayCantrips, spellCatalogById]
-  );
-  const selectedDisplayKnownSpellOptions = useMemo(
-    () => buildSpellDisplayOptions(selectedDisplayKnownSpells, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedDisplayKnownSpells, spellCatalogById]
-  );
-  const selectedDisplayPreparedSpellOptions = useMemo(
-    () => buildSpellDisplayOptions(selectedDisplayPreparedSpells, ruleCatalog, spellCatalogById),
-    [ruleCatalog, selectedDisplayPreparedSpells, spellCatalogById]
-  );
-  const selectedHasAnySpells =
-    selectedDisplayCantrips.length > 0 ||
-    selectedDisplayKnownSpells.length > 0 ||
-    selectedDisplayPreparedSpells.length > 0;
-  const selectedPreviewContext = selectedCharacter?.levelUpPreviewContext ?? null;
-  const selectedActiveSessionConditions = selectedCharacter?.activeSessionConditions ?? [];
+  const selectedPreparedSpells = selectedSpellDisplay.preparedSpellIds;
+  const selectedDisplaySpellGroups = selectedSpellDisplay.summaryGroups;
+  const selectedHasAnySpells = selectedSpellDisplay.hasAnySpells;
   const selectedCharacterRaceInfo = useMemo(
     () =>
       selectedCharacter
-        ? getRaceByValue(raceCatalog, selectedCharacter.ancestry) ??
-          getRaceByCharacterFeature(raceCatalog, selectedCharacter.features)
+        ? buildSelectedCharacterRaceInfo({
+            raceCatalog,
+            ancestry: selectedCharacter.ancestry,
+            features: selectedCharacter.features,
+          })
         : null,
     [raceCatalog, selectedCharacter]
   );
@@ -2858,45 +549,19 @@ export function CharacterPage({
       ),
     [classFeatureManifest, selectedCharacter?.features, selectedCharacterRaceTraitSummaries]
   );
-  const selectedHasActiveConcentration = selectedActiveSessionConditions.some((condition) =>
-    condition.toLowerCase().includes('concentration') || condition.includes('집중')
-  );
-  const selectedEquippedWeapon = selectedCharacter?.inventory.find(
-    (item) =>
-      item.id === selectedCharacter.equippedWeaponId ||
-      item.itemDefinitionId === selectedCharacter.equippedWeaponId
-  );
-  const selectedOffhandWeapon = selectedCharacter?.inventory.find(
-    (item) =>
-      item.id === selectedCharacter.offhandWeaponId ||
-      item.itemDefinitionId === selectedCharacter.offhandWeaponId
-  );
-  const crossedAsiLevels = selectedCharacter
-    ? getCrossedAsiLevels(
-        selectedCharacterClassKey,
-        selectedCharacter.level,
-        levelUpDraft.targetLevel
-      )
-    : [];
-  const normalizedLevelUpAsiFeatChoices = crossedAsiLevels.map(
-    (_, index) => levelUpDraft.asiFeatChoices[index] ?? ''
-  );
-  const selectedLevelUpFeatIds = getFeatSelectionsFromAsiFeatChoices(
-    normalizedLevelUpAsiFeatChoices
-  );
-  const derivedLevelUpAbilityScoreIncreases =
-    buildAbilityScoreIncreasesFromAsiFeatChoices(normalizedLevelUpAsiFeatChoices);
-  const missingAsiFeatChoiceCount = normalizedLevelUpAsiFeatChoices.filter(
-    (choice) => !choice
-  ).length;
-  const levelUpAbilities = selectedCharacter
-    ? (Object.fromEntries(
-        (Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => [
-          ability,
-          selectedCharacter.abilities[ability] + derivedLevelUpAbilityScoreIncreases[ability],
-        ])
-      ) as Record<AbilityKey, number>)
-    : null;
+  const levelUpAsiFeatChoiceState = buildLevelUpAsiFeatChoiceState({
+    classKey: selectedCharacterClassKey,
+    currentLevel: selectedCharacter?.level,
+    targetLevel: levelUpDraft.targetLevel,
+    asiFeatChoices: levelUpDraft.asiFeatChoices,
+    currentAbilities: selectedCharacter?.abilities,
+  });
+  const crossedAsiLevels = levelUpAsiFeatChoiceState.crossedAsiLevels;
+  const normalizedLevelUpAsiFeatChoices = levelUpAsiFeatChoiceState.asiFeatChoices;
+  const selectedLevelUpFeatIds = levelUpAsiFeatChoiceState.selectedFeatIds;
+  const derivedLevelUpAbilityScoreIncreases = levelUpAsiFeatChoiceState.abilityScoreIncreases;
+  const missingAsiFeatChoiceCount = levelUpAsiFeatChoiceState.missingChoiceCount;
+  const levelUpAbilities = levelUpAsiFeatChoiceState.abilities;
   const selectedLevelUpPreparedSpellLimit = selectedCharacter
     ? resolveCharacterPreparedSpellLimit(
         selectedCharacter.className,
@@ -2904,313 +569,166 @@ export function CharacterPage({
         levelUpAbilities
       )
     : null;
+  const {
+    isLevelUpModalOpen,
+    openLevelUpModal,
+    closeLevelUpModal,
+    submitLevelUpSelectedCharacter,
+    savePreparedSpells,
+  } = useCharacterLevelUpFlow({
+    selectedCharacter,
+    usedCharacterIds,
+    draft: levelUpDraft,
+    abilityScoreIncreases: derivedLevelUpAbilityScoreIncreases,
+    featSelections: selectedLevelUpFeatIds,
+    preparedSpellLimit: selectedLevelUpPreparedSpellLimit,
+    onLevelUpCharacter,
+    onUpdatePreparedSpells,
+  });
   const isLevelUpPreparedSpellLimitExceeded =
     selectedLevelUpPreparedSpellLimit !== null &&
     levelUpDraft.preparedSpells.length > selectedLevelUpPreparedSpellLimit;
   const isLevelUpSpellReplacementIncomplete =
     levelUpDraft.knownSpells.length < levelUpDraft.forgottenSpells.length ||
     levelUpDraft.cantrips.length < levelUpDraft.forgottenCantrips.length;
-  const levelUpFeaturePreviewItems = useMemo<CharacterFeaturePreviewItem[]>(() => {
-    if (!selectedCharacter) return [];
-    const classItems: CharacterFeaturePreviewItem[] = (
-      selectedCharacterClassInfo?.levelFeatureSummary ?? []
-    )
-      .filter(
-        (feature) =>
-          feature.level > selectedCharacter.level && feature.level <= levelUpDraft.targetLevel
-      )
-      .flatMap((feature) =>
-        splitClassFeatureSummary(feature.features)
-          .filter((label) => !isAbilityScoreImprovementLabel(label))
-          .map((label, index) =>
-            buildClassFeaturePreviewItem({
-              classInfo: selectedCharacterClassInfo,
-              classKey: selectedCharacterClassKey,
-              label,
-              level: feature.level,
-              index,
-              idPrefix: 'level-up.class',
-              status: 'automatic',
-              summaryFallback: `${feature.level}레벨에 새로 획득하는 직업 특성입니다.`,
-              classFeatureManifest,
-            })
-          )
-      );
-    const subclassItem: CharacterFeaturePreviewItem[] =
-      isLevelUpSubclassRequired && !selectedCharacter.subclassName
-        ? [
-            {
-              id: `level-up.choice.${selectedCharacterClassKey}.subclass`,
-              label: 'Subclass / 서브클래스',
-              source: 'subclass',
-              level: selectedSubclassChoiceLevel ?? levelUpDraft.targetLevel,
-              summary: levelUpDraft.subclassName
-                ? `선택한 서브클래스: ${levelUpDraft.subclassName}`
-                : '이번 레벨업에서 서브클래스를 선택해야 합니다.',
-              status: levelUpDraft.subclassName ? 'selected' : 'required',
-            },
-          ]
-        : [];
-    const asiItems: CharacterFeaturePreviewItem[] = crossedAsiLevels.map((asiLevel, index) => {
-      const selectedChoiceId = normalizedLevelUpAsiFeatChoices[index] ?? '';
-      const selectedFeat = selectedChoiceId.startsWith('feat.')
-        ? featOptionById.get(selectedChoiceId)
-        : null;
-      const selectedAsiAbility = getAbilityFromAsiChoiceId(selectedChoiceId);
-      return {
-        id: `level-up.choice.${selectedCharacterClassKey || 'unknown'}.asi.${asiLevel}`,
-        label: selectedFeat
-          ? `${asiLevel}레벨 Feat: ${selectedFeat.label}`
-          : selectedAsiAbility
-            ? `${asiLevel}레벨 ASI: ${abilityDisplayLabels[selectedAsiAbility]} +2`
-            : `${asiLevel}레벨 Ability Score Improvement / Feat`,
-        source: 'asi',
-        level: asiLevel,
-        summary: selectedFeat
-          ? selectedFeat.summary
-          : selectedAsiAbility
-            ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치를 2 상승시킵니다.`
-            : '능력치 하나를 +2 하거나 Alert / 경계 같은 Feat를 선택해야 합니다.',
-        status: selectedFeat || selectedAsiAbility ? 'selected' : 'required',
-      };
-    });
-
-    return [...classItems, ...subclassItem, ...asiItems];
-  }, [
-    crossedAsiLevels,
-    classFeatureManifest,
-    isLevelUpSubclassRequired,
-    levelUpDraft.subclassName,
-    levelUpDraft.targetLevel,
-    normalizedLevelUpAsiFeatChoices,
-    selectedCharacter,
-    selectedCharacterClassInfo,
-    selectedCharacterClassInfo?.levelFeatureSummary,
-    selectedCharacterClassKey,
-    selectedSubclassChoiceLevel,
-  ]);
+  const levelUpDraftSpellActions = levelUpDraftState.bindSpellSelectionActions({
+    knownSpellLearnAllowance,
+    cantripLearnAllowance,
+    levelDelta: levelUpLevelDelta,
+    baseKnownSpellAllowance: selectedKnownSpellDelta?.knownSpellDelta ?? 0,
+    baseCantripAllowance: selectedKnownSpellDelta?.cantripDelta ?? 0,
+    canReplaceKnownSpells: canReplaceSelectedKnownSpells,
+    preparedSpellLimit: selectedLevelUpPreparedSpellLimit,
+  });
+  const levelUpFeaturePreviewItems = useMemo(
+    () =>
+      buildLevelUpFeaturePreviewItems({
+        character: selectedCharacter,
+        classInfo: selectedCharacterClassInfo,
+        classKey: selectedCharacterClassKey,
+        targetLevel: levelUpDraft.targetLevel,
+        subclassChoiceLevel: selectedSubclassChoiceLevel,
+        isSubclassRequired: isLevelUpSubclassRequired,
+        selectedSubclassName: levelUpDraft.subclassName,
+        crossedAsiLevels,
+        asiFeatChoices: normalizedLevelUpAsiFeatChoices,
+        classFeatureManifest,
+      }),
+    [
+      crossedAsiLevels,
+      classFeatureManifest,
+      isLevelUpSubclassRequired,
+      levelUpDraft.subclassName,
+      levelUpDraft.targetLevel,
+      normalizedLevelUpAsiFeatChoices,
+      selectedCharacter,
+      selectedCharacterClassInfo,
+      selectedCharacterClassKey,
+      selectedSubclassChoiceLevel,
+    ]
+  );
   const levelUpFeatureTimelineGroups = useMemo(
     () => groupFeaturePreviewItemsByLevel(levelUpFeaturePreviewItems),
     [levelUpFeaturePreviewItems]
   );
-  const levelUpPreviewRows = selectedCharacter
-    ? [
-        {
-          label: '진행 중 세션',
-          value: selectedPreviewContext?.activeSessionId
-            ? `세션 ${selectedPreviewContext.activeSessionId} · ${selectedPreviewContext.activeSessionStatus ?? '상태 미확인'} · 현재 노드 ${
-                selectedPreviewContext.currentNodeId ?? '없음'
-              }`
-            : '진행 중 세션 없음',
-        },
-        {
-          label: '조건/집중',
-          value: selectedPreviewContext
-            ? `조건 ${selectedPreviewContext.activeConditionCount}개${
-                selectedPreviewContext.hasActiveConcentration ? ' · 집중 효과 있음' : ''
-              }`
-            : selectedActiveSessionConditions.length
-              ? `${selectedActiveSessionConditions.slice(0, 4).join(', ')}${
-                  selectedActiveSessionConditions.length > 4 ? ' 외' : ''
-                }${selectedHasActiveConcentration ? ' · 집중 유지/종료 영향 확인 필요' : ''}`
-            : '활성 조건 없음',
-        },
-        {
-          label: '장비',
-          value: `소지품 ${selectedPreviewContext?.inventoryItemCount ?? selectedCharacter.inventory.length}개 · 주무기 ${
-            selectedEquippedWeapon
-              ? getUserFacingItemName(selectedEquippedWeapon)
-              : '없음'
-          } · 보조 ${
-            selectedOffhandWeapon
-              ? getUserFacingItemName(selectedOffhandWeapon)
-              : '없음'
-          }`,
-        },
-        {
-          label: '준비 주문',
-          value: selectedCharacter.spells
-            ? `알고 있는 주문 ${selectedPreviewContext?.knownSpellCount ?? selectedKnownSlotSpells.length + selectedCurrentCantrips.length}개 · 준비 ${
-                levelUpDraft.preparedSpells.length
-              }/${selectedLevelUpPreparedSpellLimit ?? '제한 없음'}개 예정`
-            : '주문 없음',
-        },
-        {
-          label: 'Downtime',
-          value: selectedPreviewContext
-            ? `진행/일시정지 ${selectedPreviewContext.activeDowntimeTaskCount}개 · 완료 ${selectedPreviewContext.completedDowntimeTaskCount}개 · 경제 상태 ${
-                selectedPreviewContext.hasEconomyState ? '있음' : '없음'
-              }`
-            : '세션 배정 후 downtime 영향 확인 가능',
-        },
-        {
-          label: 'Archive / 이관',
-          value: selectedPreviewContext
-            ? `archive ${selectedPreviewContext.campaignArchiveAvailable ? '있음' : '없음'} · 이관 ${
-                selectedPreviewContext.transferEligibility === 'transfer_allowed'
-                  ? '허용'
-                  : selectedPreviewContext.transferEligibility === 'transfer_blocked'
-                    ? '차단'
-                    : '미보관'
-              }`
-            : '완료 캠페인 archive 없음',
-        },
-      ]
-    : [];
-
-  useEffect(() => {
-    if (!selectedCharacter) {
-      setLevelUpDraft({
-        targetLevel: 2,
-        subclassName: '',
-        cantrips: [],
-        knownSpells: [],
-        forgottenCantrips: [],
-        forgottenSpells: [],
-        preparedSpells: [],
-        abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
-        featSelections: [],
-        asiFeatChoices: [],
-      });
-      return;
-    }
-
-    setLevelUpDraft({
-      targetLevel: Math.min(20, Math.max(2, selectedCharacter.level + 1)),
-      subclassName: selectedCharacter.subclassName ?? '',
-      cantrips: [],
-      knownSpells: [],
-      forgottenCantrips: [],
-      forgottenSpells: [],
-      preparedSpells: selectedPreparedSpells,
-      abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
-      featSelections: [],
-      asiFeatChoices: [],
-    });
-  }, [selectedCharacter, selectedPreparedSpells]);
-
-  const ancestryOptions = useMemo(
-    () => raceCatalog.map(({ value, label }) => ({ value, label })),
-    [raceCatalog]
+  const levelUpPreviewRows = useMemo(
+    () =>
+      buildCharacterLevelUpPreviewRows({
+        character: selectedCharacter,
+        knownSlotSpellCount: selectedKnownSlotSpells.length,
+        currentCantripCount: selectedCurrentCantrips.length,
+        preparedSpellCount: levelUpDraft.preparedSpells.length,
+        preparedSpellLimit: selectedLevelUpPreparedSpellLimit,
+        getItemName: getUserFacingItemName,
+      }),
+    [
+      levelUpDraft.preparedSpells.length,
+      selectedCharacter,
+      selectedCurrentCantrips.length,
+      selectedKnownSlotSpells.length,
+      selectedLevelUpPreparedSpellLimit,
+    ]
   );
+
+  const ancestryOptions = useMemo(() => buildAncestryOptions(raceCatalog), [raceCatalog]);
   const ancestryLabelMap = useMemo(
-    () => {
-      const map = new Map(ancestryOptions.map((option) => [option.value, option.label]));
-      for (const race of races) {
-        map.set(race.key, race.koName);
-      }
-      return map;
-    },
+    () => buildAncestryLabelMap(ancestryOptions, races),
     [ancestryOptions, races]
   );
-  const selectedRaceInfo = useMemo(() => {
-    const staticRaceInfo =
-      getRaceByValue(raceCatalog, formState.ancestry) ??
-      (selectedRace?.parentRaceId && selectedCreateBaseRace
-        ? getRaceByValue(raceCatalog, selectedCreateBaseRace.key)
-        : null);
-    return buildSelectedRaceInfo(selectedRace, staticRaceInfo);
-  }, [formState.ancestry, raceCatalog, selectedCreateBaseRace, selectedRace]);
+  const selectedCharacterDetail = useMemo(
+    () =>
+      selectedCharacter
+        ? buildCharacterDetailViewModel({ character: selectedCharacter, ancestryLabelMap })
+        : null,
+    [ancestryLabelMap, selectedCharacter]
+  );
+  const selectedRaceInfo = useMemo(
+    () =>
+      buildSelectedCreateRaceInfo({
+        raceCatalog,
+        ancestry: formState.ancestry,
+        selectedRace,
+        selectedBaseRace: selectedCreateBaseRace,
+      }),
+    [formState.ancestry, raceCatalog, selectedCreateBaseRace, selectedRace]
+  );
   const selectedClassInfo = useMemo(
     () => getClassOptionByValue(classCatalog, formState.className),
     [classCatalog, formState.className]
   );
-  const currentCreateStep = CHARACTER_CREATE_STEPS[createStepIndex] ?? CHARACTER_CREATE_STEPS[0];
-  const isProfileStep = currentCreateStep.key === 'profile';
-  const isStatsStep = currentCreateStep.key === 'stats';
-  const isSkillsStep = currentCreateStep.key === 'skills';
-  const isFeaturesStep = currentCreateStep.key === 'features';
-  const isEquipmentStep = currentCreateStep.key === 'equipment';
-  const isSpellsStep = currentCreateStep.key === 'spells';
-  const isReviewStep = currentCreateStep.key === 'review';
-  const hasCreateFormRightColumn =
-    isProfileStep || isStatsStep || isEquipmentStep || isSpellsStep;
-  const isFinalCreateStep = createStepIndex === CHARACTER_CREATE_STEPS.length - 1;
-  const currentStatSelectionLabel = `${selectedRaceInfo?.label ?? '종족 미선택'} (${selectedClassInfo?.label ?? '직업 미선택'})`;
-  const selectedCreateAncestryKey = formState.ancestry.trim().toLowerCase().replace(/_/g, '-');
-  const featurePreviewItems = useMemo<CharacterFeaturePreviewItem[]>(() => {
-    const classKey = normalizeSrdCharacterClassKey(formState.className);
-    const level = normalizeLevel(formState.level ?? 1);
-    const raceItems: CharacterFeaturePreviewItem[] = (selectedRaceInfo?.traitSummaries ?? []).map(
-      (trait) => ({
-        id: `race.${selectedCreateAncestryKey || 'unknown'}.trait.${trait.name}`,
-        label: trait.name,
-        source: 'race',
-        summary: trait.summary,
-        status: 'automatic',
-      })
-    );
-    const classItems: CharacterFeaturePreviewItem[] = (selectedClassInfo?.levelFeatureSummary ?? [])
-      .filter((feature) => feature.level > 0 && feature.level <= level)
-      .flatMap((feature) =>
-        splitClassFeatureSummary(feature.features)
-          .filter((label) => !isAbilityScoreImprovementLabel(label))
-          .map((label, index) =>
-            buildClassFeaturePreviewItem({
-              classInfo: selectedClassInfo,
-              classKey,
-              label,
-              level: feature.level,
-              index,
-              idPrefix: 'class',
-              status: 'automatic',
-              summaryFallback: `${feature.level}레벨에 획득하는 직업 특성입니다.`,
-              classFeatureManifest,
-            })
-          )
-      );
-    const choiceItems = buildChoiceFeaturePreviewItems({
-      ancestryKey: selectedCreateAncestryKey,
-      classKey,
-      level,
-      features: formState.features ?? [],
-      proficientSkills: formState.proficientSkills ?? [],
-      subclassRequired: isCreateSubclassRequired,
-      subclassName: formState.subclassName,
-    });
-    const selectedAsiFeatChoiceIds = getSelectedAsiFeatChoiceIds(formState.features);
-    const asiItems: CharacterFeaturePreviewItem[] = getCreationAsiLevels(classKey, level).map(
-      (asiLevel, index) => {
-        const selectedChoiceId = selectedAsiFeatChoiceIds[index];
-        const selectedFeat = selectedChoiceId?.startsWith('feat.')
-          ? featOptionById.get(selectedChoiceId)
-          : null;
-        const selectedAsiAbility = selectedChoiceId
-          ? getAbilityFromAsiChoiceId(selectedChoiceId)
-          : null;
-        return {
-        id: `choice.${classKey || 'unknown'}.asi.${asiLevel}`,
-        label: selectedFeat
-          ? `${asiLevel}레벨 Feat: ${selectedFeat.label}`
-          : selectedAsiAbility
-            ? `${asiLevel}레벨 ASI: ${abilityDisplayLabels[selectedAsiAbility]} +2`
-            : `${asiLevel}레벨 Ability Score Improvement / Feat`,
-        source: 'asi',
-        level: asiLevel,
-        summary: selectedFeat
-          ? selectedFeat.summary
-          : selectedAsiAbility
-            ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치를 2 상승시킵니다.`
-            : '능력치 하나를 +2 하거나 Alert / 경계 같은 Feat를 선택해야 합니다.',
-        status: selectedFeat || selectedAsiAbility ? 'selected' : 'required',
-        };
-      }
-    );
-
-    return [...raceItems, ...classItems, ...choiceItems, ...asiItems];
-  }, [
-    formState.className,
-    formState.features,
-    formState.level,
-    formState.proficientSkills,
-    formState.subclassName,
-    classFeatureManifest,
-    isCreateSubclassRequired,
-    selectedClassInfo,
-    selectedClassInfo?.levelFeatureSummary,
-    selectedCreateAncestryKey,
-    selectedRaceInfo?.traitSummaries,
-  ]);
+  const {
+    currentCreateStep,
+    isProfileStep,
+    isStatsStep,
+    isSkillsStep,
+    isFeaturesStep,
+    isEquipmentStep,
+    isSpellsStep,
+    isReviewStep,
+    hasCreateFormRightColumn,
+    isFinalCreateStep,
+  } = buildCharacterCreateStepViewState(createStepIndex);
+  const currentStatSelectionLabel = getCreateStatSelectionLabel(
+    selectedRaceInfo,
+    selectedClassInfo
+  );
+  const createStatReferenceViewModel = useMemo(
+    () => buildCreateStatReferenceViewModel(selectedRaceInfo, selectedClassInfo),
+    [selectedClassInfo, selectedRaceInfo]
+  );
+  const selectedCreateAncestryKey = getCreateRaceFeatureAncestryKey(formState.ancestry);
+  const creationAsiFeatChoiceState = buildCreationAsiFeatChoiceState({
+    className: formState.className,
+    level: formState.level,
+    features: formState.features,
+  });
+  const featurePreviewItems = useMemo(
+    () =>
+      buildCreateFeaturePreviewItems({
+        ancestryKey: selectedCreateAncestryKey,
+        className: formState.className,
+        level: formState.level,
+        features: formState.features,
+        proficientSkills: formState.proficientSkills,
+        subclassRequired: isCreateSubclassRequired,
+        subclassName: formState.subclassName,
+        raceInfo: selectedRaceInfo,
+        classInfo: selectedClassInfo,
+        classFeatureManifest,
+      }),
+    [
+      formState.className,
+      formState.features,
+      formState.level,
+      formState.proficientSkills,
+      formState.subclassName,
+      classFeatureManifest,
+      isCreateSubclassRequired,
+      selectedClassInfo,
+      selectedCreateAncestryKey,
+      selectedRaceInfo,
+    ]
+  );
   const requiredFeaturePreviewItems = featurePreviewItems.filter(
     (feature) => feature.status === 'required'
   );
@@ -3222,154 +740,73 @@ export function CharacterPage({
     () => countFeaturePreviewStatuses(featurePreviewItems),
     [featurePreviewItems]
   );
-  const activeFeatureChoiceDefinitions = useMemo(() => {
-    const context = getFeatureChoiceContext({
-      ancestry: formState.ancestry,
-      className: formState.className,
-      level: formState.level,
-      features: formState.features,
-      proficientSkills: formState.proficientSkills,
-    });
-    return getActiveFeatureChoiceDefinitions(context);
-  }, [
-    formState.ancestry,
-    formState.className,
-    formState.features,
-    formState.level,
-    formState.proficientSkills,
-  ]);
+  const createReviewViewModel = useMemo(
+    () =>
+      buildCharacterCreateReviewViewModel({
+        formState,
+        raceInfo: selectedRaceInfo,
+        classInfo: selectedClassInfo,
+        featurePreviewItems,
+        requiredFeaturePreviewItemCount: requiredFeaturePreviewItems.length,
+        startingEquipmentItemCount: resolvedStartingEquipmentSummary.length,
+        startingSpellReviewCounts,
+        isStartingDynamicPreparedCaster,
+      }),
+    [
+      featurePreviewItems,
+      formState,
+      isStartingDynamicPreparedCaster,
+      requiredFeaturePreviewItems.length,
+      resolvedStartingEquipmentSummary.length,
+      selectedClassInfo,
+      selectedRaceInfo,
+      startingSpellReviewCounts,
+    ]
+  );
+  const featureChoiceContext = useMemo(
+    () =>
+      getFeatureChoiceContext({
+        ancestry: formState.ancestry,
+        className: formState.className,
+        level: formState.level,
+        features: formState.features,
+        proficientSkills: formState.proficientSkills,
+      }),
+    [
+      formState.ancestry,
+      formState.className,
+      formState.features,
+      formState.level,
+      formState.proficientSkills,
+    ]
+  );
+  const activeFeatureChoiceDefinitions = useMemo(
+    () => getActiveFeatureChoiceDefinitions(featureChoiceContext),
+    [featureChoiceContext]
+  );
+  const featureChoiceViewModels = useMemo(
+    () => buildFeatureChoiceViewModels(activeFeatureChoiceDefinitions, featureChoiceContext),
+    [activeFeatureChoiceDefinitions, featureChoiceContext]
+  );
 
-  const usedCharacterIds = useMemo(() => {
-    const ids = new Set<string>();
-
-    snapshot?.participants.forEach((participant) => {
-      if (participant.characterId) ids.add(participant.characterId);
-    });
-
-    characters.forEach((character) => {
-      if (character.activeSessionId) ids.add(character.id);
-    });
-
-    return ids;
-  }, [characters, snapshot]);
   const scenarioGroups = useMemo(() => splitScenariosBySource(scenarios), [scenarios]);
-
-  useEffect(() => {
-    if (!isCreateModalOpen || editingCharacterId || formState.scenarioId || !scenarios.length)
-      return;
-    const defaultScenario = getPreferredScenario(scenarios);
-    if (!defaultScenario) return;
-
-    // 시나리오 목록이 모달보다 늦게 로드되어도 생성 폼은 기본 제공 시나리오로 맞춥니다.
-    setFormState((current) => ({
-      ...current,
-      scenarioId: defaultScenario.id,
-      level: normalizeLevel(defaultScenario.startLevel),
-    }));
-  }, [editingCharacterId, formState.scenarioId, isCreateModalOpen, scenarios]);
-
-  // 생성/수정 폼을 기본값으로 되돌립니다.
-  function resetCreateForm() {
-    setEditingCharacterId(null);
-    setCreateStepIndex(0);
-    setStatsReferenceOpen(false);
-    const defaults = createDefaultCharacter();
-    const defaultScenario = getPreferredScenario(scenarios);
-    const defaultClassKey = normalizeSrdCharacterClassKey(defaults.className ?? '');
-    const defaultClass = classDefinitions.find(
-      (c) => c.key === defaultClassKey
-    );
-    const startingEquipmentSelection = defaultClass
-      ? new Array(defaultClass.startingEquipment.slots.length).fill(0)
-      : undefined;
-    const defaultStartingSlotSpellCount = resolveStartingSlotSpellCount(
-      defaultClass,
-      defaultClass?.key,
-      defaultScenario?.startLevel ?? defaults.level ?? 1,
-      ruleCatalog,
-      spellPools
-    );
-    const defaultStartingCantripCount = resolveStartingCantripCount(
-      defaultClass,
-      defaultClass?.key,
-      defaultScenario?.startLevel ?? defaults.level ?? 1,
-      ruleCatalog
-    );
-    const defaultPreparedSpellLimit = resolveCharacterPreparedSpellLimit(
-      defaultClass?.key,
-      defaultScenario?.startLevel ?? defaults.level ?? 1,
-      defaults.abilities
-    );
-    const startingSpells =
-      defaultClass && (defaultStartingCantripCount > 0 || defaultStartingSlotSpellCount > 0)
-        ? {
-            cantrips: new Array(defaultStartingCantripCount).fill(''),
-            spells: new Array(defaultStartingSlotSpellCount).fill(''),
-            ...(defaultPreparedSpellLimit !== null ? { preparedSpells: [] } : {}),
-          }
-        : undefined;
-    setFormState({
-      ...defaults,
-      scenarioId: defaultScenario?.id ?? null,
-      level: defaultScenario ? normalizeLevel(defaultScenario.startLevel) : defaults.level,
-      startingEquipmentSelection,
-      startingEquipmentItemSelections: {},
-      startingSpells,
-    });
-    setInventoryDraft([]);
-    setSkillInput('');
-    setFormValidationError(null);
-    setCreateToast(null);
-    clearCreateToastTimer();
-  }
 
   // 새 캐릭터 생성 모달을 여는 함수입니다.
   function openCreateModal() {
-    resetCreateForm();
-    setCreateModalOpen(true);
+    openCreateDraftModal();
+    clearCreateToast();
   }
 
   // 선택한 캐릭터 정보를 formState에 복사해 수정 모달을 여는 함수입니다.
   function openEditModal() {
-    if (!selectedCharacter) return;
-
-    setEditingCharacterId(selectedCharacter.id);
-    setCreateStepIndex(0);
-    setFormState({
-      name: selectedCharacter.name,
-      ancestry: selectedCharacter.ancestry,
-      className: selectedCharacter.className,
-      subclassName: selectedCharacter.subclassName ?? null,
-      avatarType: selectedCharacter.avatarType,
-      avatarPresetId:
-        selectedCharacter.avatarPresetId ?? getPresetIdForClassName(selectedCharacter.className),
-      avatarUrl: selectedCharacter.avatarUrl ?? null,
-      scenarioId: selectedCharacter.scenarioId ?? null,
-      level: selectedCharacter.level,
-      abilities: { ...selectedCharacter.abilities },
-      proficiencyBonus: selectedCharacter.proficiencyBonus,
-      proficientSkills: [...selectedCharacter.proficientSkills],
-      features: [...selectedCharacter.features],
-      maxHp: selectedCharacter.maxHp,
-      armorClass: selectedCharacter.armorClass,
-      speed: selectedCharacter.speed,
-      inventory: selectedCharacter.inventory.map((item) => ({ ...item })),
-      equippedWeaponId: selectedCharacter.equippedWeaponId ?? null,
-      offhandWeaponId: selectedCharacter.offhandWeaponId ?? null,
-      startingEquipmentItemSelections: {},
-    });
-    setInventoryDraft(selectedCharacter.inventory.map((item) => ({ ...item })));
-    setSkillInput('');
-    setStatsReferenceOpen(false);
-    setFormValidationError(null);
-    setCreateToast(null);
-    clearCreateToastTimer();
-    setCreateModalOpen(true);
+    if (openEditDraftModal(selectedCharacter)) {
+      clearCreateToast();
+    }
   }
 
   function closeCreateModal() {
-    setCreateModalOpen(false);
-    resetCreateForm();
+    closeCreateDraftModal();
+    clearCreateToast();
   }
 
   function dismissCreateModal() {
@@ -3380,455 +817,54 @@ export function CharacterPage({
     }
   }
 
-  useEffect(() => {
-    if (!autoOpenCreate || didAutoOpenCreateRef.current) {
-      return;
-    }
-
-    didAutoOpenCreateRef.current = true;
-    openCreateModal();
-  }, [autoOpenCreate]);
-
-  function goToPreviousCreateStep() {
-    setFormValidationError(null);
-    setCreateStepIndex((current) => Math.max(0, current - 1));
-  }
+  useCharacterCreateModalLifecycle({
+    isCreateModalOpen,
+    autoOpenCreate,
+    openCreateModal,
+  });
 
   function goToNextCreateStep() {
-    if (isProfileStep) {
-      if (
-        !formState.name.trim() ||
-        !formState.scenarioId ||
-        !formState.ancestry ||
-        !formState.className
-      ) {
-        setFormValidationError(
-          '이름, 시나리오, 종족, 직업을 먼저 입력해야 다음 장으로 넘어갈 수 있습니다.'
-        );
-        return;
-      }
-      if (isCreateSubraceRequired && !selectedCreateSubraceKey) {
-        setFormValidationError('선택한 종족의 하위종족을 선택해야 다음 장으로 넘어갈 수 있습니다.');
-        return;
-      }
-      if (isCreateSubclassRequired && !formState.subclassName) {
-        setFormValidationError('현재 시작 레벨에서는 서브클래스를 선택해야 합니다.');
-        return;
-      }
-    }
-
-    if (isStatsStep && pointBuyState.enforced && !pointBuyState.isValid) {
-      setFormValidationError(
-        '능력치 Point Buy 27 포인트를 정확히 맞춰야 다음 장으로 넘어갈 수 있습니다.'
-      );
-      return;
-    }
-
-    if (
-      isFeaturesStep &&
-      classDefinitions.length > 0 &&
-      (!hasRequiredClassFeatureChoices(formState.className, formState.level, formState.features) ||
-        !hasRequiredRaceFeatureChoices(formState.ancestry, formState.level, formState.features))
-    ) {
-      setFormValidationError(
-        '선택한 종족과 직업의 기능 선택을 완료해야 다음 장으로 넘어갈 수 있습니다.'
-      );
-      return;
-    }
-
-    setFormValidationError(null);
-    setCreateStepIndex((current) => Math.min(CHARACTER_CREATE_STEPS.length - 1, current + 1));
+    goToNextCreateDraftStep({
+      stepKey: currentCreateStep.key,
+      formState,
+      isSubclassRequired: isCreateSubclassRequired,
+      isSubraceRequired: isCreateSubraceRequired,
+      selectedSubraceKey: selectedCreateSubraceKey,
+      pointBuyState,
+      classDefinitionsLoaded: classDefinitions.length > 0,
+    });
   }
 
   async function submitCreateCharacter() {
-    if (classDefinitions.length === 0) {
-      setFormValidationError('클래스 정의를 불러오는 중입니다. 잠시만 기다려 주세요.');
-      return;
+    const submitResult = await submitCreateDraft({
+      classDefinitionsLoaded: classDefinitions.length > 0,
+      isSubclassRequired: isCreateSubclassRequired,
+      isSubraceRequired: isCreateSubraceRequired,
+      selectedSubraceKey: selectedCreateSubraceKey,
+      selectedClass,
+      selectedStartingCantripCount,
+      selectedStartingSlotSpellCount,
+      startingPreparedSpellLimit,
+      startingPreparedSpellOptions,
+      isStartingDynamicPreparedCaster,
+      slotSpellOptions,
+      shouldReturnToSession: Boolean(onReturnToSession),
+      onCreateCharacter,
+      onUpdateCharacter,
+    });
+
+    if (submitResult.succeeded) {
+      clearCreateToast();
     }
 
-    if (
-      !hasRequiredClassFeatureChoices(formState.className, formState.level, formState.features) ||
-      !hasRequiredRaceFeatureChoices(formState.ancestry, formState.level, formState.features)
-    ) {
-      setFormValidationError(
-        '선택한 종족과 직업의 기능 선택을 완료해야 캐릭터를 생성할 수 있습니다.'
-      );
-      return;
-    }
-
-    if (isCreateSubclassRequired && !formState.subclassName) {
-      setFormValidationError('현재 시작 레벨에서는 서브클래스를 선택해야 합니다.');
-      return;
-    }
-
-    if (isCreateSubraceRequired && !selectedCreateSubraceKey) {
-      setFormValidationError('선택한 종족의 하위종족을 선택해야 캐릭터를 생성할 수 있습니다.');
-      return;
-    }
-
-    if (!hasRequiredStartingEquipmentItemSelections(selectedClass, formState)) {
-      setFormValidationError(
-        '시작 장비의 자유 선택 항목에서 실제 아이템을 선택해야 캐릭터를 생성할 수 있습니다.'
-      );
-      return;
-    }
-
-    const shouldValidateStartingSpells =
-      selectedClass &&
-      (selectedStartingCantripCount > 0 ||
-        selectedStartingSlotSpellCount > 0 ||
-        (startingPreparedSpellLimit !== null && startingPreparedSpellOptions.length > 0));
-
-    if (shouldValidateStartingSpells) {
-      const requiredCantripCount = selectedStartingCantripCount;
-      const requiredSpellCount = selectedStartingSlotSpellCount;
-      const cantrips = formState.startingSpells?.cantrips ?? [];
-      const spells = formState.startingSpells?.spells ?? [];
-      const filledCantripCount = cantrips
-        .slice(0, requiredCantripCount)
-        .filter((value) => value.trim().length > 0).length;
-      const filledSpellCount = spells
-        .slice(0, requiredSpellCount)
-        .filter((value) => value.trim().length > 0).length;
-      if (filledCantripCount < requiredCantripCount || filledSpellCount < requiredSpellCount) {
-        setFormValidationError(
-          `${selectedClass.koName} 클래스는 시작 주문을 모두 선택해야 캐릭터를 생성할 수 있습니다. ` +
-            `(캔트립 ${requiredCantripCount}개, 슬롯 주문 ${requiredSpellCount}개)`
-        );
-        return;
-      }
-      const selectedCantrips = cantrips
-        .slice(0, requiredCantripCount)
-        .map((value) => value.trim())
-        .filter(Boolean);
-      const selectedSpells = spells
-        .slice(0, requiredSpellCount)
-        .map((value) => value.trim())
-        .filter(Boolean);
-      if (
-        new Set(selectedCantrips).size !== selectedCantrips.length ||
-        new Set(selectedSpells).size !== selectedSpells.length
-      ) {
-        setFormValidationError('시작 주문은 같은 주문을 중복해서 선택할 수 없습니다.');
-        return;
-      }
-      const preparedSpells = Array.from(
-        new Set(
-          (formState.startingSpells?.preparedSpells ?? [])
-            .map((value) => value.trim())
-            .filter(Boolean)
-        )
-      );
-      const preparedSpellPool = isStartingDynamicPreparedCaster
-        ? slotSpellOptions.map((spell) => spell.id)
-        : selectedSpells;
-      const unknownPreparedSpell = preparedSpells.find(
-        (spellId) => !preparedSpellPool.includes(spellId)
-      );
-      if (unknownPreparedSpell) {
-        setFormValidationError(
-          isStartingDynamicPreparedCaster
-            ? '준비 주문은 현재 시전 가능한 직업 주문 목록 중에서만 고를 수 있습니다.'
-            : '준비 주문은 선택한 슬롯 주문 중에서만 고를 수 있습니다.'
-        );
-        return;
-      }
-      if (
-        startingPreparedSpellLimit !== null &&
-        preparedSpells.length !== startingPreparedSpellLimit
-      ) {
-        setFormValidationError(
-          `준비 주문은 ${startingPreparedSpellLimit}개를 선택해야 합니다.`
-        );
-        return;
-      }
-    }
-
-    setFormValidationError(null);
-
-    const payload = {
-      ...formState,
-      proficientSkills: formState.proficientSkills?.filter(Boolean) ?? [],
-      features: buildClassFeaturesForSubmit(formState.className, formState.features),
-      inventory: inventoryDraft.filter((item) => item.name.trim()),
-      assignToSession: !editingCharacterId && Boolean(onReturnToSession),
-    };
-
-    // 검증 실패 시 모달을 유지해서 사용자가 입력한 폼 상태를 보존한다.
-    // useSession 의 setError 가 props.error 로 전달돼 모달 내부에 인라인 표시된다.
-    const succeeded = editingCharacterId
-      ? await onUpdateCharacter(editingCharacterId, payload)
-      : await onCreateCharacter(payload);
-
-    if (succeeded) {
-      closeCreateModal();
-      if (!editingCharacterId && onReturnToSession) {
-        onReturnToSession();
-      }
+    if (submitResult.shouldReturnToSession) {
+      onReturnToSession?.();
     }
   }
 
   async function handleCloneSelectedCharacter() {
     if (!selectedCharacter) return;
     await onCloneCharacter(selectedCharacter.id);
-  }
-
-  async function handleLevelUpSelectedCharacter() {
-    if (!selectedCharacter || selectedCharacter.level >= 20) return;
-    const targetLevel = Math.min(20, Math.max(selectedCharacter.level + 1, levelUpDraft.targetLevel));
-    const leveledUp = await onLevelUpCharacter(selectedCharacter.id, {
-      targetLevel,
-      hpMode: 'average',
-      applyToActiveSessions: usedCharacterIds.has(selectedCharacter.id),
-      ...(levelUpDraft.subclassName ? { subclassName: levelUpDraft.subclassName } : {}),
-      ...(Object.values(derivedLevelUpAbilityScoreIncreases).some((value) => value > 0)
-        ? { abilityScoreIncreases: derivedLevelUpAbilityScoreIncreases }
-        : {}),
-      ...(selectedLevelUpFeatIds.length
-        ? { featSelections: selectedLevelUpFeatIds }
-        : {}),
-      ...(levelUpDraft.knownSpells.length ? { knownSpells: levelUpDraft.knownSpells } : {}),
-      ...(levelUpDraft.cantrips.length ? { cantrips: levelUpDraft.cantrips } : {}),
-      ...(levelUpDraft.forgottenSpells.length
-        ? { forgottenSpells: levelUpDraft.forgottenSpells }
-        : {}),
-      ...(levelUpDraft.forgottenCantrips.length
-        ? { forgottenCantrips: levelUpDraft.forgottenCantrips }
-        : {}),
-      ...(selectedLevelUpPreparedSpellLimit !== null
-        ? { preparedSpells: levelUpDraft.preparedSpells.filter(Boolean) }
-        : {}),
-    });
-    if (leveledUp) {
-      setLevelUpModalOpen(false);
-    }
-  }
-
-  async function handleSavePreparedSpells() {
-    if (!selectedCharacter) return;
-    await onUpdatePreparedSpells(selectedCharacter.id, {
-      preparedSpells: levelUpDraft.preparedSpells.filter(Boolean),
-    });
-  }
-
-  function togglePreparedSpell(spellId: string) {
-    setLevelUpDraft((current) => {
-      const isSelected = current.preparedSpells.includes(spellId);
-      if (
-        !isSelected &&
-        selectedLevelUpPreparedSpellLimit !== null &&
-        current.preparedSpells.length >= selectedLevelUpPreparedSpellLimit
-      ) {
-        return current;
-      }
-      return {
-        ...current,
-        preparedSpells: isSelected
-          ? current.preparedSpells.filter((id) => id !== spellId)
-          : [...current.preparedSpells, spellId],
-      };
-    });
-  }
-
-  function toggleLevelUpKnownSpell(spellId: string) {
-    setLevelUpDraft((current) => {
-      const isSelected = current.knownSpells.includes(spellId);
-      if (!isSelected && current.knownSpells.length >= knownSpellLearnAllowance) {
-        return current;
-      }
-      return {
-        ...current,
-        knownSpells: isSelected
-          ? current.knownSpells.filter((id) => id !== spellId)
-          : [...current.knownSpells, spellId],
-        preparedSpells: isSelected
-          ? current.preparedSpells.filter((id) => id !== spellId)
-          : current.preparedSpells,
-      };
-    });
-  }
-
-  function toggleLevelUpCantrip(spellId: string) {
-    setLevelUpDraft((current) => {
-      const isSelected = current.cantrips.includes(spellId);
-      if (!isSelected && current.cantrips.length >= cantripLearnAllowance) {
-        return current;
-      }
-      return {
-        ...current,
-        cantrips: isSelected
-          ? current.cantrips.filter((id) => id !== spellId)
-          : [...current.cantrips, spellId],
-      };
-    });
-  }
-
-  function toggleForgottenSpell(spellId: string) {
-    if (!canReplaceSelectedKnownSpells) return;
-    setLevelUpDraft((current) => {
-      const isSelected = current.forgottenSpells.includes(spellId);
-      if (!isSelected && current.forgottenSpells.length >= levelUpLevelDelta) {
-        return current;
-      }
-      const forgottenSpells = isSelected
-        ? current.forgottenSpells.filter((id) => id !== spellId)
-        : [...current.forgottenSpells, spellId];
-      const baseAllowance = selectedKnownSpellDelta?.knownSpellDelta ?? 0;
-      return {
-        ...current,
-        forgottenSpells,
-        knownSpells: current.knownSpells.slice(0, baseAllowance + forgottenSpells.length),
-        preparedSpells: isSelected
-          ? current.preparedSpells
-          : current.preparedSpells.filter((id) => id !== spellId),
-      };
-    });
-  }
-
-  function toggleForgottenCantrip(spellId: string) {
-    setLevelUpDraft((current) => {
-      const isSelected = current.forgottenCantrips.includes(spellId);
-      if (!isSelected && current.forgottenCantrips.length >= levelUpLevelDelta) {
-        return current;
-      }
-      const forgottenCantrips = isSelected
-        ? current.forgottenCantrips.filter((id) => id !== spellId)
-        : [...current.forgottenCantrips, spellId];
-      const baseAllowance = selectedKnownSpellDelta?.cantripDelta ?? 0;
-      return {
-        ...current,
-        forgottenCantrips,
-        cantrips: current.cantrips.slice(0, baseAllowance + forgottenCantrips.length),
-      };
-    });
-  }
-
-  function setLevelUpKnownSpells(nextSpellIds: string[]) {
-    setLevelUpDraft((current) => {
-      const knownSpells = nextSpellIds.slice(0, knownSpellLearnAllowance);
-      const knownSpellSet = new Set(knownSpells);
-      const removedLearnedSpells = new Set(
-        current.knownSpells.filter((spellId) => !knownSpellSet.has(spellId))
-      );
-      return {
-        ...current,
-        knownSpells,
-        preparedSpells: current.preparedSpells.filter(
-          (spellId) => !removedLearnedSpells.has(spellId)
-        ),
-      };
-    });
-  }
-
-  function setLevelUpCantrips(nextCantripIds: string[]) {
-    setLevelUpDraft((current) => ({
-      ...current,
-      cantrips: nextCantripIds.slice(0, cantripLearnAllowance),
-    }));
-  }
-
-  function setForgottenSpells(nextSpellIds: string[]) {
-    if (!canReplaceSelectedKnownSpells) return;
-    setLevelUpDraft((current) => {
-      const forgottenSpells = nextSpellIds.slice(0, levelUpLevelDelta);
-      const previousForgotten = new Set(current.forgottenSpells);
-      const newlyForgotten = new Set(
-        forgottenSpells.filter((spellId) => !previousForgotten.has(spellId))
-      );
-      const baseAllowance = selectedKnownSpellDelta?.knownSpellDelta ?? 0;
-
-      return {
-        ...current,
-        forgottenSpells,
-        knownSpells: current.knownSpells.slice(0, baseAllowance + forgottenSpells.length),
-        preparedSpells: current.preparedSpells.filter(
-          (spellId) => !newlyForgotten.has(spellId)
-        ),
-      };
-    });
-  }
-
-  function setForgottenCantrips(nextCantripIds: string[]) {
-    setLevelUpDraft((current) => {
-      const forgottenCantrips = nextCantripIds.slice(0, levelUpLevelDelta);
-      const baseAllowance = selectedKnownSpellDelta?.cantripDelta ?? 0;
-      return {
-        ...current,
-        forgottenCantrips,
-        cantrips: current.cantrips.slice(0, baseAllowance + forgottenCantrips.length),
-      };
-    });
-  }
-
-  function setPreparedSpells(nextSpellIds: string[]) {
-    setLevelUpDraft((current) => ({
-      ...current,
-      preparedSpells: nextSpellIds.slice(
-        0,
-        selectedLevelUpPreparedSpellLimit ?? nextSpellIds.length
-      ),
-    }));
-  }
-
-  async function handleDeleteSelectedCharacter() {
-    if (!selectedCharacter) return;
-    if (usedCharacterIds.has(selectedCharacter.id)) {
-      setDeleteWarning(
-        '\uC774 \uCE90\uB9AD\uD130\uB294 \uC138\uC158\uC5D0\uC11C \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4.\n\uC0AC\uC6A9 \uC911\uC778 \uC138\uC158\uC744 \uC885\uB8CC\uD558\uACE0 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.'
-      );
-      return;
-    }
-    setDeleteModalOpen(true);
-  }
-
-  async function confirmDeleteSelectedCharacter() {
-    if (!selectedCharacter) return;
-    await onDeleteCharacter(selectedCharacter.id);
-    setDeleteModalOpen(false);
-  }
-
-  // 능력치 입력값을 1~30 범위로 보정해 formState에 반영합니다.
-  function updateAbility(ability: AbilityKey, value: number) {
-    setFormState((current) => ({
-      ...current,
-      abilities: {
-        ...current.abilities!,
-        [ability]: value,
-      },
-    }));
-  }
-
-  function addSkill(skill: string) {
-    // 입력값을 한국어로 정규화 — 영문 칩(Arcana)도 한국어(비전학)로 통일해 BE 검증·DB 저장 형식과 맞춘다.
-    // 매칭 실패 시 trim 한 원문 그대로 두면 BE 가 unknown 으로 거부 → 사용자 인라인 에러로 노출된다.
-    const trimmed = skill.trim();
-    if (!trimmed) return;
-    const normalized = normalizeSkillToKo(trimmed) ?? trimmed;
-
-    // 클래스가 정해져 있으면 시드 기반 갯수 제한을 그대로 강제한다 (BE 와 동일 정책).
-    const limit = selectedClass?.skillChoiceCount ?? null;
-    setFormState((current) => {
-      const existing = current.proficientSkills ?? [];
-      if (existing.includes(normalized)) {
-        return current;
-      }
-      if (limit !== null && existing.length >= limit) {
-        return current;
-      }
-      return {
-        ...current,
-        proficientSkills: [...existing, normalized],
-      };
-    });
-    setSkillInput('');
-  }
-
-  function removeSkill(skill: string) {
-    setFormState((current) => ({
-      ...current,
-      proficientSkills: (current.proficientSkills ?? []).filter((entry) => entry !== skill),
-      features: replaceFeatureTags(current.features, [`expertise:${skill}`], []),
-    }));
   }
 
   return (
@@ -3876,7 +912,7 @@ export function CharacterPage({
             type="button"
             className="fantasy-character-sidebutton"
             style={{ backgroundImage: `url(${sidePanelImage})` }}
-            onClick={() => void handleDeleteSelectedCharacter()}
+            onClick={requestDeleteSelectedCharacter}
             disabled={!selectedCharacter || busy}
           >
             캐릭터 삭제
@@ -3893,34 +929,30 @@ export function CharacterPage({
           <div className="fantasy-character-board-scroll fantasy-scroll-hidden">
             {/* 보유 캐릭터 카드 목록입니다. 카드 선택 시 상세 패널이 바뀝니다. */}
             <div className="fantasy-character-grid">
-              {characters.map((character) => {
-                const isSelected = character.id === selectedCharacterId;
-                const isInUse = usedCharacterIds.has(character.id);
-                const art = getCharacterImage(character);
-
-                return (
-                  <button
-                    type="button"
-                    key={character.id}
-                    className={`fantasy-character-card${isSelected ? ' selected' : ''}`}
-                    onClick={() => setSelectedCharacterId(character.id)}
+              {characterCardViewModels.map((character) => (
+                <button
+                  type="button"
+                  key={character.id}
+                  className={`fantasy-character-card${character.isSelected ? ' selected' : ''}`}
+                  onClick={() => setSelectedCharacterId(character.id)}
+                >
+                  <div
+                    className="fantasy-character-card-frame"
+                    style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
                   >
-                    <div
-                      className="fantasy-character-card-frame"
-                      style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
-                    >
-                      <img src={art} alt={character.name} className="fantasy-character-card-art" />
-                      {isInUse ? (
-                        <div className="fantasy-character-card-overlay">사용 중...</div>
-                      ) : null}
-                      <div className="fantasy-character-card-nameplate">{character.name}</div>
-                      <div className="fantasy-character-card-class">
-                        {getCharacterClassLabel(character.className)}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    <img
+                      src={character.image}
+                      alt={character.name}
+                      className="fantasy-character-card-art"
+                    />
+                    {character.isInUse ? (
+                      <div className="fantasy-character-card-overlay">사용 중...</div>
+                    ) : null}
+                    <div className="fantasy-character-card-nameplate">{character.name}</div>
+                    <div className="fantasy-character-card-class">{character.classLabel}</div>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
           <div
@@ -3931,7 +963,7 @@ export function CharacterPage({
         </section>
 
         <section className="fantasy-character-detail">
-          {selectedCharacter ? (
+          {selectedCharacter && selectedCharacterDetail ? (
             <>
               <article
                 className="fantasy-character-stats-frame"
@@ -3939,42 +971,15 @@ export function CharacterPage({
               >
                 <div className="fantasy-character-stats-scroll fantasy-scroll-hidden">
                   <div className="fantasy-character-stats-content">
-                    <h2>{selectedCharacter.name}</h2>
+                    <h2>{selectedCharacterDetail.name}</h2>
 
                     <dl className="fantasy-character-summary-list">
-                      <div>
-                        <dt>종족</dt>
-                        <dd>
-                          {getCharacterAncestryLabel(selectedCharacter.ancestry, ancestryLabelMap)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>직업</dt>
-                        <dd>{getCharacterClassLabel(selectedCharacter.className)}</dd>
-                      </div>
-                      <div>
-                        <dt>레벨</dt>
-                        <dd>{selectedCharacter.level}</dd>
-                      </div>
-                      <div>
-                        <dt>HP</dt>
-                        <dd>
-                          {formatStat(selectedCharacter.maxHp)}/
-                          {formatStat(selectedCharacter.maxHp)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>방어도</dt>
-                        <dd>{formatStat(selectedCharacter.armorClass)}</dd>
-                      </div>
-                      <div>
-                        <dt>속도</dt>
-                        <dd>{formatStat(selectedCharacter.speed)}</dd>
-                      </div>
-                      <div>
-                        <dt>숙련도</dt>
-                        <dd>{formatStat(selectedCharacter.proficiencyBonus)}</dd>
-                      </div>
+                      {selectedCharacterDetail.summaryRows.map((row) => (
+                        <div key={row.label}>
+                          <dt>{row.label}</dt>
+                          <dd>{row.value}</dd>
+                        </div>
+                      ))}
                     </dl>
 
                     <section className="fantasy-character-stats-section">
@@ -4002,56 +1007,27 @@ export function CharacterPage({
                       <h3>주문</h3>
                       {selectedHasAnySpells ? (
                         <div className="fantasy-character-spell-summary">
-                          {selectedDisplayCantrips.length ? (
-                            <article className="fantasy-character-spell-group">
+                          {selectedDisplaySpellGroups.map((group) => (
+                            <article
+                              key={group.key}
+                              className={`fantasy-character-spell-group${
+                                group.isPrepared ? ' prepared' : ''
+                              }`}
+                            >
                               <div className="fantasy-character-spell-group-heading">
-                                <strong>캔트립</strong>
-                                <span>{selectedDisplayCantrips.length}개</span>
+                                <strong>{group.title}</strong>
+                                <span>{group.count}개</span>
                               </div>
                               <SpellSelectionGrid
-                                title="캔트립"
-                                options={selectedDisplayCantripOptions}
+                                title={group.title}
+                                options={group.options}
                                 selectedIds={[]}
                                 readOnly
                                 showHeader={false}
                                 showToolbar={false}
                               />
                             </article>
-                          ) : null}
-                          {selectedDisplayKnownSpells.length ? (
-                            <article className="fantasy-character-spell-group">
-                              <div className="fantasy-character-spell-group-heading">
-                                <strong>
-                                  {isSelectedCharacterWizard ? '주문책 / 저장 주문' : '알고 있는 주문'}
-                                </strong>
-                                <span>{selectedDisplayKnownSpells.length}개</span>
-                              </div>
-                              <SpellSelectionGrid
-                                title={isSelectedCharacterWizard ? '주문책 / 저장 주문' : '알고 있는 주문'}
-                                options={selectedDisplayKnownSpellOptions}
-                                selectedIds={[]}
-                                readOnly
-                                showHeader={false}
-                                showToolbar={false}
-                              />
-                            </article>
-                          ) : null}
-                          {selectedDisplayPreparedSpells.length ? (
-                            <article className="fantasy-character-spell-group prepared">
-                              <div className="fantasy-character-spell-group-heading">
-                                <strong>준비 주문</strong>
-                                <span>{selectedDisplayPreparedSpells.length}개</span>
-                              </div>
-                              <SpellSelectionGrid
-                                title="준비 주문"
-                                options={selectedDisplayPreparedSpellOptions}
-                                selectedIds={[]}
-                                readOnly
-                                showHeader={false}
-                                showToolbar={false}
-                              />
-                            </article>
-                          ) : null}
+                          ))}
                         </div>
                       ) : (
                         <p className="character-empty-note">
@@ -4066,38 +1042,31 @@ export function CharacterPage({
                       <button
                         type="button"
                         className="primary character-level-up-open"
-                        onClick={() => setLevelUpModalOpen(true)}
-                        disabled={busy || selectedCharacter.level >= 20}
+                        onClick={openLevelUpModal}
+                        disabled={busy || !selectedCharacterDetail.canLevelUp}
                       >
-                        {selectedCharacter.level >= 20 ? '최대 레벨' : '레벨업 열기'}
+                        {selectedCharacterDetail.levelUpButtonLabel}
                       </button>
                     </section>
 
                     <section className="fantasy-character-stats-section">
                       <h3>능력치</h3>
                       <div className="fantasy-character-abilities-grid">
-                        {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
-                          <div key={ability}>
-                            <strong>{abilityDisplayLabels[ability]}</strong>
+                        {selectedCharacterDetail.abilityRows.map((ability) => (
+                          <div key={ability.ability}>
+                            <strong>{ability.label}</strong>
                             <span className="fantasy-character-ability-value">
-                              {formatStat(selectedCharacter.abilities[ability])} (
-                              {formatModifier(selectedCharacter.abilities[ability])})
+                              {ability.value} ({ability.modifier})
                             </span>
                             <span
                               className="fantasy-character-ability-help"
                               tabIndex={0}
                               role="note"
-                              aria-label={getAbilityModifierTooltip(
-                                ability,
-                                selectedCharacter.abilities[ability]
-                              )}
+                              aria-label={ability.tooltip}
                             >
                               ?
                               <span className="fantasy-character-ability-tooltip" role="tooltip">
-                                {getAbilityModifierTooltip(
-                                  ability,
-                                  selectedCharacter.abilities[ability]
-                                )}
+                                {ability.tooltip}
                               </span>
                             </span>
                           </div>
@@ -4107,10 +1076,10 @@ export function CharacterPage({
 
                     <section className="fantasy-character-stats-section">
                       <h3>기술 숙련</h3>
-                      {selectedCharacter.proficientSkills.length ? (
+                      {selectedCharacterDetail.skillLabels.length ? (
                         <ul className="fantasy-character-text-list">
-                          {selectedCharacter.proficientSkills.map((skill) => (
-                            <li key={skill}>{getSkillLabel(skill)}</li>
+                          {selectedCharacterDetail.skillLabels.map((skill) => (
+                            <li key={skill}>{skill}</li>
                           ))}
                         </ul>
                       ) : (
@@ -4148,7 +1117,7 @@ export function CharacterPage({
       {catalogError ? <p className="panel-error">{catalogError}</p> : null}
       {error && !isCreateModalOpen ? <p className="panel-error">{error}</p> : null}
       {deleteWarning ? (
-        <button type="button" className="page-error-toast" onClick={() => setDeleteWarning(null)}>
+        <button type="button" className="page-error-toast" onClick={dismissDeleteWarning}>
           {deleteWarning}
         </button>
       ) : null}
@@ -4196,7 +1165,7 @@ export function CharacterPage({
               onSubmit={(event: FormEvent<HTMLFormElement>) => event.preventDefault()}
             >
               <div className="character-create-stepper" aria-label="캐릭터 생성 단계">
-                {CHARACTER_CREATE_STEPS.map((step, index) => {
+                {characterCreateSteps.map((step, index) => {
                   const isActive = index === createStepIndex;
                   const isCompleted = index < createStepIndex;
 
@@ -4241,9 +1210,7 @@ export function CharacterPage({
                           <input
                             id="character-name-create"
                             value={formState.name}
-                            onChange={(event) =>
-                              setFormState((current) => ({ ...current, name: event.target.value }))
-                            }
+                            onChange={(event) => setCreateName(event.target.value)}
                             maxLength={50}
                             required
                           />
@@ -4253,87 +1220,7 @@ export function CharacterPage({
                           <select
                             id="character-scenario-create"
                             value={formState.scenarioId ?? ''}
-                            onChange={(event) =>
-                              setFormState((current) => {
-                                const nextScenarioId = event.target.value || null;
-                                const nextScenario = scenarios.find((s) => s.id === nextScenarioId);
-                                const nextLevel = normalizeLevel(nextScenario?.startLevel ?? 1);
-                                const currentLevel = normalizeLevel(current.level ?? 1);
-                                const nextStats = applyLevelDeltaStats(
-                                  current,
-                                  nextLevel - currentLevel,
-                                  nextLevel
-                                );
-                                const levelAdjustedAbilities = applyLevelDeltaAbilities(
-                                  current,
-                                  nextLevel - currentLevel
-                                );
-                                const currentClassKey = normalizeSrdCharacterClassKey(
-                                  current.className ?? ''
-                                );
-                                const subclassChoiceLevel =
-                                  resolveSubclassChoiceLevel(currentClassKey);
-                                const currentClass = classDefinitions.find(
-                                  (klass) => klass.key === currentClassKey
-                                );
-                                const startingSlotSpellCount = resolveStartingSlotSpellCount(
-                                  currentClass,
-                                  current.className,
-                                  nextLevel,
-                                  ruleCatalog,
-                                  spellPools
-                                );
-                                const startingCantripCount = resolveStartingCantripCount(
-                                  currentClass,
-                                  current.className,
-                                  nextLevel,
-                                  ruleCatalog
-                                );
-                                const startingSpells =
-                                  currentClass &&
-                                  (startingCantripCount > 0 ||
-                                    startingSlotSpellCount > 0)
-                                    ? {
-                                        cantrips: new Array(startingCantripCount).fill(''),
-                                        spells: new Array(startingSlotSpellCount).fill(''),
-                                        ...(resolveCharacterPreparedSpellLimit(
-                                          current.className,
-                                          nextLevel,
-                                          levelAdjustedAbilities
-                                        ) !== null
-                                          ? { preparedSpells: [] }
-                                          : {}),
-                                      }
-                                    : undefined;
-
-                                const nextAsiFeatChoices =
-                                  normalizeAsiFeatChoicesForClassLevel(
-                                    current.className,
-                                    nextLevel,
-                                    current.features
-                                  );
-
-                                return {
-                                  ...current,
-                                  scenarioId: nextScenarioId,
-                                  level: nextLevel,
-                                  subclassName:
-                                    subclassChoiceLevel !== null &&
-                                    nextLevel >= subclassChoiceLevel
-                                      ? current.subclassName
-                                      : null,
-                                  maxHp: nextStats.maxHp,
-                                  armorClass: nextStats.armorClass,
-                                  proficiencyBonus: nextStats.proficiencyBonus,
-                                  abilities: levelAdjustedAbilities,
-                                  features: replaceSelectedAsiFeatChoiceIds(
-                                    current.features,
-                                    nextAsiFeatChoices
-                                  ),
-                                  startingSpells,
-                                };
-                              })
-                            }
+                            onChange={(event) => selectScenario(event.target.value || null)}
                             required
                           >
                             <option value="" disabled>
@@ -4380,7 +1267,7 @@ export function CharacterPage({
                             id="character-ancestry-create"
                             value={selectedCreateBaseRace?.key ?? ''}
                             onChange={(event) => {
-                              applyCreateAncestryChange(event.target.value);
+                              selectAncestry(event.target.value);
                             }}
                             required
                           >
@@ -4400,7 +1287,7 @@ export function CharacterPage({
                             <select
                               id="character-subrace-create"
                               value={selectedCreateSubraceKey}
-                              onChange={(event) => applyCreateAncestryChange(event.target.value)}
+                              onChange={(event) => selectAncestry(event.target.value)}
                               required
                             >
                               <option value="">
@@ -4422,101 +1309,9 @@ export function CharacterPage({
                             id="character-class-create"
                             value={formState.className}
                             onChange={(event) =>
-                              setFormState((current) => {
-                                const className = event.target.value;
-                                const recommendedStats = getRecommendedStats(
-                                  className,
-                                  current.level ?? 1
-                                );
-                                // Point Buy 도입 후: 클래스 변경해도 abilities 는 사용자가 배분한 값 유지.
-                                // HP/AC/이동속도/숙련 보너스만 클래스 변경에 따라 재계산.
-                                // 시작 장비 선택은 슬롯 개수에 맞춰 모두 0(첫 옵션)으로 초기화.
-                                const nextClassKey = normalizeSrdCharacterClassKey(className);
-                                const nextClass = classDefinitions.find(
-                                  (c) => c.key === nextClassKey
-                                );
-                                const nextSelection = nextClass
-                                  ? new Array(nextClass.startingEquipment.slots.length).fill(0)
-                                  : undefined;
-                                const raceBonus = selectedRace?.abilityIncreases ?? {
-                                  str: 0,
-                                  dex: 0,
-                                  con: 0,
-                                  int: 0,
-                                  wis: 0,
-                                  cha: 0,
-                                };
-                                const nextAbilities = clampAbilitiesToPointBuyRange(
-                                  current.abilities ?? {
-                                    str: 8,
-                                    dex: 8,
-                                    con: 8,
-                                    int: 8,
-                                    wis: 8,
-                                    cha: 8,
-                                  },
-                                  raceBonus
-                                );
-                                const nextSpells =
-                                  nextClass &&
-                                  (resolveStartingCantripCount(
-                                    nextClass,
-                                    className,
-                                    current.level ?? 1,
-                                    ruleCatalog
-                                  ) > 0 ||
-                                    resolveStartingSlotSpellCount(
-                                      nextClass,
-                                      className,
-                                      current.level ?? 1,
-                                      ruleCatalog,
-                                      spellPools
-                                    ) > 0)
-                                    ? {
-                                        cantrips: new Array(
-                                          resolveStartingCantripCount(
-                                            nextClass,
-                                            className,
-                                            current.level ?? 1,
-                                            ruleCatalog
-                                          )
-                                        ).fill(''),
-                                        spells: new Array(
-                                          resolveStartingSlotSpellCount(
-                                            nextClass,
-                                            className,
-                                            current.level ?? 1,
-                                            ruleCatalog,
-                                            spellPools
-                                          )
-                                        ).fill(''),
-                                        ...(resolveCharacterPreparedSpellLimit(
-                                          className,
-                                          current.level ?? 1,
-                                          nextAbilities
-                                        ) !== null
-                                          ? { preparedSpells: [] }
-                                          : {}),
-                                      }
-                                    : undefined;
-                                return {
-                                  ...current,
-                                  className,
-                                  subclassName: null,
-                                  avatarType: 'PRESET',
-                                  avatarPresetId: getPresetIdForClassName(className),
-                                  avatarUrl: null,
-                                  maxHp: recommendedStats.maxHp,
-                                  armorClass: recommendedStats.armorClass,
-                                  speed: recommendedStats.speed,
-                                  proficiencyBonus: recommendedStats.proficiencyBonus,
-                                  abilities: nextAbilities,
-                                  startingEquipmentSelection: nextSelection,
-                                  startingEquipmentItemSelections: {},
-                                  startingSpells: nextSpells,
-                                  proficientSkills: [],
-                                  features: [],
-                                };
+                              selectClass({
+                                className: event.target.value,
+                                raceAbilityIncreases: selectedRace?.abilityIncreases,
                               })
                             }
                             required
@@ -4538,12 +1333,7 @@ export function CharacterPage({
                             <select
                               id="character-subclass-create"
                               value={formState.subclassName ?? ''}
-                              onChange={(event) =>
-                                setFormState((current) => ({
-                                  ...current,
-                                  subclassName: event.target.value || null,
-                                }))
-                              }
+                              onChange={(event) => setCreateSubclass(event.target.value)}
                               required={isCreateSubclassRequired}
                             >
                               <option value="">
@@ -4603,40 +1393,19 @@ export function CharacterPage({
                                 <div className="character-create-stats-popover-body">
                                   <section className="fantasy-insight-section">
                                     <strong className="fantasy-insight-title">
-                                      {selectedRaceInfo?.label ?? '종족 정보'}
+                                      {createStatReferenceViewModel.race.title}
                                     </strong>
-                                    <p>
-                                      능력치 보너스:{' '}
-                                      {(selectedRaceInfo?.abilityBonuses ?? [])
-                                        .map((bonus) => formatAbilityBonus(bonus))
-                                        .join(', ') || '정보 없음'}
-                                    </p>
-                                    <p>
-                                      이동속도:{' '}
-                                      {selectedRaceInfo
-                                        ? `${selectedRaceInfo.speed} ft.`
-                                        : '정보 없음'}
-                                    </p>
-                                    <p>크기: {selectedRaceInfo?.size ?? '정보 없음'}</p>
+                                    {createStatReferenceViewModel.race.lines.map((line) => (
+                                      <p key={line}>{line}</p>
+                                    ))}
                                   </section>
                                   <section className="fantasy-insight-section">
                                     <strong className="fantasy-insight-title">
-                                      {selectedClassInfo?.label ?? '직업 정보'}
+                                      {createStatReferenceViewModel.klass.title}
                                     </strong>
-                                    <p>{selectedClassInfo?.summary ?? '직업 설명이 없습니다.'}</p>
-                                    <p>
-                                      주 능력치:{' '}
-                                      {selectedClassInfo
-                                        ? localizeAbilityText(selectedClassInfo.primaryAbilitiesRaw)
-                                        : '정보 없음'}
-                                    </p>
-                                    <p>히트 다이스: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
-                                    <p>
-                                      주문시전 능력치:{' '}
-                                      {selectedClassInfo?.spellcastingAbility
-                                        ? localizeSrdTermText(selectedClassInfo.spellcastingAbility)
-                                        : '없음'}
-                                    </p>
+                                    {createStatReferenceViewModel.klass.lines.map((line) => (
+                                      <p key={line}>{line}</p>
+                                    ))}
                                   </section>
                                 </div>
                               </div>
@@ -4687,7 +1456,9 @@ export function CharacterPage({
                                     key={skill}
                                     type="button"
                                     className="character-skill-chip"
-                                    onClick={() => addSkill(skill)}
+                                    onClick={() =>
+                                      addCreateSkill(skill, selectedClass?.skillChoiceCount ?? null)
+                                    }
                                     disabled={disabled}
                                     style={
                                       disabled
@@ -4722,7 +1493,7 @@ export function CharacterPage({
                               {getSkillLabel(skill)}
                               <button
                                 type="button"
-                                onClick={() => removeSkill(skill)}
+                                onClick={() => removeCreateSkill(skill)}
                                 aria-label={`${getSkillLabel(skill)} 제거`}
                                 style={{
                                   display: 'inline-flex',
@@ -4836,7 +1607,7 @@ export function CharacterPage({
                     </section>
                   ) : null}
 
-                  {isFeaturesStep && getCreationAsiLevels(formState.className, formState.level ?? 1).length ? (
+                  {isFeaturesStep && creationAsiFeatChoiceState.asiLevels.length ? (
                     <section className="character-form-section character-feat-selection-section">
                       <div className="section-heading compact">
                         <div>
@@ -4850,14 +1621,8 @@ export function CharacterPage({
                         Point Buy 27포인트 계산에는 영향을 주지 않습니다.
                       </p>
                       <div className="character-feat-choice-list">
-                        {getCreationAsiLevels(formState.className, formState.level ?? 1).map(
-                          (asiLevel, index) => {
-                            const selectedChoiceIds = getSelectedAsiFeatChoiceIds(formState.features);
-                            const selectedChoiceId = selectedChoiceIds[index] ?? '';
-                            const selectedAsiAbility = getAbilityFromAsiChoiceId(selectedChoiceId);
-                            const selectedFeat = selectedChoiceId.startsWith('feat.')
-                              ? featOptionById.get(selectedChoiceId)
-                              : null;
+                        {creationAsiFeatChoiceState.choices.map(
+                          ({ asiLevel, selectedChoiceId, selectedAsiAbility, selectedFeat }, index) => {
                             return (
                               <div key={asiLevel} className="character-feat-choice-card">
                                 <label htmlFor={`character-feat-${asiLevel}`}>
@@ -4868,30 +1633,19 @@ export function CharacterPage({
                                   value={selectedChoiceId}
                                   onChange={(event) => {
                                     const nextChoiceId = event.target.value;
-                                    setFormState((current) => {
-                                      const currentChoiceIds = getSelectedAsiFeatChoiceIds(
-                                        current.features
-                                      );
-                                      const nextChoiceIds = [...currentChoiceIds];
-                                      nextChoiceIds[index] = nextChoiceId;
-                                      const filteredNextChoiceIds = nextChoiceIds.filter(Boolean);
-                                      return {
-                                        ...current,
-                                        features: replaceSelectedAsiFeatChoiceIds(
-                                          current.features,
-                                          filteredNextChoiceIds
-                                        ),
-                                      };
-                                    });
+                                    setAsiFeatChoice(index, nextChoiceId);
                                   }}
                                 >
                                   <option value="">선택 필요</option>
-                                  {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map(
+                                  {abilityKeys.map(
                                     (ability) => {
                                       const choiceId = getAsiChoiceId(ability);
                                       const isAlreadySelectedElsewhere =
-                                        selectedChoiceIds.includes(choiceId) &&
-                                        selectedChoiceId !== choiceId;
+                                        isAsiFeatChoiceSelectedElsewhere(
+                                          creationAsiFeatChoiceState.selectedChoiceIds,
+                                          selectedChoiceId,
+                                          choiceId
+                                        );
                                       return (
                                       <option
                                         key={ability}
@@ -4907,10 +1661,11 @@ export function CharacterPage({
                                     <option
                                       key={feat.id}
                                       value={feat.id}
-                                      disabled={
-                                        selectedChoiceIds.includes(feat.id) &&
-                                        selectedChoiceId !== feat.id
-                                      }
+                                      disabled={isAsiFeatChoiceSelectedElsewhere(
+                                        creationAsiFeatChoiceState.selectedChoiceIds,
+                                        selectedChoiceId,
+                                        feat.id
+                                      )}
                                     >
                                       {feat.label}
                                     </option>
@@ -4931,7 +1686,7 @@ export function CharacterPage({
                     </section>
                   ) : null}
 
-                  {isFeaturesStep && activeFeatureChoiceDefinitions.length ? (
+                  {isFeaturesStep && featureChoiceViewModels.length ? (
                     <section className="character-form-section">
                       <div className="section-heading compact">
                         <div>
@@ -4940,21 +1695,14 @@ export function CharacterPage({
                         </div>
                       </div>
 
-                      {activeFeatureChoiceDefinitions.map((definition) => {
-                        const context = getFeatureChoiceContext({
-                          ancestry: formState.ancestry,
-                          className: formState.className,
-                          level: formState.level,
-                          features: formState.features,
-                          proficientSkills: formState.proficientSkills,
-                        });
-                        const options = definition.getOptions(context);
-                        const selectedValues = getFeatureChoiceSelectedValues(
-                          definition,
-                          formState.features
-                        );
-                        const isComplete = isFeatureChoiceComplete(definition, context);
-
+                      {featureChoiceViewModels.map(({
+                        definition,
+                        options,
+                        selectedValues,
+                        isComplete,
+                        statusLabel,
+                        summary,
+                      }) => {
                         return (
                           <div key={definition.id} className="character-feature-choice-block">
                             <div className="character-feature-choice-heading">
@@ -4962,10 +1710,10 @@ export function CharacterPage({
                                 {definition.label}
                               </label>
                               <span className={isComplete ? 'status-chip' : 'status-chip warning'}>
-                                {isComplete ? '선택 완료' : `선택 필요 ${selectedValues.length}/${definition.requiredSelections}`}
+                                {statusLabel}
                               </span>
                             </div>
-                            <p className="field-help">{getFeatureChoiceSummary(definition, context)}</p>
+                            <p className="field-help">{summary}</p>
 
                             {definition.mode === 'single' ? (
                               <select
@@ -4974,14 +1722,7 @@ export function CharacterPage({
                                 required
                                 onChange={(event) => {
                                   const nextValue = event.target.value;
-                                  setFormState((current) => ({
-                                    ...current,
-                                    features: replaceFeatureTags(
-                                      current.features,
-                                      definition.removedPrefixes,
-                                      nextValue ? [`${definition.featurePrefix}${nextValue}`] : []
-                                    ),
-                                  }));
+                                  setSingleFeatureChoice(definition, nextValue);
                                 }}
                               >
                                 <option value="" disabled>
@@ -5010,32 +1751,7 @@ export function CharacterPage({
                                       aria-pressed={selected}
                                       disabled={disabled}
                                       onClick={() =>
-                                        setFormState((current) => {
-                                          const currentSelections = getFeatureChoiceSelectedValues(
-                                            definition,
-                                            current.features
-                                          );
-                                          const nextSelections = currentSelections.includes(
-                                            option.value
-                                          )
-                                            ? currentSelections.filter(
-                                                (entry) => entry !== option.value
-                                              )
-                                            : [
-                                                ...currentSelections,
-                                                option.value,
-                                              ].slice(0, definition.requiredSelections);
-                                          return {
-                                            ...current,
-                                            features: replaceFeatureTags(
-                                              current.features,
-                                              definition.removedPrefixes,
-                                              nextSelections.map(
-                                                (entry) => `${definition.featurePrefix}${entry}`
-                                              )
-                                            ),
-                                          };
-                                        })
+                                        toggleMultiFeatureChoice(definition, option.value)
                                       }
                                     >
                                       {option.label}
@@ -5058,20 +1774,12 @@ export function CharacterPage({
                           <h2>슬롯 선택 (룰북 강제)</h2>
                         </div>
                       </div>
-                      {getClassStartingEquipmentSlots(selectedClass).map((slot, slotIndex) => {
-                        const selectedOptionIndex =
-                          formState.startingEquipmentSelection?.[slotIndex] ?? 0;
-                        const selectedOption = slot.options[selectedOptionIndex] ?? slot.options[0];
-                        const formatOption = (option: (typeof slot.options)[number]) =>
-                          option.items
-                            .map((it) => {
-                              const concreteChoice = getStartingEquipmentConcreteChoice(it.itemKey);
-                              const ko = concreteChoice
-                                ? `${concreteChoice.label} 선택`
-                                : (itemKoNameByKey.get(it.itemKey) ?? it.itemKey);
-                              return it.quantity > 1 ? `${ko} ×${it.quantity}` : ko;
-                            })
-                            .join(' + ');
+                      {startingEquipmentSlotViewModels.map(({
+                        slot,
+                        slotIndex,
+                        selectedOptionIndex,
+                        concreteItemSelections,
+                      }) => {
                         return (
                           <div key={slotIndex} style={{ marginBottom: 12 }}>
                             <label htmlFor={`starting-equipment-${slotIndex}`}>
@@ -5079,7 +1787,11 @@ export function CharacterPage({
                             </label>
                             {slot.options.length === 1 ? (
                               <div style={{ padding: '6px 10px', opacity: 0.85 }}>
-                                {formatOption(slot.options[0]!)} (고정)
+                                {formatStartingEquipmentOption(
+                                  slot.options[0]!,
+                                  itemKoNameByKey
+                                )}{' '}
+                                (고정)
                               </div>
                             ) : (
                               <select
@@ -5087,70 +1799,41 @@ export function CharacterPage({
                                 value={selectedOptionIndex}
                                 onChange={(event) => {
                                   const idx = Number(event.target.value);
-                                  setFormState((current) => {
-                                    const base =
-                                      current.startingEquipmentSelection ??
-                                      new Array(
-                                        getClassStartingEquipmentSlots(selectedClass).length
-                                      ).fill(0);
-                                    const next = [...base];
-                                    next[slotIndex] = idx;
-                                    return {
-                                      ...current,
-                                      startingEquipmentSelection: next,
-                                      startingEquipmentItemSelections:
-                                        clearStartingEquipmentItemSelectionsForSlot(
-                                          current.startingEquipmentItemSelections,
-                                          slotIndex
-                                        ),
-                                    };
+                                  selectStartingEquipmentSlot({
+                                    slotIndex,
+                                    optionIndex: idx,
+                                    slotCount: startingEquipmentSlotViewModels.length,
                                   });
                                 }}
                               >
                                 {slot.options.map((option, optIdx) => (
                                   <option key={optIdx} value={optIdx}>
-                                    {formatOption(option)}
+                                    {formatStartingEquipmentOption(option, itemKoNameByKey)}
                                   </option>
                                 ))}
                               </select>
                             )}
-                            {selectedOption?.items.map((item, itemIndex) => {
-                              const concreteChoice = getStartingEquipmentConcreteChoice(
-                                item.itemKey
-                              );
-                              if (!concreteChoice) return null;
-                              const selectionKey = getStartingEquipmentItemSelectionKey(
-                                slotIndex,
-                                itemIndex
-                              );
+                            {concreteItemSelections.map((itemSelection) => {
                               return (
-                                <div key={selectionKey} style={{ marginTop: 8 }}>
-                                  <label htmlFor={`starting-equipment-item-${selectionKey}`}>
-                                    {item.quantity > 1
-                                      ? `${concreteChoice.label} ${item.quantity}개`
-                                      : concreteChoice.label}
+                                <div key={itemSelection.key} style={{ marginTop: 8 }}>
+                                  <label htmlFor={`starting-equipment-item-${itemSelection.key}`}>
+                                    {itemSelection.label}
                                   </label>
                                   <select
-                                    id={`starting-equipment-item-${selectionKey}`}
-                                    value={
-                                      formState.startingEquipmentItemSelections?.[selectionKey] ??
-                                      ''
-                                    }
+                                    id={`starting-equipment-item-${itemSelection.key}`}
+                                    value={itemSelection.selectedValue}
                                     required
                                     onChange={(event) =>
-                                      setFormState((current) => ({
-                                        ...current,
-                                        startingEquipmentItemSelections: {
-                                          ...(current.startingEquipmentItemSelections ?? {}),
-                                          [selectionKey]: event.target.value,
-                                        },
-                                      }))
+                                      selectStartingEquipmentItem(
+                                        itemSelection.key,
+                                        event.target.value
+                                      )
                                     }
                                   >
                                     <option value="" disabled>
-                                      {concreteChoice.label} 선택
+                                      {itemSelection.selectLabel}
                                     </option>
-                                    {concreteChoice.options.map((option) => (
+                                    {itemSelection.choice.options.map((option) => (
                                       <option key={option.value} value={option.value}>
                                         {option.label}
                                       </option>
@@ -5170,86 +1853,28 @@ export function CharacterPage({
                       <div className="section-heading compact">
                         <div>
                           <span className="eyebrow">최종 확인</span>
-                          <h2>{formState.name || '이름 미입력'}</h2>
+                          <h2>{createReviewViewModel.title}</h2>
                         </div>
                       </div>
                       <dl className="fantasy-character-summary-list">
-                        <div>
-                          <dt>종족</dt>
-                          <dd>{selectedRaceInfo?.label ?? '미선택'}</dd>
-                        </div>
-                        <div>
-                          <dt>직업</dt>
-                          <dd>{selectedClassInfo?.label ?? (formState.className || '미선택')}</dd>
-                        </div>
-                        <div>
-                          <dt>서브클래스</dt>
-                          <dd>{formState.subclassName || '없음/미선택'}</dd>
-                        </div>
-                        <div>
-                          <dt>레벨</dt>
-                          <dd>{formState.level ?? 1}</dd>
-                        </div>
-                        <div>
-                          <dt>HP / AC</dt>
-                          <dd>
-                            {formState.maxHp ?? '-'} / {formState.armorClass ?? '-'}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>숙련 기술</dt>
-                          <dd>
-                            {(formState.proficientSkills ?? []).map(getSkillLabel).join(', ') ||
-                              '미선택'}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>특성</dt>
-                          <dd>
-                            자동/선택 특성 {featurePreviewItems.length}개
-                            {requiredFeaturePreviewItems.length
-                              ? `, 선택 필요 ${requiredFeaturePreviewItems.length}개`
-                              : ''}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>장비</dt>
-                          <dd>{resolvedStartingEquipmentSummary.length}개 항목</dd>
-                        </div>
-                        <div>
-                          <dt>주문</dt>
-                          <dd>
-                            캔트립{' '}
-                            {
-                              (formState.startingSpells?.cantrips ?? []).filter((spell) =>
-                                spell.trim()
-                              ).length
-                            }
-                            개 / {isStartingDynamicPreparedCaster ? '준비 주문' : '슬롯 주문'}{' '}
-                            {
-                              isStartingDynamicPreparedCaster
-                                ? (formState.startingSpells?.preparedSpells ?? []).filter((spell) =>
-                                    spell.trim()
-                                  ).length
-                                : (formState.startingSpells?.spells ?? []).filter((spell) =>
-                                    spell.trim()
-                                  ).length
-                            }
-                            개
-                          </dd>
-                        </div>
+                        {createReviewViewModel.summaryRows.map((row) => (
+                          <div key={row.label}>
+                            <dt>{row.label}</dt>
+                            <dd>{row.value}</dd>
+                          </div>
+                        ))}
                       </dl>
-                      {featurePreviewItems.length ? (
+                      {createReviewViewModel.featureItems.length ? (
                         <div className="character-review-feature-list">
                           <strong>특성 확인</strong>
                           <ul>
-                            {featurePreviewItems.map((feature) => (
+                            {createReviewViewModel.featureItems.map((feature) => (
                               <li key={feature.id} className={`status-${feature.status}`}>
-                                <span>{featureSourceLabels[feature.source]}</span>
+                                <span>{feature.sourceLabel}</span>
                                 <div>
                                   <strong>{feature.label}</strong>
                                   <p>
-                                    {featureStatusLabels[feature.status]} · {feature.summary}
+                                    {feature.statusLabel} · {feature.summary}
                                   </p>
                                 </div>
                               </li>
@@ -5257,15 +1882,9 @@ export function CharacterPage({
                           </ul>
                         </div>
                       ) : null}
-                      {requiredFeaturePreviewItems.length ? (
-                        <p className="character-review-warning">
-                          아직 선택하지 않은 특성이 있습니다. 특성 탭으로 돌아가 필수 선택을 완료하세요.
-                        </p>
-                      ) : (
-                        <p className="character-review-complete">
-                          필수 선택은 완료되었습니다. 생성 시 장비와 주문 검증을 한 번 더 확인합니다.
-                        </p>
-                      )}
+                      <p className={`character-review-${createReviewViewModel.featureCompletionTone}`}>
+                        {createReviewViewModel.featureCompletionMessage}
+                      </p>
                     </section>
                   ) : null}
                 </div>
@@ -5308,24 +1927,12 @@ export function CharacterPage({
                         <label>초상화</label>
                         <div className="character-avatar-current-preview">
                           <img
-                            src={
-                              formState.avatarUrl ||
-                              getAvatarPresetImage(formState.avatarPresetId) ||
-                              getCharacterArt(formState.className ?? 'Wizard')
-                            }
+                            src={avatarPickerViewModel.previewImage}
                             alt="선택된 캐릭터 초상화"
                           />
                           <div>
-                            <strong>
-                              {formState.avatarType === 'UPLOAD'
-                                ? '업로드 초상화'
-                                : '기본 프리셋'}
-                            </strong>
-                            <span>
-                              {formState.avatarType === 'UPLOAD'
-                                ? '세션 토큰과 프로필에 이 이미지가 우선 표시됩니다.'
-                                : '프리셋을 선택하거나 직접 이미지를 업로드할 수 있습니다.'}
-                            </span>
+                            <strong>{avatarPickerViewModel.previewTitle}</strong>
+                            <span>{avatarPickerViewModel.previewDescription}</span>
                           </div>
                         </div>
                         <div
@@ -5333,32 +1940,24 @@ export function CharacterPage({
                           role="radiogroup"
                           aria-label="캐릭터 초상화 선택"
                         >
-                          {avatarPresets.map((preset) => {
-                            const isSelected = formState.avatarPresetId === preset.id;
-                            return (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                className={`character-avatar-option${isSelected ? ' selected' : ''}`}
-                                onClick={() =>
-                                  setFormState((current) => ({
-                                    ...current,
-                                    avatarType: 'PRESET',
-                                    avatarPresetId: preset.id,
-                                    avatarUrl: null,
-                                  }))
-                                }
-                                aria-pressed={isSelected}
-                              >
-                                <img
-                                  src={preset.image}
-                                  alt={preset.label}
-                                  className="character-avatar-option-image"
-                                />
-                                <span>{preset.label}</span>
-                              </button>
-                            );
-                          })}
+                          {avatarPickerViewModel.presetOptions.map((preset) => (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              className={`character-avatar-option${
+                                preset.isSelected ? ' selected' : ''
+                              }`}
+                              onClick={() => selectAvatarPreset(preset.id)}
+                              aria-pressed={preset.isSelected}
+                            >
+                              <img
+                                src={preset.image}
+                                alt={preset.label}
+                                className="character-avatar-option-image"
+                              />
+                              <span>{preset.label}</span>
+                            </button>
+                          ))}
                         </div>
                         <div className="character-avatar-upload-row">
                           <label
@@ -5374,7 +1973,7 @@ export function CharacterPage({
                               onChange={(event) => {
                                 const file = event.target.files?.[0] ?? null;
                                 event.currentTarget.value = '';
-                                void handleAvatarUpload(file);
+                                void uploadAvatarAsset(file);
                               }}
                             />
                           </label>
@@ -5389,55 +1988,49 @@ export function CharacterPage({
                         <div className="character-avatar-library">
                           <div className="character-avatar-library-heading">
                             <strong>내 업로드 초상화</strong>
-                            <span>{avatarAssets.length}개</span>
+                            <span>{avatarPickerViewModel.uploadedAssets.length}개</span>
                           </div>
-                          {avatarAssets.length ? (
+                          {avatarPickerViewModel.uploadedAssets.length ? (
                             <div className="character-avatar-library-grid">
-                              {avatarAssets.map((asset) => {
-                                const isSelected = formState.avatarUrl === asset.publicUrl;
-                                const isDeleting = deletingAvatarAssetId === asset.id;
-                                return (
-                                  <article
-                                    key={asset.id}
-                                    className={`character-avatar-asset-card${
-                                      isSelected ? ' selected' : ''
-                                    }`}
+                              {avatarPickerViewModel.uploadedAssets.map((asset) => (
+                                <article
+                                  key={asset.id}
+                                  className={`character-avatar-asset-card${
+                                    asset.isSelected ? ' selected' : ''
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    className="character-avatar-asset-preview"
+                                    onClick={() => applyUploadedAvatar(asset.asset)}
+                                    aria-pressed={asset.isSelected}
                                   >
+                                    <img src={asset.publicUrl} alt={asset.fileName} />
+                                  </button>
+                                  <div className="character-avatar-asset-meta">
+                                    <span>{asset.fileName}</span>
+                                    <small>{asset.sizeLabel}</small>
+                                  </div>
+                                  <div className="character-avatar-asset-actions">
                                     <button
                                       type="button"
-                                      className="character-avatar-asset-preview"
-                                      onClick={() => applyUploadedAvatar(asset)}
-                                      aria-pressed={isSelected}
+                                      className="ghost small"
+                                      onClick={() => applyUploadedAvatar(asset.asset)}
+                                      disabled={asset.isDeleting}
                                     >
-                                      <img src={asset.publicUrl} alt={asset.fileName} />
+                                      사용
                                     </button>
-                                    <div className="character-avatar-asset-meta">
-                                      <span>{asset.fileName}</span>
-                                      <small>
-                                        {Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB
-                                      </small>
-                                    </div>
-                                    <div className="character-avatar-asset-actions">
-                                      <button
-                                        type="button"
-                                        className="ghost small"
-                                        onClick={() => applyUploadedAvatar(asset)}
-                                        disabled={isDeleting}
-                                      >
-                                        사용
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="ghost small danger"
-                                        onClick={() => void handleAvatarAssetDelete(asset)}
-                                        disabled={isDeleting}
-                                      >
-                                        {isDeleting ? '삭제 중' : '삭제'}
-                                      </button>
-                                    </div>
-                                  </article>
-                                );
-                              })}
+                                    <button
+                                      type="button"
+                                      className="ghost small danger"
+                                      onClick={() => void deleteUploadedAvatar(asset.asset)}
+                                      disabled={asset.isDeleting}
+                                    >
+                                      {asset.isDeleting ? '삭제 중' : '삭제'}
+                                    </button>
+                                  </div>
+                                </article>
+                              ))}
                             </div>
                           ) : (
                             <p className="character-empty-note">
@@ -5452,210 +2045,88 @@ export function CharacterPage({
                   {isStatsStep ? (
                     <section className="character-form-section character-create-stats-strip-section">
                       <div className="character-create-stat-summary">
-                        <article className="character-create-stat-card">
-                          <span className="character-create-stat-card-label">HP</span>
-                          <strong className="character-create-stat-card-value">
-                            {formState.maxHp ?? 12}
-                          </strong>
-                          {derivedLevelStats && selectedClass ? (
-                            (() => {
-                              const level = formState.level ?? 1;
-                              const con = formState.abilities?.con ?? 10;
-                              const conMod = Math.floor((con - 10) / 2);
-                              const hdMax =
-                                { d6: 6, d8: 8, d10: 10, d12: 12 }[selectedClass.hitDie] ?? 0;
-                              const hdAvg =
-                                { d6: 4, d8: 5, d10: 6, d12: 7 }[selectedClass.hitDie] ?? 0;
-                              const modText = conMod >= 0 ? `+${conMod}` : `${conMod}`;
-                              const levelGain = Math.max(hdAvg + conMod, 1);
-                              const bonusText =
-                                derivedLevelStats.hpBonus > 0
-                                  ? ` + 보정 ${derivedLevelStats.hpBonus}`
-                                  : '';
-                              return (
-                                <span className="character-create-stat-card-help">
-                                  {level === 1
-                                    ? `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText})${bonusText}`
-                                    : `${selectedClass.hitDie}(max ${hdMax}) + ${level - 1}x(${levelGain})${bonusText}`}
-                                </span>
-                              );
-                            })()
-                          ) : (
-                            <span className="character-create-stat-card-help">
-                              레벨과 건강 기반 자동 계산
-                            </span>
-                          )}
-                        </article>
-                        <article className="character-create-stat-card">
-                          <span className="character-create-stat-card-label">방어도</span>
-                          <strong className="character-create-stat-card-value">
-                            {formState.armorClass ?? 10}
-                          </strong>
-                          <span className="character-create-stat-card-help">
-                            장비와 민첩 보정 반영
-                          </span>
-                        </article>
-                        <article className="character-create-stat-card">
-                          <span className="character-create-stat-card-label">이동속도</span>
-                          <strong className="character-create-stat-card-value">
-                            {formState.speed ?? 30}
-                          </strong>
-                          <span className="character-create-stat-card-help">
-                            종족/직업 보정 포함
-                          </span>
-                        </article>
-                        <article className="character-create-stat-card">
-                          <span className="character-create-stat-card-label">숙련도</span>
-                          <strong className="character-create-stat-card-value">
-                            {formState.proficiencyBonus ?? 2}
-                          </strong>
-                          <span className="character-create-stat-card-help">
-                            {derivedLevelStats
-                              ? `레벨 ${formState.level ?? 1} 기준 자동`
-                              : '레벨에 따라 자동 상승'}
-                          </span>
-                        </article>
+                        {createStatSummaryCards.map((card) => (
+                          <article key={card.key} className="character-create-stat-card">
+                            <span className="character-create-stat-card-label">{card.label}</span>
+                            <strong className="character-create-stat-card-value">
+                              {card.value}
+                            </strong>
+                            <span className="character-create-stat-card-help">{card.help}</span>
+                          </article>
+                        ))}
                       </div>
                     </section>
                   ) : null}
                   {isSpellsStep && selectedClass ? (
-                    (() => {
-                      const renderedCantripCount = selectedStartingCantripCount;
-                      const renderedSpellCount = selectedStartingSlotSpellCount;
-                      const renderedPreparedSpellCount =
-                        startingPreparedSpellLimit !== null && startingPreparedSpellOptions.length > 0
-                          ? startingPreparedSpellLimit
-                          : 0;
-                      const hasStartingSpells =
-                        renderedCantripCount > 0 ||
-                        renderedSpellCount > 0 ||
-                        renderedPreparedSpellCount > 0;
-                      return (
-                        <section className="character-form-section character-create-loadout-spells">
-                          <div className="section-heading compact">
-                            <div>
-                              <span className="eyebrow">시작 주문</span>
-                              <h2>
-                                {hasStartingSpells
-                                  ? [
-                                      renderedCantripCount > 0 ? `캔트립 ${renderedCantripCount}개` : null,
-                                      renderedSpellCount > 0
-                                        ? `${selectedCreateClassKey === 'wizard' ? '주문책 주문' : '습득 주문'} ${renderedSpellCount}개`
-                                        : null,
-                                      renderedPreparedSpellCount > 0
-                                        ? `준비 주문 ${renderedPreparedSpellCount}개`
-                                        : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(' + ')
-                                  : '선택할 시작 주문 없음'}
-                              </h2>
-                            </div>
-                          </div>
-                          {!hasStartingSpells ? (
-                            <p className="character-empty-note">
-                              현재 선택한 직업과 레벨에서는 캐릭터 생성 시 고를 시작 주문이
-                              없습니다. 장비 탭까지 확인했다면 바로 생성할 수 있습니다.
-                            </p>
-                          ) : null}
-                          {renderedCantripCount > 0 && (
-                            <SpellSelectionGrid
-                              title="캔트립"
-                              helper="항상 사용할 수 있는 소마법을 고릅니다."
-                              options={detailedCantripOptions}
-                              selectedIds={(formState.startingSpells?.cantrips ?? [])
-                                .map((spell) => spell.trim())
-                                .filter(Boolean)}
-                              maxSelected={renderedCantripCount}
-                              onChange={(cantrips) => {
-                                setFormValidationError(null);
-                                setFormState((current) => {
-                                  const base: StartingSpellsDto = current.startingSpells ?? {
-                                    cantrips: [],
-                                    spells: new Array(selectedStartingSlotSpellCount).fill(''),
-                                  };
-                                  return {
-                                    ...current,
-                                    startingSpells: { ...base, cantrips },
-                                  };
-                                });
-                              }}
-                            />
-                          )}
-                          {renderedSpellCount > 0 && (
-                            <SpellSelectionGrid
-                              title={
-                                selectedCreateClassKey === 'wizard'
-                                  ? '주문책 주문'
-                                  : '습득 주문'
-                              }
-                              helper={
-                                selectedCreateClassKey === 'wizard'
-                                  ? '주문책에 기록되어 이후 준비할 수 있는 주문을 고릅니다.'
-                                  : '이 캐릭터가 알고 있는 슬롯 주문을 고릅니다.'
-                              }
-                              options={detailedSlotSpellOptions}
-                              selectedIds={(formState.startingSpells?.spells ?? [])
-                                .map((spell) => spell.trim())
-                                .filter(Boolean)}
-                              maxSelected={renderedSpellCount}
-                              onChange={(spells) => {
-                                setFormValidationError(null);
-                                setFormState((current) => {
-                                  const base: StartingSpellsDto = current.startingSpells ?? {
-                                    cantrips: new Array(selectedStartingCantripCount).fill(''),
-                                    spells: [],
-                                  };
-                                  const preparedSpells = (base.preparedSpells ?? []).filter(
-                                    (spellId) => spells.includes(spellId)
-                                  );
-                                  return {
-                                    ...current,
-                                    startingSpells: {
-                                      ...base,
-                                      spells,
-                                      ...(startingPreparedSpellLimit !== null
-                                        ? { preparedSpells }
-                                        : {}),
-                                    },
-                                  };
-                                });
-                              }}
-                            />
-                          )}
-                          {startingPreparedSpellLimit !== null &&
-                            startingPreparedSpellOptions.length > 0 && (
-                              <SpellSelectionGrid
-                                title="준비 주문"
-                                helper={
-                                  isStartingDynamicPreparedCaster
-                                    ? '현재 시전 가능한 직업 주문 목록에서 오늘 준비할 주문을 고릅니다.'
-                                    : '주문책에 있는 주문 중 오늘 바로 사용할 주문을 고릅니다.'
-                                }
-                                options={startingPreparedSpellOptions}
-                                selectedIds={selectedStartingPreparedSpells}
-                                maxSelected={startingPreparedSpellLimit}
-                                onChange={(preparedSpells) => {
-                                  setFormValidationError(null);
-                                  setFormState((current) => {
-                                    const base: StartingSpellsDto = current.startingSpells ?? {
-                                      cantrips: new Array(selectedStartingCantripCount).fill(''),
-                                      spells: new Array(selectedStartingSlotSpellCount).fill(''),
-                                    };
-                                    return {
-                                      ...current,
-                                      startingSpells: {
-                                        ...base,
-                                        preparedSpells,
-                                      },
-                                    };
-                                  });
-                                }}
-                              />
-                            )}
-                        </section>
-                      );
-                    })()
+                    <section className="character-form-section character-create-loadout-spells">
+                      <div className="section-heading compact">
+                        <div>
+                          <span className="eyebrow">시작 주문</span>
+                          <h2>{startingSpellSectionState.heading}</h2>
+                        </div>
+                      </div>
+                      {!startingSpellSectionState.hasStartingSpells ? (
+                        <p className="character-empty-note">
+                          현재 선택한 직업과 레벨에서는 캐릭터 생성 시 고를 시작 주문이
+                          없습니다. 장비 탭까지 확인했다면 바로 생성할 수 있습니다.
+                        </p>
+                      ) : null}
+                      {startingSpellSectionState.cantripCount > 0 && (
+                        <SpellSelectionGrid
+                          title="캔트립"
+                          helper="항상 사용할 수 있는 소마법을 고릅니다."
+                          options={detailedCantripOptions}
+                          selectedIds={createSpellSelection.selectedCantripIds}
+                          maxSelected={startingSpellSectionState.cantripCount}
+                          onChange={(cantrips) => {
+                            setStartingCantrips(cantrips, selectedStartingSlotSpellCount);
+                          }}
+                        />
+                      )}
+                      {startingSpellSectionState.slotSpellCount > 0 && (
+                        <SpellSelectionGrid
+                          title={
+                            selectedCreateClassKey === 'wizard' ? '주문책 주문' : '습득 주문'
+                          }
+                          helper={
+                            selectedCreateClassKey === 'wizard'
+                              ? '주문책에 기록되어 이후 준비할 수 있는 주문을 고릅니다.'
+                              : '이 캐릭터가 알고 있는 슬롯 주문을 고릅니다.'
+                          }
+                          options={detailedSlotSpellOptions}
+                          selectedIds={selectedStartingSlotSpells}
+                          maxSelected={startingSpellSectionState.slotSpellCount}
+                          onChange={(spells) => {
+                            setStartingSlotSpells(
+                              spells,
+                              selectedStartingCantripCount,
+                              startingPreparedSpellLimit
+                            );
+                          }}
+                        />
+                      )}
+                      {startingPreparedSpellLimit !== null &&
+                        startingPreparedSpellOptions.length > 0 && (
+                          <SpellSelectionGrid
+                            title="준비 주문"
+                            helper={
+                              isStartingDynamicPreparedCaster
+                                ? '현재 시전 가능한 직업 주문 목록에서 오늘 준비할 주문을 고릅니다.'
+                                : '주문책에 있는 주문 중 오늘 바로 사용할 주문을 고릅니다.'
+                            }
+                            options={startingPreparedSpellOptions}
+                            selectedIds={selectedStartingPreparedSpells}
+                            maxSelected={startingPreparedSpellLimit}
+                            onChange={(preparedSpells) => {
+                              setStartingPreparedSpells(
+                                preparedSpells,
+                                selectedStartingCantripCount,
+                                selectedStartingSlotSpellCount
+                              );
+                            }}
+                          />
+                        )}
+                    </section>
                   ) : null}
                 </div>
                 ) : null}
@@ -5687,30 +2158,12 @@ export function CharacterPage({
                     </div>
 
                     <div className="character-create-point-buy-grid">
-                      {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => {
+                      {abilityKeys.map((ability) => {
                         const base = pointBuyState.bases[ability];
                         const bonus = selectedRace?.abilityIncreases[ability] ?? 0;
                         const finalScore = formState.abilities?.[ability] ?? 10;
-                        const cost = pointBuyState.costs[ability];
-                        const canDec = pointBuyState.enforced && base > POINT_BUY_MIN_BASE;
-                        const nextBaseCost =
-                          pointBuyState.enforced && base < POINT_BUY_MAX_BASE
-                            ? (POINT_BUY_COST[base + 1] ?? cost ?? 0)
-                            : null;
-                        const previousBaseCost = canDec
-                          ? (POINT_BUY_COST[base - 1] ?? cost ?? 0)
-                          : null;
-                        const nextStepCost =
-                          cost !== null && nextBaseCost !== null ? nextBaseCost - cost : null;
-                        const refundStepCost =
-                          canDec && cost !== null && previousBaseCost !== null
-                            ? cost - previousBaseCost
-                            : null;
-                        const canInc =
-                          pointBuyState.enforced &&
-                          base < POINT_BUY_MAX_BASE &&
-                          nextStepCost !== null &&
-                          nextStepCost <= pointBuyState.remaining;
+                        const { canDec, canInc, nextStepCost, refundStepCost } =
+                          getPointBuyAdjustment(pointBuyState, ability);
                         return (
                           <div key={ability} className="character-create-point-buy-card">
                             <label htmlFor={`character-${ability}`}>
@@ -5725,7 +2178,13 @@ export function CharacterPage({
                               <div className="character-create-point-buy-control">
                                 <button
                                   type="button"
-                                  onClick={() => adjustAbilityBase(ability, -1)}
+                                  onClick={() =>
+                                    adjustCreateAbilityBase({
+                                      abilityIncreases: selectedRace?.abilityIncreases,
+                                      ability,
+                                      delta: -1,
+                                    })
+                                  }
                                   disabled={!canDec}
                                   aria-label={`${abilityDisplayLabels[ability]} 감소`}
                                   title={
@@ -5750,7 +2209,13 @@ export function CharacterPage({
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => adjustAbilityBase(ability, 1)}
+                                  onClick={() =>
+                                    adjustCreateAbilityBase({
+                                      abilityIncreases: selectedRace?.abilityIncreases,
+                                      ability,
+                                      delta: 1,
+                                    })
+                                  }
                                   disabled={!canInc}
                                   aria-label={`${abilityDisplayLabels[ability]} 증가`}
                                   title={
@@ -5768,7 +2233,7 @@ export function CharacterPage({
                                 step={1}
                                 value={finalScore}
                                 onChange={(event) =>
-                                  updateAbility(
+                                  updateAbilityScore(
                                     ability,
                                     normalizeIntegerValue(Number(event.target.value), 1)
                                   )
@@ -5793,7 +2258,7 @@ export function CharacterPage({
                 </button>
                 <div className="character-create-step-actions-center">
                   <strong>
-                    {createStepIndex + 1} / {CHARACTER_CREATE_STEPS.length}
+                    {createStepIndex + 1} / {characterCreateSteps.length}
                   </strong>
                   <span>{currentCreateStep.label}</span>
                 </div>
@@ -5829,7 +2294,7 @@ export function CharacterPage({
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={() => setLevelUpModalOpen(false)}
+          onClick={closeLevelUpModal}
         >
           <div
             className="modal-card modal-card-wide character-level-up-modal"
@@ -5847,7 +2312,7 @@ export function CharacterPage({
                 type="button"
                 className="modal-close"
                 aria-label="레벨업 창 닫기"
-                onClick={() => setLevelUpModalOpen(false)}
+                onClick={closeLevelUpModal}
               >
                 ×
               </button>
@@ -5888,22 +2353,13 @@ export function CharacterPage({
                       value={levelUpDraft.targetLevel}
                       disabled={busy || selectedCharacter.level >= 20}
                       onChange={(event) =>
-                        setLevelUpDraft((current) => ({
-                          ...current,
-                          targetLevel: Number(event.target.value),
-                          cantrips: [],
-                          knownSpells: [],
-                          forgottenCantrips: [],
-                          forgottenSpells: [],
-                          featSelections: [],
-                          asiFeatChoices: [],
-                        }))
+                        levelUpDraftState.resetForTargetLevel(Number(event.target.value))
                       }
                     />
                     <button
                       type="button"
                       className="primary"
-                      onClick={() => void handleLevelUpSelectedCharacter()}
+                      onClick={() => void submitLevelUpSelectedCharacter()}
                       disabled={
                         busy ||
                         selectedCharacter.level >= 20 ||
@@ -5964,12 +2420,8 @@ export function CharacterPage({
                         </span>
                       </div>
                       <div className="character-feat-choice-list">
-                        {crossedAsiLevels.map((asiLevel, index) => {
-                          const selectedChoiceId = normalizedLevelUpAsiFeatChoices[index] ?? '';
-                          const selectedAsiAbility = getAbilityFromAsiChoiceId(selectedChoiceId);
-                          const selectedFeat = selectedChoiceId.startsWith('feat.')
-                            ? featOptionById.get(selectedChoiceId)
-                            : null;
+                        {levelUpAsiFeatChoiceState.choices.map(
+                          ({ asiLevel, selectedChoiceId, selectedAsiAbility, selectedFeat }, index) => {
                           return (
                             <div key={asiLevel} className="character-feat-choice-card">
                               <label htmlFor={`character-level-up-feat-${asiLevel}`}>
@@ -5981,32 +2433,22 @@ export function CharacterPage({
                                 disabled={busy}
                                 onChange={(event) => {
                                   const nextChoiceId = event.target.value;
-                                  setLevelUpDraft((current) => {
-                                    const nextChoices = [...current.asiFeatChoices];
-                                    nextChoices[index] = nextChoiceId;
-                                    return {
-                                      ...current,
-                                      asiFeatChoices: nextChoices,
-                                      featSelections:
-                                        getFeatSelectionsFromAsiFeatChoices(nextChoices),
-                                      abilityScoreIncreases:
-                                        buildAbilityScoreIncreasesFromAsiFeatChoices(nextChoices),
-                                    };
-                                  });
+                                  levelUpDraftState.setAsiFeatChoice(index, nextChoiceId);
                                 }}
                               >
                                 <option value="">선택 필요</option>
-                                {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map(
+                                {abilityKeys.map(
                                   (ability) => (
                                     <option
                                       key={ability}
                                       value={getAsiChoiceId(ability)}
-                                      disabled={
-                                        selectedCharacter.abilities[ability] +
-                                          derivedLevelUpAbilityScoreIncreases[ability] >=
-                                          20 &&
-                                        selectedAsiAbility !== ability
-                                      }
+                                      disabled={isLevelUpAsiAbilityChoiceCapped({
+                                        currentAbilityScore: selectedCharacter.abilities[ability],
+                                        abilityScoreIncrease:
+                                          derivedLevelUpAbilityScoreIncreases[ability],
+                                        selectedAsiAbility,
+                                        candidateAbility: ability,
+                                      })}
                                     >
                                       ASI: {abilityDisplayLabels[ability]} +2
                                     </option>
@@ -6016,10 +2458,11 @@ export function CharacterPage({
                                   <option
                                     key={feat.id}
                                     value={feat.id}
-                                    disabled={
-                                      selectedLevelUpFeatIds.includes(feat.id) &&
-                                      selectedChoiceId !== feat.id
-                                    }
+                                    disabled={isAsiFeatChoiceSelectedElsewhere(
+                                      selectedLevelUpFeatIds,
+                                      selectedChoiceId,
+                                      feat.id
+                                    )}
                                   >
                                     {feat.label}
                                   </option>
@@ -6034,7 +2477,8 @@ export function CharacterPage({
                               </p>
                             </div>
                           );
-                        })}
+                          }
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -6046,10 +2490,7 @@ export function CharacterPage({
                         value={levelUpDraft.subclassName}
                         disabled={busy || Boolean(selectedCharacter.subclassName)}
                         onChange={(event) =>
-                          setLevelUpDraft((current) => ({
-                            ...current,
-                            subclassName: event.target.value,
-                          }))
+                          levelUpDraftState.setSubclass(event.target.value)
                         }
                       >
                         <option value="">
@@ -6073,7 +2514,7 @@ export function CharacterPage({
                       selectedIds={levelUpDraft.forgottenSpells}
                       maxSelected={levelUpLevelDelta}
                       disabled={busy}
-                      onChange={setForgottenSpells}
+                      onChange={levelUpDraftSpellActions.setForgottenSpells}
                     />
                   ) : null}
                   {selectedLevelUpLearnableSlotSpellOptions.length && knownSpellLearnAllowance > 0 ? (
@@ -6084,7 +2525,7 @@ export function CharacterPage({
                       selectedIds={levelUpDraft.knownSpells}
                       maxSelected={knownSpellLearnAllowance}
                       disabled={busy}
-                      onChange={setLevelUpKnownSpells}
+                      onChange={levelUpDraftSpellActions.setKnownSpells}
                     />
                   ) : null}
                   {selectedCurrentCantrips.length && levelUpLevelDelta ? (
@@ -6095,7 +2536,7 @@ export function CharacterPage({
                       selectedIds={levelUpDraft.forgottenCantrips}
                       maxSelected={levelUpLevelDelta}
                       disabled={busy}
-                      onChange={setForgottenCantrips}
+                      onChange={levelUpDraftSpellActions.setForgottenCantrips}
                     />
                   ) : null}
                   {selectedLevelUpLearnableCantripOptions.length && cantripLearnAllowance > 0 ? (
@@ -6106,7 +2547,7 @@ export function CharacterPage({
                       selectedIds={levelUpDraft.cantrips}
                       maxSelected={cantripLearnAllowance}
                       disabled={busy}
-                      onChange={setLevelUpCantrips}
+                      onChange={levelUpDraftSpellActions.setCantrips}
                     />
                   ) : null}
                 </div>
@@ -6128,11 +2569,11 @@ export function CharacterPage({
                     maxSelected={selectedLevelUpPreparedSpellLimit ?? undefined}
                     disabled={busy}
                     showHeader={false}
-                    onChange={setPreparedSpells}
+                    onChange={levelUpDraftSpellActions.setPreparedSpells}
                   />
                   <button
                     type="button"
-                    onClick={() => void handleSavePreparedSpells()}
+                    onClick={() => void savePreparedSpells()}
                     disabled={busy || levelUpDraft.knownSpells.length > 0}
                   >
                     준비 주문 저장
@@ -6149,7 +2590,7 @@ export function CharacterPage({
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={() => setDeleteModalOpen(false)}
+          onClick={closeDeleteModal}
         >
           <div
             className="modal-card character-delete-modal"
@@ -6193,7 +2634,7 @@ export function CharacterPage({
               <button
                 type="button"
                 className="ghost character-delete-cancel"
-                onClick={() => setDeleteModalOpen(false)}
+                onClick={closeDeleteModal}
                 disabled={busy}
               >
                 취소
