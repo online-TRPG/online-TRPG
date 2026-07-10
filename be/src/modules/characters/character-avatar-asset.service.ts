@@ -17,25 +17,7 @@ import {
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 
-type CharacterAvatarAssetRow = {
-  id: string;
-  fileName: string;
-  contentType: string;
-  storageKey: string;
-  publicUrl: string;
-  width: number | null;
-  height: number | null;
-  fileSizeBytes: number;
-  uploadedByUserId: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-type CharacterAvatarAssetDelegate = {
-  findMany: (args: unknown) => Promise<CharacterAvatarAssetRow[]>;
-  create: (args: unknown) => Promise<CharacterAvatarAssetRow>;
-  findFirst: (args: unknown) => Promise<CharacterAvatarAssetRow | null>;
-};
+type CharacterAvatarAssetRow = Prisma.CharacterAvatarAssetGetPayload<Prisma.CharacterAvatarAssetDefaultArgs>;
 
 @Injectable()
 export class CharacterAvatarAssetService {
@@ -149,19 +131,15 @@ export class CharacterAvatarAssetService {
             avatarUpdatedAt: new Date(),
           },
         });
-        await (tx as unknown as { characterAvatarAsset: { delete: (args: unknown) => Promise<unknown> } })
-          .characterAvatarAsset
-          .delete({ where: { id: asset.id } });
+        await tx.characterAvatarAsset.delete({ where: { id: asset.id } });
       });
     } catch (error) {
       this.rethrowCharacterAvatarAssetStorageError(error);
     }
   }
 
-  private get characterAvatarAssetDelegate(): CharacterAvatarAssetDelegate {
-    return (this.prisma as unknown as {
-      characterAvatarAsset: CharacterAvatarAssetDelegate;
-    }).characterAvatarAsset;
+  private get characterAvatarAssetDelegate(): Prisma.CharacterAvatarAssetDelegate {
+    return this.prisma.characterAvatarAsset;
   }
 
   private async ensureUserExists(userId: string): Promise<void> {

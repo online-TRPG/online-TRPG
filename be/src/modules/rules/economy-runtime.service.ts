@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { decodeJsonObject, type JsonObject } from "@trpg/shared-types";
 
 export type CurrencyWallet = {
   cp?: number;
@@ -45,9 +46,9 @@ export type EconomyState = {
       title: string;
       costGp: number;
       completedAt: string;
-      economyEffects: Array<Record<string, unknown>>;
-      inventoryEffects: Array<Record<string, unknown>>;
-      characterResourceEffects: Array<Record<string, unknown>>;
+      economyEffects: JsonObject[];
+      inventoryEffects: JsonObject[];
+      characterResourceEffects: JsonObject[];
     }
   >;
 };
@@ -96,7 +97,7 @@ export type EconomyAuditEvent = {
   itemDefinitionId?: string | null;
   quantity?: number | null;
   currencyDeltaBySessionCharacterId?: Record<string, CurrencyWallet>;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 };
 
 export type EconomyResolution = {
@@ -251,7 +252,7 @@ export class EconomyRuntimeService {
     recipientSessionCharacterIds: string[];
   }): EconomyResult {
     const state = this.cloneState(params.state);
-    const recipients = params.recipientSessionCharacterIds.filter(Boolean);
+    const recipients = params.recipientSessionCharacterIds.filter((recipient) => recipient.length > 0);
     const currencyDeltaBySessionCharacterId: Record<string, CurrencyWallet> = {};
 
     if (params.reward.currency && recipients.length > 0) {
@@ -541,13 +542,19 @@ export class EconomyRuntimeService {
   }
 
   private accept(state: EconomyState, auditEvent: EconomyAuditEvent): EconomyResolution {
+    const normalizedAuditEvent: EconomyAuditEvent = {
+      ...auditEvent,
+      ...(auditEvent.metadata !== undefined
+        ? { metadata: decodeJsonObject(auditEvent.metadata, "economy.auditEvent.metadata") }
+        : {}),
+    };
     return {
       accepted: true,
       state,
-      auditEvent,
+      auditEvent: normalizedAuditEvent,
       stateDiff: {
         type: "economy",
-        economy: auditEvent,
+        economy: normalizedAuditEvent,
       },
     };
   }
@@ -576,9 +583,9 @@ export class EconomyRuntimeService {
               key,
               {
                 ...completion,
-                economyEffects: completion.economyEffects.map((effect) => ({ ...effect })),
-                inventoryEffects: completion.inventoryEffects.map((effect) => ({ ...effect })),
-                characterResourceEffects: completion.characterResourceEffects.map((effect) => ({ ...effect })),
+                economyEffects: completion.economyEffects.map((effect) => decodeJsonObject(effect, "economy.downtimeCompletion.economyEffects[]")),
+                inventoryEffects: completion.inventoryEffects.map((effect) => decodeJsonObject(effect, "economy.downtimeCompletion.inventoryEffects[]")),
+                characterResourceEffects: completion.characterResourceEffects.map((effect) => decodeJsonObject(effect, "economy.downtimeCompletion.characterResourceEffects[]")),
               },
             ]),
           )

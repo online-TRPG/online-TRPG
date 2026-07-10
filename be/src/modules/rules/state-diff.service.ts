@@ -3,7 +3,7 @@ import {
   Prisma,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
-import { StateDiffResponseDto } from "@trpg/shared-types";
+import { StateDiffResponseDto, decodeStateDiffResponse } from "@trpg/shared-types";
 import { conflict } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { CharacterStatePatch } from "./action-rule.service";
@@ -40,9 +40,14 @@ export class StateDiffService {
     }
 
     const nextVersion = params.baseVersion + 1;
-    const diff = {
-      characters: params.changes,
-    };
+    const stateDiff = decodeStateDiffResponse({
+      baseVersion: params.baseVersion,
+      nextVersion,
+      reason: params.reason,
+      diff: {
+        characters: params.changes,
+      },
+    });
 
     const apply = async (tx: StateDiffDbClient) => {
       for (const change of params.changes) {
@@ -83,7 +88,7 @@ export class StateDiffService {
           baseVersion: params.baseVersion,
           nextVersion,
           reason: params.reason,
-          diffJson: JSON.stringify(diff),
+          diffJson: JSON.stringify(stateDiff.diff),
         },
       });
     };
@@ -93,11 +98,6 @@ export class StateDiffService {
       await this.prisma.$transaction(apply);
     }
 
-    return {
-      baseVersion: params.baseVersion,
-      nextVersion,
-      reason: params.reason,
-      diff,
-    };
+    return stateDiff;
   }
 }

@@ -17,6 +17,12 @@ import type {
   TurnAdvanceResponseDto,
 } from '@trpg/shared-types';
 import type { StoredUser } from '../types/session';
+import {
+  decodeCombatActionResult,
+  decodeCombatMoveResult,
+  decodeCombatResponse,
+  decodeTurnAdvanceResponse,
+} from '@trpg/shared-types/frontend';
 import { requestJson } from './httpClient';
 
 export function getCombat(
@@ -27,6 +33,7 @@ export function getCombat(
   return requestJson<CombatResponseDto>(`/sessions/${sessionId}/combat`, {
     user,
     accessToken,
+    decode: decodeCombatResponse,
   });
 }
 
@@ -41,6 +48,7 @@ export function startCombat(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatResponse,
   });
 }
 
@@ -53,6 +61,7 @@ export function endCombat(
     method: 'POST',
     user,
     accessToken,
+    decode: decodeCombatResponse,
   });
 }
 
@@ -67,6 +76,7 @@ export function endCombatTurn(
     user,
     accessToken,
     body: payload,
+    decode: decodeTurnAdvanceResponse,
   });
 }
 
@@ -81,6 +91,7 @@ export function applyCombatDamage(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -95,6 +106,7 @@ export function resolveCombatAttack(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -109,6 +121,7 @@ export function resolveEquippedWeaponAttack(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -123,6 +136,7 @@ export function resolveOffhandWeaponAttack(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -137,6 +151,7 @@ export function useSecondWindCombatAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -151,6 +166,7 @@ export function resolveSneakAttackCombatAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -165,6 +181,7 @@ export function dashCombatAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -179,6 +196,7 @@ export function dodgeCombatAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -193,6 +211,7 @@ export function hideCombatAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -207,6 +226,7 @@ export function resolveCombatActorAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -221,6 +241,7 @@ export function autoMonsterTurn(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -233,6 +254,7 @@ export function castCombatSpell(
     method: 'POST',
     user,
     body: payload,
+    decode: decodeCombatActionResult,
   });
 }
 
@@ -247,6 +269,7 @@ export function moveCombatParticipant(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatMoveResult,
   });
 }
 
@@ -261,6 +284,7 @@ export function forceMoveCombatParticipant(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatMoveResult,
   });
 }
 
@@ -276,6 +300,7 @@ export function acceptCombatReaction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatMoveResult,
   });
 }
 
@@ -291,5 +316,6 @@ export function declineCombatReaction(
     user,
     accessToken,
     body: payload,
+    decode: decodeCombatMoveResult,
   });
 }

@@ -62,7 +62,7 @@ describe("SessionCampaignArchiveAuditService", () => {
         turnLogCount: 12,
         nodeVisitCount: 8,
       },
-      publicRevisionLineage: [],
+      publicRevisionLineage: null,
     },
   };
 

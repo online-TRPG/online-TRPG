@@ -5,7 +5,7 @@ import type {
   CharacterTransferResponseDto,
   CharacterVaultItemDto,
   CompleteCampaignDto,
-  GmMode,
+  GameStateResponseDto,
   MainCommandResponseDto,
   RequestCharacterTransferDto,
   ResolveMainCommandCheckDto,
@@ -20,12 +20,31 @@ import type {
   UseInventoryItemDto,
   UseInventoryItemResponseDto,
 } from '@trpg/shared-types';
+import { GmMode } from '@trpg/shared-types';
 import type {
   AvailableSessionListItem,
   SessionDetail,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
+import {
+  decodeActionAcceptedResponse,
+  decodeCampaignArchiveResponse,
+  decodeCharacterTransferResponse,
+  decodeCharacterVaultItemArray,
+  decodeGameStateResponse,
+  decodeMainCommandResponse,
+  decodePaginatedResponse,
+  decodeSessionDetail,
+  decodeSessionListItem,
+  decodeSessionParticipant,
+  decodeSessionSnapshot,
+  decodeTurnLogListResponse,
+  decodeUseInventoryItemResponse,
+  isRecord,
+  readRecord,
+  readString,
+} from '@trpg/shared-types/frontend';
 import { normalizeSessionDetail, normalizeSessionSnapshot } from '../types/session';
 import { requestJson } from './httpClient';
 import { DEFAULT_SCENARIO_ID } from './scenarioApi';
@@ -47,6 +66,7 @@ export function listSessions(
   return requestJson<PaginatedList<SessionListItemResponseDto>>('/sessions', {
     user,
     accessToken,
+    decode: (value) => decodePaginatedResponse(value, decodeSessionListItem),
   }).then((result) => ({
     ...result,
     content: result.content.map(normalizeSessionListItem),
@@ -60,6 +80,7 @@ export function listMySessions(
   return requestJson<PaginatedList<SessionListItemResponseDto>>('/users/me/sessions', {
     user,
     accessToken,
+    decode: (value) => decodePaginatedResponse(value, decodeSessionListItem),
   }).then((result) => ({
     ...result,
     content: result.content.map(normalizeSessionListItem),
@@ -90,6 +111,7 @@ export async function createSession(
       gmMode: toGmMode(options?.useAiGm === false ? 'human' : 'ai'),
       visibility: 'PUBLIC',
     },
+    decode: decodeSessionSnapshotOrSessionId,
   });
 
   let fallbackSnapshot: SessionSnapshot | null = null;
@@ -125,6 +147,7 @@ export async function joinSession(
     user,
     accessToken,
     body: { inviteCode },
+    decode: decodeSessionSnapshotOrSessionId,
   });
 
   let fallbackSnapshot: SessionSnapshot | null = null;
@@ -157,6 +180,7 @@ export async function joinSessionById(
     method: 'POST',
     user,
     accessToken,
+    decode: decodeSessionSnapshot,
   });
 
   const fallbackSnapshot = normalizeSessionSnapshot(joined);
@@ -180,6 +204,7 @@ export function getSession(
   return requestJson<SessionSnapshotDto>(`/sessions/${sessionId}`, {
     user,
     accessToken,
+    decode: decodeSessionSnapshot,
   }).then(normalizeSessionSnapshot);
 }
 
@@ -191,6 +216,7 @@ export function getSessionDetail(
   return requestJson<SessionDetailResponseDto>(`/sessions/${sessionId}`, {
     user,
     accessToken,
+    decode: decodeSessionDetail,
   }).then(normalizeSessionDetail);
 }
 
@@ -207,6 +233,7 @@ export async function updateReadyState(
       user,
       accessToken,
       body: { isReady },
+      decode: decodeSessionParticipant,
     }
   );
 }
@@ -220,6 +247,7 @@ export async function startSession(
     method: 'POST',
     user,
     accessToken,
+    decode: decodeSessionSnapshot,
   });
 
   return normalizeSessionSnapshot(started);
@@ -248,6 +276,7 @@ export function completeLongCampaign(
     user,
     accessToken,
     body: payload,
+    decode: decodeCampaignArchiveResponse,
   });
 }
 
@@ -259,6 +288,7 @@ export function getCampaignArchive(
   return requestJson<CampaignArchiveResponseDto>(`/sessions/${sessionId}/campaign-archive`, {
     user,
     accessToken,
+    decode: decodeCampaignArchiveResponse,
   });
 }
 
@@ -269,6 +299,7 @@ export function listCharacterVault(
   return requestJson<CharacterVaultItemDto[]>('/sessions/characters/vault', {
     user,
     accessToken,
+    decode: decodeCharacterVaultItemArray,
   });
 }
 
@@ -283,6 +314,7 @@ export function requestCharacterTransfer(
     user,
     accessToken,
     body: payload,
+    decode: decodeCharacterTransferResponse,
   });
 }
 
@@ -298,6 +330,7 @@ export function approveCharacterTransfer(
       method: 'POST',
       user,
       accessToken,
+      decode: decodeCharacterTransferResponse,
     }
   );
 }
@@ -314,12 +347,16 @@ export function rejectCharacterTransfer(
       method: 'POST',
       user,
       accessToken,
+      decode: decodeCharacterTransferResponse,
     }
   );
 }
 
-export function getSessionState(user: StoredUser, sessionId: string) {
-  return requestJson(`/sessions/${sessionId}/state`, { user });
+export function getSessionState(user: StoredUser, sessionId: string): Promise<GameStateResponseDto> {
+  return requestJson<GameStateResponseDto>(`/sessions/${sessionId}/state`, {
+    user,
+    decode: decodeGameStateResponse,
+  });
 }
 
 export function submitAction(
@@ -333,6 +370,7 @@ export function submitAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeActionAcceptedResponse,
   });
 }
 
@@ -350,6 +388,7 @@ export function submitRestAction(
       characterId: payload.characterId,
       ...(payload.hitDiceToSpend === undefined ? {} : { hitDiceToSpend: payload.hitDiceToSpend }),
     },
+    decode: decodeActionAcceptedResponse,
   });
 }
 
@@ -365,6 +404,7 @@ export function approveRestAction(
       method: 'POST',
       user,
       accessToken,
+      decode: decodeActionAcceptedResponse,
     }
   );
 }
@@ -381,6 +421,7 @@ export function rejectRestAction(
       method: 'POST',
       user,
       accessToken,
+      decode: decodeActionAcceptedResponse,
     }
   );
 }
@@ -397,6 +438,7 @@ export function cancelRestAction(
       method: 'POST',
       user,
       accessToken,
+      decode: decodeActionAcceptedResponse,
     }
   );
 }
@@ -412,6 +454,7 @@ export function submitMainCommand(
     user,
     accessToken,
     body: payload,
+    decode: decodeMainCommandResponse,
   });
 }
 
@@ -428,6 +471,7 @@ export function resolveMainCommandCheck(
       user,
       accessToken,
       body: payload,
+      decode: decodeMainCommandResponse,
     }
   );
 }
@@ -443,6 +487,7 @@ export function useInventoryItem(
     user,
     accessToken,
     body: payload,
+    decode: decodeUseInventoryItemResponse,
   });
 }
 
@@ -470,6 +515,7 @@ export function listTurnLogs(
     {
       user,
       accessToken,
+      decode: decodeTurnLogListResponse,
     }
   );
 }
@@ -487,10 +533,29 @@ export async function applyCampaignCalendarAction(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
   return normalizeSessionSnapshot(snapshot);
+}
+
+function decodeSessionSnapshotOrSessionId(
+  value: unknown,
+): SessionSnapshotDto | { sessionId: string; snapshot?: SessionSnapshotDto } {
+  if (isRecord(value) && isRecord(value.session)) {
+    return decodeSessionSnapshot(value);
+  }
+
+  const record = readRecord(value, 'session creation result');
+  const sessionId = readString(record, 'sessionId', 'session creation result.sessionId');
+  if (record.snapshot === undefined || record.snapshot === null) {
+    return { sessionId };
+  }
+  return {
+    sessionId,
+    snapshot: decodeSessionSnapshot(record.snapshot),
+  };
 }
 
 function normalizeSessionListItem(item: SessionListItemResponseDto): AvailableSessionListItem {
@@ -511,5 +576,5 @@ function normalizeSessionListItem(item: SessionListItemResponseDto): AvailableSe
 }
 
 function toGmMode(value: 'ai' | 'human' | undefined): GmMode {
-  return (value === 'human' ? 'HUMAN' : 'AI') as GmMode;
+  return value === 'human' ? GmMode.HUMAN : GmMode.AI;
 }

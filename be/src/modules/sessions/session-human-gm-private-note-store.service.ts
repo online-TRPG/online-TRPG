@@ -1,37 +1,38 @@
 import { Injectable } from "@nestjs/common";
-import { HumanGmPrivateNoteDto } from "@trpg/shared-types";
+import {
+  HumanGmPrivateNoteDto,
+  decodeHumanGmPrivateNote,
+  isRecord,
+} from "@trpg/shared-types";
+
+const GM_PRIVATE_NOTES_FLAG = "gmPrivateNotes";
 
 @Injectable()
 export class SessionHumanGmPrivateNoteStoreService {
-  list(flags: Record<string, unknown>): HumanGmPrivateNoteDto[] {
-    const notes = Array.isArray(flags.gmPrivateNotes) ? flags.gmPrivateNotes : [];
-    return notes.filter((note): note is HumanGmPrivateNoteDto => this.isNote(note));
+  list(flags: unknown): HumanGmPrivateNoteDto[] {
+    if (!isRecord(flags)) {
+      return [];
+    }
+    const notes = Array.isArray(flags[GM_PRIVATE_NOTES_FLAG]) ? flags[GM_PRIVATE_NOTES_FLAG] : [];
+    return notes.flatMap((note) => this.decodeNoteOrEmpty(note));
   }
 
-  listNewestFirst(flags: Record<string, unknown>): HumanGmPrivateNoteDto[] {
+  listNewestFirst(flags: unknown): HumanGmPrivateNoteDto[] {
     return this.list(flags).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
   append(flags: Record<string, unknown>, note: HumanGmPrivateNoteDto): Record<string, unknown> {
     return {
       ...flags,
-      gmPrivateNotes: [...this.list(flags), note].slice(-100),
+      [GM_PRIVATE_NOTES_FLAG]: [...this.list(flags), note].slice(-100),
     };
   }
 
-  private isNote(value: unknown): value is HumanGmPrivateNoteDto {
-    if (!value || typeof value !== "object") {
-      return false;
+  private decodeNoteOrEmpty(value: unknown): HumanGmPrivateNoteDto[] {
+    try {
+      return [decodeHumanGmPrivateNote(value)];
+    } catch {
+      return [];
     }
-    const candidate = value as Record<string, unknown>;
-    return (
-      typeof candidate.id === "string" &&
-      typeof candidate.turnLogId === "string" &&
-      typeof candidate.kind === "string" &&
-      (candidate.targetId === null || typeof candidate.targetId === "string") &&
-      typeof candidate.note === "string" &&
-      typeof candidate.gmUserId === "string" &&
-      typeof candidate.createdAt === "string"
-    );
   }
 }

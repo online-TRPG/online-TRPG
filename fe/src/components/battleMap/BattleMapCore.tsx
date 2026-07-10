@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Layer, Rect } from 'react-konva';
-import type {
-  ScenarioAssetResponseDto,
-  SrdMonsterReferenceDto,
-  VttMapStateDto,
+import {
+  type ScenarioAssetResponseDto,
+  type SrdMonsterReferenceDto,
+  type VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  VTT_DOOR_STATES,
+  isRecord,
+  parseJsonWithDecoder,
+  readArray,
+  readNumber,
+  readString,
+} from '@trpg/shared-types/frontend';
 import { BattleMapBackgroundLayer } from './BattleMapBackgroundLayer';
 import type { BattleMapGridLine } from './BattleMapBackgroundLayer';
 import { BattleMapCanvas } from './BattleMapCanvas';
@@ -99,12 +107,26 @@ export type BattleMapSelection =
       tile: { column: number; row: number };
     }
   | {
-      kind: 'terrain' | 'wall' | 'door' | 'object';
-      cell:
-        | NonNullable<VttMapStateDto['terrainCells']>[number]
-        | NonNullable<VttMapStateDto['wallCells']>[number]
-        | NonNullable<VttMapStateDto['doorCells']>[number]
-        | NonNullable<VttMapStateDto['objectCells']>[number];
+      kind: 'terrain';
+      cell: NonNullable<VttMapStateDto['terrainCells']>[number];
+      point: { x: number; y: number };
+      tile: { column: number; row: number };
+    }
+  | {
+      kind: 'wall';
+      cell: NonNullable<VttMapStateDto['wallCells']>[number];
+      point: { x: number; y: number };
+      tile: { column: number; row: number };
+    }
+  | {
+      kind: 'door';
+      cell: NonNullable<VttMapStateDto['doorCells']>[number];
+      point: { x: number; y: number };
+      tile: { column: number; row: number };
+    }
+  | {
+      kind: 'object';
+      cell: NonNullable<VttMapStateDto['objectCells']>[number];
       point: { x: number; y: number };
       tile: { column: number; row: number };
     };
@@ -116,6 +138,11 @@ type MapStructureSelection = {
   kind: MapStructureKind;
   id: string;
 };
+type SelectedMapStructureCell =
+  | { kind: 'terrain'; cell: TerrainCell }
+  | { kind: 'wall'; cell: WallCell }
+  | { kind: 'door'; cell: DoorCell }
+  | { kind: 'object'; cell: ObjectCell };
 
 const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const feetPerGrid = 5;
@@ -221,21 +248,45 @@ type MapSizeField = 'width' | 'height' | 'gridSize';
 type ScenarioAsset = ScenarioAssetResponseDto;
 type RectBlocker = { x: number; y: number; width: number; height: number; tokenId?: string };
 type BlockerIndex = Map<string, RectBlocker[]>;
+type TerrainCell = NonNullable<VttMapStateDto['terrainCells']>[number];
+type WallCell = NonNullable<VttMapStateDto['wallCells']>[number];
+type DoorCell = NonNullable<VttMapStateDto['doorCells']>[number];
 type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
+type StructureCell = TerrainCell | WallCell | DoorCell | ObjectCell;
+type StructurePatch =
+  | Partial<TerrainCell>
+  | Partial<WallCell>
+  | Partial<DoorCell>
+  | Partial<ObjectCell>;
 type ObjectShapeCell = NonNullable<ObjectCell['shapeCells']>[number];
 type ObjectEvent = NonNullable<ObjectCell['events']>[number];
 type ObjectHazard = NonNullable<ObjectCell['hazard']>;
 type ObjectRevealCheck = NonNullable<ObjectCell['revealChecks']>[number];
+const STORED_EXPLORED_VISION_CELLS_VERSION = 1;
+
 type StoredExploredVisionCells = {
+  version: number;
   width: number;
   height: number;
   gridSize: number;
   cells: string[];
 };
 
+function isObjectCell(cell: StructureCell): cell is ObjectCell {
+  return 'shapeCells' in cell || 'hazard' in cell || 'hiddenClueIds' in cell || 'events' in cell;
+}
+
+function isDoorCell(cell: StructureCell): cell is DoorCell {
+  return 'state' in cell;
+}
+
 function shouldLogBattleMapPerf() {
   if (!import.meta.env.DEV || typeof window === 'undefined') return false;
-  return window.localStorage.getItem('trpg:debug:battle-map-perf') === '1';
+  try {
+    return window.localStorage.getItem('trpg:debug:battle-map-perf') === '1';
+  } catch {
+    return false;
+  }
 }
 
 function measureBattleMapPerf<T>(label: string, callback: () => T, detail?: () => string): T {
@@ -263,25 +314,65 @@ function loadExploredVisionCells(storageKey: string, map: VttMapStateDto) {
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) return new Set<string>();
-    const parsed = JSON.parse(raw) as Partial<StoredExploredVisionCells>;
+    const parsed = parseJsonWithDecoder(raw, decodeStoredExploredVisionCells, storageKey);
     if (
+      parsed.version !== STORED_EXPLORED_VISION_CELLS_VERSION ||
       parsed.width !== map.width ||
       parsed.height !== map.height ||
-      parsed.gridSize !== map.gridSize ||
-      !Array.isArray(parsed.cells)
+      parsed.gridSize !== map.gridSize
     ) {
+      removeExploredVisionStorage(storageKey);
       return new Set<string>();
     }
-    return new Set(parsed.cells.filter((cell): cell is string => typeof cell === 'string'));
+    return new Set(parsed.cells);
   } catch {
+    removeExploredVisionStorage(storageKey);
     return new Set<string>();
   }
+}
+
+function removeExploredVisionStorage(storageKey: string) {
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    // Storage cleanup is best effort when browser storage is unavailable.
+  }
+}
+
+function decodeStoredExploredVisionCells(value: unknown): StoredExploredVisionCells {
+  if (!isRecord(value)) {
+    throw new Error('stored explored vision cells must be an object.');
+  }
+  return {
+    version: readStoredNonNegativeInteger(value, 'version'),
+    width: readStoredPositiveInteger(value, 'width'),
+    height: readStoredPositiveInteger(value, 'height'),
+    gridSize: readStoredPositiveInteger(value, 'gridSize'),
+    cells: readArray(value, 'cells', (cell) => readString({ cell }, 'cell')),
+  };
+}
+
+function readStoredNonNegativeInteger(record: Record<string, unknown>, key: string): number {
+  const value = readNumber(record, key);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function readStoredPositiveInteger(record: Record<string, unknown>, key: string): number {
+  const value = readNumber(record, key);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${key} must be a positive integer.`);
+  }
+  return value;
 }
 
 function saveExploredVisionCells(storageKey: string, map: VttMapStateDto, cells: Set<string>) {
   if (typeof window === 'undefined') return;
 
   const payload: StoredExploredVisionCells = {
+    version: STORED_EXPLORED_VISION_CELLS_VERSION,
     width: map.width,
     height: map.height,
     gridSize: map.gridSize,
@@ -743,16 +834,27 @@ export function BattleMap({
       ),
     [canSeeHiddenContent, visibleObjectCells]
   );
-  const selectedMapStructureCell =
-    selectedMapStructure?.kind === 'terrain'
-      ? (terrainCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
-      : selectedMapStructure?.kind === 'wall'
-        ? (wallCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
-        : selectedMapStructure?.kind === 'door'
-          ? (doorCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
-          : selectedMapStructure?.kind === 'object'
-            ? (objectCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
-            : null;
+  const selectedMapStructureCell: SelectedMapStructureCell | null = (() => {
+    if (!selectedMapStructure) return null;
+    if (selectedMapStructure.kind === 'terrain') {
+      const cell = terrainCells.find((candidate) => candidate.id === selectedMapStructure.id);
+      return cell ? { kind: 'terrain', cell } : null;
+    }
+    if (selectedMapStructure.kind === 'wall') {
+      const cell = wallCells.find((candidate) => candidate.id === selectedMapStructure.id);
+      return cell ? { kind: 'wall', cell } : null;
+    }
+    if (selectedMapStructure.kind === 'door') {
+      const cell = doorCells.find((candidate) => candidate.id === selectedMapStructure.id);
+      return cell ? { kind: 'door', cell } : null;
+    }
+    const cell = objectCells.find((candidate) => candidate.id === selectedMapStructure.id);
+    return cell ? { kind: 'object', cell } : null;
+  })();
+  const selectedObjectCell =
+    selectedMapStructure?.kind === 'object'
+      ? (objectCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
+      : null;
   const startingPositions = map.startingPositions ?? [];
   const filteredMonsterCatalog = useMemo(() => {
     const keyword = monsterSearch.trim().toLowerCase();
@@ -792,7 +894,9 @@ export function BattleMap({
         [
           ...terrainCells.filter((cell) => !cell.terrainEffectId),
           ...wallCells,
-          ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
+          ...doorCells.filter(
+            (door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN
+          ),
         ],
         map
       ),
@@ -1133,37 +1237,27 @@ export function BattleMap({
 
   function updateStructureCells(
     kind: MapStructureKind,
-    cells: Array<
-      | NonNullable<VttMapStateDto['terrainCells']>[number]
-      | NonNullable<VttMapStateDto['wallCells']>[number]
-      | NonNullable<VttMapStateDto['doorCells']>[number]
-      | NonNullable<VttMapStateDto['objectCells']>[number]
-    >
+    cells: StructureCell[]
   ) {
     if (kind === 'terrain') {
-      updateMap({ terrainCells: cells as NonNullable<VttMapStateDto['terrainCells']> });
+      updateMap({ terrainCells: cells });
       return;
     }
     if (kind === 'wall') {
-      updateMap({ wallCells: cells as NonNullable<VttMapStateDto['wallCells']> });
+      updateMap({ wallCells: cells });
       return;
     }
     if (kind === 'door') {
-      updateMap({ doorCells: cells as NonNullable<VttMapStateDto['doorCells']> });
+      updateMap({ doorCells: cells.filter(isDoorCell) });
       return;
     }
-    updateMap({ objectCells: cells as NonNullable<VttMapStateDto['objectCells']> });
+    updateMap({ objectCells: cells });
   }
 
   function updateStructureCell(
     kind: MapStructureKind,
     cellId: string,
-    patch: Partial<
-      | NonNullable<VttMapStateDto['terrainCells']>[number]
-      | NonNullable<VttMapStateDto['wallCells']>[number]
-      | NonNullable<VttMapStateDto['doorCells']>[number]
-      | NonNullable<VttMapStateDto['objectCells']>[number]
-    >
+    patch: StructurePatch
   ) {
     updateStructureCells(
       kind,
@@ -1295,7 +1389,7 @@ export function BattleMap({
     };
     const nextCell =
       kind === 'door'
-        ? { ...base, state: 'closed' as const, keyItemId: null, canBreak: false, breakCheckDc: null }
+        ? { ...base, state: VTT_DOOR_STATES.CLOSED, keyItemId: null, canBreak: false, breakCheckDc: null }
         : kind === 'object'
           ? {
               ...base,
@@ -1335,7 +1429,7 @@ export function BattleMap({
     updateStructureCell('object', cellId, {
       ...bounds,
       shapeCells,
-    } as Partial<ObjectCell>);
+    });
     setSelectedMapStructure({ kind: 'object', id: cellId });
     setSelectedTokenId(null);
     setSelectedFogId(null);
@@ -1405,13 +1499,12 @@ export function BattleMap({
             detectedBySessionCharacterIds: [],
           }
         : null,
-    } as Partial<ObjectCell>);
+    });
   }
 
   function updateObjectHazard(patch: Partial<ObjectHazard>) {
     if (selectedMapStructure?.kind !== 'object') return;
-    const objectCell = selectedMapStructureCell as ObjectCell | null;
-    const hazard = objectCell?.hazard;
+    const hazard = selectedObjectCell?.hazard;
     if (!hazard) return;
 
     updateStructureCell('object', selectedMapStructure.id, {
@@ -1419,13 +1512,12 @@ export function BattleMap({
         ...hazard,
         ...patch,
       },
-    } as Partial<ObjectCell>);
+    });
   }
 
   function updateObjectRevealChecks(contentIds: string[]) {
     if (selectedMapStructure?.kind !== 'object') return;
-    const objectCell = selectedMapStructureCell as ObjectCell | null;
-    const existingChecks = objectCell?.revealChecks ?? [];
+    const existingChecks = selectedObjectCell?.revealChecks ?? [];
     const nextChecks = contentIds.map((contentId) => {
       const existing = existingChecks.find((check) => check.contentId === contentId);
       return (
@@ -1441,14 +1533,13 @@ export function BattleMap({
     updateStructureCell('object', selectedMapStructure.id, {
       hiddenClueIds: contentIds,
       revealChecks: nextChecks,
-    } as Partial<ObjectCell>);
+    });
   }
 
   function patchObjectRevealCheck(contentId: string, patch: Partial<ObjectRevealCheck>) {
     if (selectedMapStructure?.kind !== 'object') return;
-    const objectCell = selectedMapStructureCell as ObjectCell | null;
-    const hiddenClueIds = objectCell?.hiddenClueIds ?? [];
-    const existingChecks = objectCell?.revealChecks ?? [];
+    const hiddenClueIds = selectedObjectCell?.hiddenClueIds ?? [];
+    const existingChecks = selectedObjectCell?.revealChecks ?? [];
     const nextChecks = hiddenClueIds.map((id) => {
       const existing =
         existingChecks.find((check) => check.contentId === id) ??
@@ -1463,7 +1554,7 @@ export function BattleMap({
     });
     updateStructureCell('object', selectedMapStructure.id, {
       revealChecks: nextChecks,
-    } as Partial<ObjectCell>);
+    });
   }
 
   function resetObjectHazardState() {
@@ -1486,10 +1577,9 @@ export function BattleMap({
 
   function addObjectFogRevealEvent() {
     if (selectedMapStructure?.kind !== 'object') return;
-    const objectCell = selectedMapStructureCell as ObjectCell | null;
-    if (!objectCell) return;
+    if (!selectedObjectCell) return;
 
-    const events = objectCell.events ?? [];
+    const events = selectedObjectCell.events ?? [];
     const nextEvent: ObjectEvent = {
       id: `event:fog:${Date.now()}`,
       name: '근접 안개 해제',
@@ -1499,29 +1589,27 @@ export function BattleMap({
     };
     updateStructureCell('object', selectedMapStructure.id, {
       events: [...events, nextEvent].slice(0, 20),
-    } as Partial<ObjectCell>);
+    });
   }
 
   function updateObjectEvent(eventId: string, updater: (event: ObjectEvent) => ObjectEvent) {
     if (selectedMapStructure?.kind !== 'object') return;
-    const objectCell = selectedMapStructureCell as ObjectCell | null;
-    if (!objectCell) return;
+    if (!selectedObjectCell) return;
 
     updateStructureCell('object', selectedMapStructure.id, {
-      events: (objectCell.events ?? []).map((event) =>
+      events: (selectedObjectCell.events ?? []).map((event) =>
         event.id === eventId ? updater(event) : event
       ),
-    } as Partial<ObjectCell>);
+    });
   }
 
   function deleteObjectEvent(eventId: string) {
     if (selectedMapStructure?.kind !== 'object') return;
-    const objectCell = selectedMapStructureCell as ObjectCell | null;
-    if (!objectCell) return;
+    if (!selectedObjectCell) return;
 
     updateStructureCell('object', selectedMapStructure.id, {
-      events: (objectCell.events ?? []).filter((event) => event.id !== eventId),
-    } as Partial<ObjectCell>);
+      events: (selectedObjectCell.events ?? []).filter((event) => event.id !== eventId),
+    });
   }
 
   async function handleTokenMove(
@@ -1620,7 +1708,9 @@ export function BattleMap({
 
   function syncPartyTokens() {
     const knownTokenIds = new Set(
-      map.tokens.map((token) => token.sessionCharacterId).filter(Boolean)
+      map.tokens.flatMap((token) =>
+        token.sessionCharacterId ? [token.sessionCharacterId] : []
+      )
     );
     const characterImageById = new Map(
       characters.map((character) => [character.id, getCharacterImage(character)])
@@ -1915,7 +2005,7 @@ export function BattleMap({
 
     const structureSelection = getSessionStructureSelectionAtPoint(point);
     if (structureSelection) {
-      emitStructureSelection(structureSelection.kind, structureSelection.cell);
+      emitStructureSelection(structureSelection);
       return;
     }
 
@@ -1942,21 +2032,14 @@ export function BattleMap({
     });
   }
 
-  function emitStructureSelection(
-    kind: MapStructureKind,
-    cell:
-      | NonNullable<VttMapStateDto['terrainCells']>[number]
-      | NonNullable<VttMapStateDto['wallCells']>[number]
-      | NonNullable<VttMapStateDto['doorCells']>[number]
-      | NonNullable<VttMapStateDto['objectCells']>[number]
-  ) {
+  function emitStructureSelection(selection: SelectedMapStructureCell) {
+    const { cell } = selection;
     const point = {
       x: cell.x + cell.width / 2,
       y: cell.y + cell.height / 2,
     };
     onSelectionChange?.({
-      kind,
-      cell,
+      ...selection,
       point,
       tile: getTileFromPoint(point),
     });
@@ -1970,7 +2053,7 @@ export function BattleMap({
       | NonNullable<VttMapStateDto['doorCells']>[number]
       | NonNullable<VttMapStateDto['objectCells']>[number]
   ) {
-    const shapeCells = 'shapeCells' in cell ? getObjectShapeCells(cell as ObjectCell) : [cell];
+    const shapeCells = isObjectCell(cell) ? getObjectShapeCells(cell) : [cell];
     return shapeCells.some(
       (shapeCell) =>
         point.x >= shapeCell.x &&
@@ -2227,15 +2310,21 @@ export function BattleMap({
   }
 
   function setExclusiveTool(tool: 'pan' | 'fog' | 'measure' | 'ping' | MapStructureKind) {
-    const isStructureTool =
-      tool === 'terrain' || tool === 'wall' || tool === 'door' || tool === 'object';
     setPanMode(tool === 'pan' ? !isPanMode : false);
     setFogMode(tool === 'fog' ? !isFogMode : false);
     setMeasureMode(tool === 'measure' ? !isMeasureMode : false);
     setPingMode(tool === 'ping' ? !isPingMode : false);
-    setMapStructureTool((current) =>
-      isStructureTool ? (tool === current ? null : (tool as MapStructureKind)) : null
-    );
+    setMapStructureTool((current) => {
+      switch (tool) {
+        case 'terrain':
+        case 'wall':
+        case 'door':
+        case 'object':
+          return tool === current ? null : tool;
+        default:
+          return null;
+      }
+    });
   }
 
   function applyTokenAsset(asset: ScenarioAsset) {
@@ -2347,7 +2436,6 @@ export function BattleMap({
             onHideFullMap={hideFullMap}
             onToggleFullscreen={() => setIsFullscreen((value) => !value)}
             getMonsterDisplayName={getMonsterDisplayName}
-            clamp={clamp}
           />
         ) : null}
       />
@@ -2397,11 +2485,11 @@ export function BattleMap({
                 selectedMapStructure={selectedMapStructure}
                 structureDraft={structureDraft}
                 getObjectShapeCells={getObjectShapeCells}
-                onSelectStructure={(kind, cell) => {
-                  setSelectedMapStructure({ kind, id: cell.id });
+                onSelectStructure={(selection) => {
+                  setSelectedMapStructure({ kind: selection.kind, id: selection.cell.id });
                   setSelectedTokenId(null);
                   setSelectedFogId(null);
-                  emitStructureSelection(kind, cell);
+                  emitStructureSelection(selection);
                 }}
                 onBeginObjectExtensionDrag={beginObjectExtensionDrag}
               />
@@ -2580,8 +2668,7 @@ export function BattleMap({
 
         {canEditMap && selectedMapStructure && selectedMapStructureCell ? (
           <BattleMapStructureInspector
-            kind={selectedMapStructure.kind}
-            cell={selectedMapStructureCell}
+            {...selectedMapStructureCell}
             clueOptions={clueOptions}
             itemOptions={itemOptions}
             enableObjectEventEditing={enableObjectEventEditing}

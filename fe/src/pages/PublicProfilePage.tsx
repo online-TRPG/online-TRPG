@@ -73,7 +73,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
       email: null,
       name: "알 수 없는 사용자",
       nickname: "미확인",
-      authProvider: "LOCAL" as User["authProvider"],
+      authProvider: "LOCAL",
       displayName: publicId,
       createdAt: "",
     };

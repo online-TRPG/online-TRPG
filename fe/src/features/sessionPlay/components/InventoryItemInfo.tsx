@@ -50,18 +50,17 @@ function formatUserFacingInventoryText(text: string | null | undefined) {
 
 function getDisplayProperties(item: InventoryItemDto) {
   if (item.displayPropertyLabels?.length) {
-    return item.displayPropertyLabels.filter((label) => Boolean(label.trim()));
+    return compactTrimmedStrings(item.displayPropertyLabels);
   }
 
   return (item.properties ?? [])
     .filter((property) => !internalPropertyIds.has(property.trim().toLowerCase()))
     .map(getPropertyLabel)
-    .filter((label) => Boolean(label.trim()));
+    .flatMap((label) => compactTrimmedStrings([label]));
 }
 
 function getInventoryItemKey(item: InventoryItemDto) {
-  return [item.itemType, item.name, ...(item.properties ?? [])]
-    .filter(Boolean)
+  return compactStrings([item.itemType, item.name, ...(item.properties ?? [])])
     .join(' ')
     .toLowerCase();
 }
@@ -131,9 +130,20 @@ export function getInventoryMetaLabel(item: InventoryItemDto) {
       : null,
     item.weightLb !== undefined ? `${formatNumber(item.weightLb)} lb` : null,
     displayProperties.length ? displayProperties.join(', ') : null,
-  ].filter(Boolean);
+  ].flatMap((label) => label ? [label] : []);
 
   return labels.length ? labels.join(' / ') : '상세 정보 없음';
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === 'string' && value.length > 0 ? [value] : []);
+}
+
+function compactTrimmedStrings(values: string[]): string[] {
+  return values.flatMap((value) => {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 function getInventoryInfoRows(item: InventoryItemDto) {
@@ -159,7 +169,7 @@ function getInventoryInfoRows(item: InventoryItemDto) {
               ? `+${item.armorClassBonus}`
               : null,
           ]
-            .filter(Boolean)
+            .flatMap((part) => part ? [part] : [])
             .join(' ') || '정보 없음',
         }
       : null,
@@ -185,7 +195,7 @@ function getInventoryInfoRows(item: InventoryItemDto) {
     displayProperties.length
       ? { label: '속성', value: displayProperties.join(', ') }
       : null,
-  ].filter((row): row is { label: string; value: string } => Boolean(row));
+  ].flatMap((row) => row ? [row] : []);
 }
 
 export function InventoryItemInfo({

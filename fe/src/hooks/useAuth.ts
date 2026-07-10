@@ -11,8 +11,9 @@ import {
   reissue,
   updateMe,
 } from "../services/authApi";
-import { getAccessTokenExpiresAtMs } from "../services/authToken";
+import { assertUsableAccessToken, getAccessTokenExpiresAtMs } from "../services/authToken";
 import { AUTH_EXPIRED_EVENT, AUTH_TOKEN_REISSUED_EVENT } from "../services/httpClient";
+import { isRecord, readString } from "@trpg/shared-types/frontend";
 import {
   clearAll,
   clearStoredToken,
@@ -28,6 +29,14 @@ import type { LogEntry, StoredUser, User } from "../types/session";
 
 const TOKEN_EXPIRED_MESSAGE = "로그인 시간이 만료되었습니다. 다시 로그인해주세요.";
 const TOKEN_REFRESH_LEEWAY_MS = 60 * 1000;
+
+type AuthExpiredEventDetail = {
+  message: string;
+};
+
+type AuthTokenReissuedEventDetail = {
+  accessToken: string;
+};
 
 export type AuthNotice = {
   kind: "success" | "warning";
@@ -161,8 +170,9 @@ export function useAuth(
 
   useEffect(() => {
     function handleAuthExpired(event: Event) {
-      const detail = event instanceof CustomEvent ? (event.detail as { message?: string } | null) : null;
-      expireSession(detail?.message || TOKEN_EXPIRED_MESSAGE);
+      const detail = decodeAuthExpiredEventDetail(event);
+      const message = detail?.message ?? TOKEN_EXPIRED_MESSAGE;
+      expireSession(message);
     }
 
     window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
@@ -171,12 +181,13 @@ export function useAuth(
 
   useEffect(() => {
     function handleTokenReissued(event: Event) {
-      const detail = event instanceof CustomEvent ? (event.detail as { accessToken?: string } | null) : null;
-      if (!detail?.accessToken || currentAuthRef.current.authMode !== "member") return;
+      const detail = decodeAuthTokenReissuedEventDetail(event);
+      const accessToken = detail?.accessToken ?? null;
+      if (!accessToken || currentAuthRef.current.authMode !== "member") return;
 
       handledExpiredTokenRef.current = false;
-      saveStoredToken(detail.accessToken);
-      setAccessToken(detail.accessToken);
+      saveStoredToken(accessToken);
+      setAccessToken(accessToken);
       setError(null);
     }
 
@@ -450,4 +461,41 @@ export function useAuth(
       setNotice(null);
     },
   };
+}
+
+function decodeAuthExpiredEventDetail(event: Event): AuthExpiredEventDetail | null {
+  if (!(event instanceof CustomEvent)) {
+    return null;
+  }
+  try {
+    return {
+      message: readString(readAuthEventDetailRecord(event.detail), "message", "authExpired.message"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function decodeAuthTokenReissuedEventDetail(event: Event): AuthTokenReissuedEventDetail | null {
+  if (!(event instanceof CustomEvent)) {
+    return null;
+  }
+  try {
+    const accessToken = readString(
+      readAuthEventDetailRecord(event.detail),
+      "accessToken",
+      "authTokenReissued.accessToken",
+    );
+    assertUsableAccessToken(accessToken);
+    return { accessToken };
+  } catch {
+    return null;
+  }
+}
+
+function readAuthEventDetailRecord(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new Error("auth event detail must be an object.");
+  }
+  return value;
 }

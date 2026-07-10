@@ -1,37 +1,108 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandIntent, MainCommandResponseDto, MainCommandStatus, MainCommandTargetType, SubmitMainCommandDto } from "@trpg/shared-types";
+import {
+  MainCommandActionCandidateDto,
+  MainCommandCheckOptionDto,
+  MainCommandIntent,
+  MainCommandResponseDto,
+  MainCommandStatus,
+  MainCommandTargetType,
+  SubmitMainCommandDto,
+} from "@trpg/shared-types";
 import { AiService } from "../ai/ai.service";
+import type { InterpreterRequestPayload } from "../ai/ai.client";
 import { SessionsService } from "../sessions/sessions.service";
 import { MainCommandApprovalPolicyService } from "./main-command-approval-policy.service";
+import type { MainCommandCheckAction } from "./main-command-check-builder.service";
+import { MAIN_COMMAND_CONFIDENCE } from "./main-command-policy.constants";
 import type { InterpreterParsedForRouting, LoadedContext, VisibleSceneEntity } from "./main-commands.service";
 
 export type MainCommandIntentHandlersRuntime = {
   aiService: AiService;
   sessionsService: SessionsService;
-  buildActionCandidate: (...args: any[]) => any;
-  buildCheckOptions: (...args: any[]) => any;
-  buildDangerDetectionCheckOptions: (...args: any[]) => any;
-  buildDeceptionCheckOptions: (...args: any[]) => any;
-  buildInsightCheckOptions: (...args: any[]) => any;
-  buildInterpreterPayload: (...args: any[]) => any;
-  buildIntimidationCheckOptions: (...args: any[]) => any;
-  buildInvestigationCheckOptions: (...args: any[]) => any;
-  buildItemExploreCheckOptions: (...args: any[]) => any;
-  buildObjectInteractionCheckOptions: (...args: any[]) => any;
-  buildPerceptionCheckOptions: (...args: any[]) => any;
-  buildPersuasionCheckOptions: (...args: any[]) => any;
-  buildSpecialMoveCheckOptions: (...args: any[]) => any;
-  buildToolUseCheckOptions: (...args: any[]) => any;
-  canUseExplicitPlayerText: (...args: any[]) => any;
-  handleNpcDialogue: (...args: any[]) => any;
-  handleRuleQuery: (...args: any[]) => any;
-  handleSceneInfo: (...args: any[]) => any;
-  handleSceneTransition: (...args: any[]) => any;
-  handleSummary: (...args: any[]) => any;
-  handleTacticQuery: (...args: any[]) => any;
-  resolveEntity: (...args: any[]) => any;
-  resolveOwnedItemName: (...args: any[]) => any;
-  shouldRequireMainCommandCheck: (...args: any[]) => any;
+  buildActionCandidate: (context: LoadedContext, dto: SubmitMainCommandDto, actionSummary: string) => MainCommandActionCandidateDto;
+  buildCheckOptions: (action: MainCommandCheckAction) => MainCommandCheckOptionDto[];
+  buildDangerDetectionCheckOptions: (action: MainCommandCheckAction) => MainCommandCheckOptionDto[];
+  buildDeceptionCheckOptions: (action: MainCommandCheckAction, targetName: string) => MainCommandCheckOptionDto[];
+  buildInsightCheckOptions: (action: MainCommandCheckAction, targetName: string) => MainCommandCheckOptionDto[];
+  buildInterpreterPayload: (
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs?: string[],
+  ) => InterpreterRequestPayload;
+  buildIntimidationCheckOptions: (action: MainCommandCheckAction, targetName: string) => MainCommandCheckOptionDto[];
+  buildInvestigationCheckOptions: (action: MainCommandCheckAction, targetName: string) => MainCommandCheckOptionDto[];
+  buildItemExploreCheckOptions: (
+    action: MainCommandCheckAction,
+    itemName: string,
+    targetName?: string,
+  ) => MainCommandCheckOptionDto[];
+  buildObjectInteractionCheckOptions: (action: MainCommandCheckAction, targetName: string) => MainCommandCheckOptionDto[];
+  buildPerceptionCheckOptions: (action: MainCommandCheckAction) => MainCommandCheckOptionDto[];
+  buildPersuasionCheckOptions: (action: MainCommandCheckAction, targetName: string) => MainCommandCheckOptionDto[];
+  buildSpecialMoveCheckOptions: (action: MainCommandCheckAction) => MainCommandCheckOptionDto[];
+  buildToolUseCheckOptions: (
+    action: MainCommandCheckAction,
+    toolName: string,
+    targetName?: string,
+  ) => MainCommandCheckOptionDto[];
+  canUseExplicitPlayerText: (
+    dto: SubmitMainCommandDto,
+    options: { acceptsMapPoint?: boolean; acceptsTarget?: boolean },
+  ) => boolean;
+  handleNpcDialogue: (
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+  ) => Promise<MainCommandResponseDto>;
+  handleRuleQuery: (
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+  ) => Promise<MainCommandResponseDto>;
+  handleSceneInfo: (
+    requestId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+  ) => MainCommandResponseDto;
+  handleSceneTransition: (
+    requestId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+  ) => Promise<MainCommandResponseDto>;
+  handleSummary: (
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+  ) => Promise<MainCommandResponseDto>;
+  handleTacticQuery: (
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
+  ) => Promise<MainCommandResponseDto>;
+  resolveEntity: (
+    dto: SubmitMainCommandDto,
+    entities: VisibleSceneEntity[],
+    preferredType?: MainCommandTargetType,
+  ) => VisibleSceneEntity | null;
+  resolveOwnedItemName: (context: LoadedContext, itemId?: string | null) => string;
+  shouldRequireMainCommandCheck: (
+    action: InterpreterParsedForRouting["action"],
+    dto: SubmitMainCommandDto,
+    needsClarification: boolean,
+  ) => boolean;
 };
 
 @Injectable()
@@ -57,100 +128,160 @@ export class MainCommandIntentHandlersRunner {
     return this.runtime.sessionsService;
   }
 
-  private buildActionCandidate(...args: any[]): any {
-    return this.runtime.buildActionCandidate(...args);
+  private buildActionCandidate(context: LoadedContext, dto: SubmitMainCommandDto, actionSummary: string): MainCommandActionCandidateDto {
+    return this.runtime.buildActionCandidate(context, dto, actionSummary);
   }
 
-  private buildCheckOptions(...args: any[]): any {
-    return this.runtime.buildCheckOptions(...args);
+  private buildCheckOptions(action: MainCommandCheckAction): MainCommandCheckOptionDto[] {
+    return this.runtime.buildCheckOptions(action);
   }
 
-  private buildDangerDetectionCheckOptions(...args: any[]): any {
-    return this.runtime.buildDangerDetectionCheckOptions(...args);
+  private buildDangerDetectionCheckOptions(action: MainCommandCheckAction): MainCommandCheckOptionDto[] {
+    return this.runtime.buildDangerDetectionCheckOptions(action);
   }
 
-  private buildDeceptionCheckOptions(...args: any[]): any {
-    return this.runtime.buildDeceptionCheckOptions(...args);
+  private buildDeceptionCheckOptions(action: MainCommandCheckAction, targetName: string): MainCommandCheckOptionDto[] {
+    return this.runtime.buildDeceptionCheckOptions(action, targetName);
   }
 
-  private buildInsightCheckOptions(...args: any[]): any {
-    return this.runtime.buildInsightCheckOptions(...args);
+  private buildInsightCheckOptions(action: MainCommandCheckAction, targetName: string): MainCommandCheckOptionDto[] {
+    return this.runtime.buildInsightCheckOptions(action, targetName);
   }
 
-  private buildInterpreterPayload(...args: any[]): any {
-    return this.runtime.buildInterpreterPayload(...args);
+  private buildInterpreterPayload(
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs?: string[],
+  ): InterpreterRequestPayload {
+    return this.runtime.buildInterpreterPayload(context, dto, visibleEntities, recentLogs);
   }
 
-  private buildIntimidationCheckOptions(...args: any[]): any {
-    return this.runtime.buildIntimidationCheckOptions(...args);
+  private buildIntimidationCheckOptions(action: MainCommandCheckAction, targetName: string): MainCommandCheckOptionDto[] {
+    return this.runtime.buildIntimidationCheckOptions(action, targetName);
   }
 
-  private buildInvestigationCheckOptions(...args: any[]): any {
-    return this.runtime.buildInvestigationCheckOptions(...args);
+  private buildInvestigationCheckOptions(action: MainCommandCheckAction, targetName: string): MainCommandCheckOptionDto[] {
+    return this.runtime.buildInvestigationCheckOptions(action, targetName);
   }
 
-  private buildItemExploreCheckOptions(...args: any[]): any {
-    return this.runtime.buildItemExploreCheckOptions(...args);
+  private buildItemExploreCheckOptions(
+    action: MainCommandCheckAction,
+    itemName: string,
+    targetName?: string,
+  ): MainCommandCheckOptionDto[] {
+    return this.runtime.buildItemExploreCheckOptions(action, itemName, targetName);
   }
 
-  private buildObjectInteractionCheckOptions(...args: any[]): any {
-    return this.runtime.buildObjectInteractionCheckOptions(...args);
+  private buildObjectInteractionCheckOptions(action: MainCommandCheckAction, targetName: string): MainCommandCheckOptionDto[] {
+    return this.runtime.buildObjectInteractionCheckOptions(action, targetName);
   }
 
-  private buildPerceptionCheckOptions(...args: any[]): any {
-    return this.runtime.buildPerceptionCheckOptions(...args);
+  private buildPerceptionCheckOptions(action: MainCommandCheckAction): MainCommandCheckOptionDto[] {
+    return this.runtime.buildPerceptionCheckOptions(action);
   }
 
-  private buildPersuasionCheckOptions(...args: any[]): any {
-    return this.runtime.buildPersuasionCheckOptions(...args);
+  private buildPersuasionCheckOptions(action: MainCommandCheckAction, targetName: string): MainCommandCheckOptionDto[] {
+    return this.runtime.buildPersuasionCheckOptions(action, targetName);
   }
 
-  private buildSpecialMoveCheckOptions(...args: any[]): any {
-    return this.runtime.buildSpecialMoveCheckOptions(...args);
+  private buildSpecialMoveCheckOptions(action: MainCommandCheckAction): MainCommandCheckOptionDto[] {
+    return this.runtime.buildSpecialMoveCheckOptions(action);
   }
 
-  private buildToolUseCheckOptions(...args: any[]): any {
-    return this.runtime.buildToolUseCheckOptions(...args);
+  private buildToolUseCheckOptions(
+    action: MainCommandCheckAction,
+    toolName: string,
+    targetName?: string,
+  ): MainCommandCheckOptionDto[] {
+    return this.runtime.buildToolUseCheckOptions(action, toolName, targetName);
   }
 
-  private canUseExplicitPlayerText(...args: any[]): any {
-    return this.runtime.canUseExplicitPlayerText(...args);
+  private canUseExplicitPlayerText(
+    dto: SubmitMainCommandDto,
+    options: { acceptsMapPoint?: boolean; acceptsTarget?: boolean },
+  ): boolean {
+    return this.runtime.canUseExplicitPlayerText(dto, options);
   }
 
-  private handleNpcDialogue(...args: any[]): any {
-    return this.runtime.handleNpcDialogue(...args);
+  private handleNpcDialogue(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+  ): Promise<MainCommandResponseDto> {
+    return this.runtime.handleNpcDialogue(requestId, userId, context, dto, visibleEntities, recentLogs);
   }
 
-  private handleRuleQuery(...args: any[]): any {
-    return this.runtime.handleRuleQuery(...args);
+  private handleRuleQuery(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+  ): Promise<MainCommandResponseDto> {
+    return this.runtime.handleRuleQuery(requestId, userId, context, dto, visibleEntities);
   }
 
-  private handleSceneInfo(...args: any[]): any {
-    return this.runtime.handleSceneInfo(...args);
+  private handleSceneInfo(
+    requestId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+  ): MainCommandResponseDto {
+    return this.runtime.handleSceneInfo(requestId, context, dto, visibleEntities);
   }
 
-  private handleSceneTransition(...args: any[]): any {
-    return this.runtime.handleSceneTransition(...args);
+  private handleSceneTransition(
+    requestId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+  ): Promise<MainCommandResponseDto> {
+    return this.runtime.handleSceneTransition(requestId, context, dto, recentLogs);
   }
 
-  private handleSummary(...args: any[]): any {
-    return this.runtime.handleSummary(...args);
+  private handleSummary(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+  ): Promise<MainCommandResponseDto> {
+    return this.runtime.handleSummary(requestId, userId, context, dto, recentLogs);
   }
 
-  private handleTacticQuery(...args: any[]): any {
-    return this.runtime.handleTacticQuery(...args);
+  private handleTacticQuery(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
+  ): Promise<MainCommandResponseDto> {
+    return this.runtime.handleTacticQuery(requestId, userId, context, dto, recentLogs, publicClues);
   }
 
-  private resolveEntity(...args: any[]): any {
-    return this.runtime.resolveEntity(...args);
+  private resolveEntity(
+    dto: SubmitMainCommandDto,
+    entities: VisibleSceneEntity[],
+    preferredType?: MainCommandTargetType,
+  ): VisibleSceneEntity | null {
+    return this.runtime.resolveEntity(dto, entities, preferredType);
   }
 
-  private resolveOwnedItemName(...args: any[]): any {
-    return this.runtime.resolveOwnedItemName(...args);
+  private resolveOwnedItemName(context: LoadedContext, itemId?: string | null): string {
+    return this.runtime.resolveOwnedItemName(context, itemId);
   }
 
-  private shouldRequireMainCommandCheck(...args: any[]): any {
-    return this.runtime.shouldRequireMainCommandCheck(...args);
+  private shouldRequireMainCommandCheck(
+    action: InterpreterParsedForRouting["action"],
+    dto: SubmitMainCommandDto,
+    needsClarification: boolean,
+  ): boolean {
+    return this.runtime.shouldRequireMainCommandCheck(action, dto, needsClarification);
   }
 
   async handleCombatTalk(
@@ -252,7 +383,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (normalizedDisposition === "hostile" && confidence < 0.65) {
+    if (normalizedDisposition === "hostile" && confidence < MAIN_COMMAND_CONFIDENCE.HOSTILE_PERSUASION_REJECT_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -318,7 +449,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (confidence < 0.45) {
+    if (confidence < MAIN_COMMAND_CONFIDENCE.INTIMIDATE_MINIMUM) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -327,7 +458,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (normalizedDisposition === "friendly" && confidence < 0.7) {
+    if (normalizedDisposition === "friendly" && confidence < MAIN_COMMAND_CONFIDENCE.FRIENDLY_INTIMIDATION_REJECT_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -395,7 +526,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (confidence < 0.45) {
+    if (confidence < MAIN_COMMAND_CONFIDENCE.DECEPTION_MINIMUM) {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
@@ -804,11 +935,22 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
+    if (!dto.mapPoint) {
+      return {
+        requestId,
+        status: MainCommandStatus.CHECK_REQUIRED,
+        message: "특수 이동을 시도하려면 위치가 필요합니다.",
+        checkOptions: this.buildSpecialMoveCheckOptions(interpreter.parsed.action),
+        actionCandidate,
+      };
+    }
+
+    const mapPoint = dto.mapPoint;
     const itemSummary = dto.itemId ? ` 도구 ${dto.itemId} 사용을 함께 고려합니다.` : "";
     const moveResult = await this.sessionsService.moveSessionCharacterTokenToMapPoint({
       sessionId: context.sessionId,
       sessionCharacterId: context.sessionCharacterId,
-      mapPoint: dto.mapPoint!,
+      mapPoint,
     });
 
     return {
@@ -816,7 +958,7 @@ export class MainCommandIntentHandlersRunner {
       status: moveResult.status,
       message:
         moveResult.status === MainCommandStatus.RESOLVED
-          ? `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 방향 특수 이동에 성공했습니다.${itemSummary}\n\n${moveResult.message}`
+          ? `(${mapPoint.x}, ${mapPoint.y}) 방향 특수 이동에 성공했습니다.${itemSummary}\n\n${moveResult.message}`
           : moveResult.message,
       actionCandidate,
     };
@@ -920,7 +1062,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (interpreter.parsed.action.confidence < 0.6) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.TOOL_OR_OBJECT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
@@ -986,7 +1128,7 @@ export class MainCommandIntentHandlersRunner {
       };
     }
 
-    if (interpreter.parsed.action.confidence < 0.6) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.TOOL_OR_OBJECT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
@@ -1087,7 +1229,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1384,7 +1526,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1435,7 +1577,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1491,7 +1633,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1557,7 +1699,7 @@ export class MainCommandIntentHandlersRunner {
     const actionSummary = interpreter.parsed.action.approach?.trim() || dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.confidence < 0.55) {
+    if (interpreter.parsed.action.confidence < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,

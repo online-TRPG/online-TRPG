@@ -6,10 +6,17 @@ import {
 import {
   ActionQueueStatus,
   ActionOutcome,
+  TurnLogDiceResultDto,
   TurnLogListResponseDto,
   TurnLogResponseDto,
+  TurnLogStateDiffDto,
+  TurnLogStructuredActionDto,
+  decodeTurnLogStateDiff,
+  decodeTurnLogDiceResult,
+  decodeTurnLogStructuredAction,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
+import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { SessionsService } from "../sessions/sessions.service";
 
 type TurnLogDbClient = Pick<Prisma.TransactionClient, "turnLog">;
@@ -28,9 +35,9 @@ export class TurnLogsService {
     actorUserId?: string | null;
     sessionCharacterId?: string | null;
     rawInput?: string | null;
-    structuredAction?: Record<string, unknown> | null;
-    diceResult?: Record<string, unknown> | null;
-    stateDiff?: Record<string, unknown> | null;
+    structuredAction?: unknown;
+    diceResult?: unknown;
+    stateDiff?: unknown;
     outcome: ActionOutcome;
     narration?: string | null;
   }, client: TurnLogDbClient = this.prisma): Promise<TurnLogResponseDto> {
@@ -44,11 +51,9 @@ export class TurnLogsService {
         sessionCharacterId: params.sessionCharacterId ?? null,
         turnNumber,
         rawInput: params.rawInput ?? null,
-        structuredActionJson: params.structuredAction
-          ? JSON.stringify(params.structuredAction)
-          : null,
-        diceResultJson: params.diceResult ? JSON.stringify(params.diceResult) : null,
-        stateDiffJson: params.stateDiff ? JSON.stringify(params.stateDiff) : null,
+        structuredActionJson: this.stringifyStructuredAction(params.structuredAction),
+        diceResultJson: this.stringifyTurnLogDiceResult(params.diceResult),
+        stateDiffJson: this.stringifyTurnLogStateDiff(params.stateDiff),
         outcome: this.toPrismaOutcome(params.outcome),
         narration: params.narration ?? null,
       },
@@ -117,12 +122,12 @@ export class TurnLogsService {
 
   async attachStateDiff(
     turnLogId: string,
-    stateDiff: Record<string, unknown>,
+    stateDiff: TurnLogStateDiffDto,
     client: TurnLogDbClient = this.prisma,
   ): Promise<void> {
     await client.turnLog.update({
       where: { id: turnLogId },
-      data: { stateDiffJson: JSON.stringify(stateDiff) },
+      data: { stateDiffJson: this.stringifyTurnLogStateDiff(stateDiff) },
     });
   }
 
@@ -224,33 +229,88 @@ export class TurnLogsService {
       actionCreatedAt: row.playerAction?.createdAt.toISOString() ?? null,
       actionQueueStatus: this.toSharedActionQueueStatus(row.playerAction?.queueStatus),
       rawInput: row.rawInput,
-      structuredAction: this.parseNullableJson(row.structuredActionJson),
-      diceResult: this.parseNullableJson(row.diceResultJson),
-      stateDiff: this.parseNullableJson(row.stateDiffJson),
-      outcome: row.outcome as ActionOutcome,
+      structuredAction: this.parseNullableStructuredAction(row.structuredActionJson),
+      diceResult: this.parseNullableTurnLogDiceResult(row.diceResultJson),
+      stateDiff: this.parseNullableStateDiff(row.stateDiffJson),
+      outcome: this.toSharedOutcome(row.outcome),
       narration: row.narration,
       createdAt: row.createdAt.toISOString(),
     };
   }
 
   private toPrismaOutcome(value: ActionOutcome): PrismaActionOutcome {
-    return value as PrismaActionOutcome;
+    switch (value) {
+      case ActionOutcome.SUCCESS:
+        return PrismaActionOutcome.SUCCESS;
+      case ActionOutcome.FAILURE:
+        return PrismaActionOutcome.FAILURE;
+      case ActionOutcome.IMPOSSIBLE:
+        return PrismaActionOutcome.IMPOSSIBLE;
+      case ActionOutcome.NO_ROLL:
+        return PrismaActionOutcome.NO_ROLL;
+    }
+  }
+
+  private toSharedOutcome(value: PrismaActionOutcome): ActionOutcome {
+    switch (value) {
+      case PrismaActionOutcome.SUCCESS:
+        return ActionOutcome.SUCCESS;
+      case PrismaActionOutcome.FAILURE:
+        return ActionOutcome.FAILURE;
+      case PrismaActionOutcome.IMPOSSIBLE:
+        return ActionOutcome.IMPOSSIBLE;
+      case PrismaActionOutcome.NO_ROLL:
+        return ActionOutcome.NO_ROLL;
+    }
   }
 
   private toSharedActionQueueStatus(value: string | null | undefined): ActionQueueStatus | null {
-    return Object.values(ActionQueueStatus).includes(value as ActionQueueStatus)
-      ? (value as ActionQueueStatus)
-      : null;
-  }
-
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
+    switch (value) {
+      case ActionQueueStatus.PENDING:
+        return ActionQueueStatus.PENDING;
+      case ActionQueueStatus.PROCESSING:
+        return ActionQueueStatus.PROCESSING;
+      case ActionQueueStatus.COMPLETED:
+        return ActionQueueStatus.COMPLETED;
+      case ActionQueueStatus.FAILED:
+        return ActionQueueStatus.FAILED;
+      case ActionQueueStatus.REJECTED:
+        return ActionQueueStatus.REJECTED;
+      default:
+        return null;
     }
-    return JSON.parse(value) as T;
   }
 
-  private parseNullableJson(value: string | null | undefined): Record<string, unknown> | null {
-    return this.parseJson<Record<string, unknown> | null>(value, null);
+  private stringifyStructuredAction(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    return JSON.stringify(decodeTurnLogStructuredAction(value));
+  }
+
+  private stringifyTurnLogStateDiff(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    return JSON.stringify(decodeTurnLogStateDiff(value));
+  }
+
+  private stringifyTurnLogDiceResult(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    return JSON.stringify(decodeTurnLogDiceResult(value));
+  }
+
+  private parseNullableStructuredAction(value: string | null | undefined): TurnLogResponseDto["structuredAction"] {
+    return parseJsonOrFallback(value, null, decodeTurnLogStructuredAction);
+  }
+
+  private parseNullableTurnLogDiceResult(value: string | null | undefined): TurnLogDiceResultDto | null {
+    return parseJsonOrFallback(value, null, decodeTurnLogDiceResult);
+  }
+
+  private parseNullableStateDiff(value: string | null | undefined): TurnLogResponseDto["stateDiff"] {
+    return parseJsonOrFallback(value, null, decodeTurnLogStateDiff);
   }
 }

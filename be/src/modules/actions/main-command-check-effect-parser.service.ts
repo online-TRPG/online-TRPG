@@ -1,57 +1,68 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandActionCandidateDto, MainCommandCheckOptionDto, MainCommandIntent, MainCommandScreenType } from "@trpg/shared-types";
+import {
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
+  MainCommandActionCandidateDto,
+  MainCommandCheckOptionDto,
+  MainCommandIntent,
+  MainCommandNarrativeCheckEffectDto,
+  MainCommandScreenType,
+  VttDoorCheckEffectDto,
+  VttHazardCheckEffectDto,
+  VttObjectCheckEffectDto,
+  VTT_CHECK_EFFECT_ACTIONS,
+  isRecord,
+} from "@trpg/shared-types";
 
-export type VttDoorCheckEffect = {
-  type: "vttDoor";
-  doorId: string;
-  effect: "open" | "broken";
-  nodeId: string;
-  mapPoint: { x: number; y: number };
-};
+const mainCommandIntentValues: readonly MainCommandIntent[] = [
+  MainCommandIntent.GENERAL_GM_REQUEST,
+  MainCommandIntent.TALK_TO_NPC,
+  MainCommandIntent.SOCIAL_PERSUADE,
+  MainCommandIntent.SOCIAL_INTIMIDATE,
+  MainCommandIntent.SOCIAL_DECEIVE,
+  MainCommandIntent.READ_EMOTION,
+  MainCommandIntent.ASK_SCENE_INFO,
+  MainCommandIntent.INSPECT_STORY_OBJECT,
+  MainCommandIntent.DECLARE_RP_ACTION,
+  MainCommandIntent.ASK_HINT,
+  MainCommandIntent.ASK_SUMMARY,
+  MainCommandIntent.REQUEST_SCENE_TRANSITION,
+  MainCommandIntent.OBSERVE_AREA,
+  MainCommandIntent.INVESTIGATE_OBJECT,
+  MainCommandIntent.LISTEN,
+  MainCommandIntent.DETECT_DANGER,
+  MainCommandIntent.SPECIAL_MOVE,
+  MainCommandIntent.INTERACT_OBJECT,
+  MainCommandIntent.USE_TOOL,
+  MainCommandIntent.USE_ITEM_EXPLORE,
+  MainCommandIntent.SPLIT_PARTY_TASK,
+  MainCommandIntent.COMBAT_MANEUVER,
+  MainCommandIntent.ENVIRONMENT_USE,
+  MainCommandIntent.IMPROVISED_ATTACK,
+  MainCommandIntent.CALLED_SHOT,
+  MainCommandIntent.READY_ACTION,
+  MainCommandIntent.REACTION_REQUEST,
+  MainCommandIntent.COMBAT_TALK,
+  MainCommandIntent.USE_ITEM_COMBAT,
+  MainCommandIntent.USE_SPELL_CREATIVELY,
+  MainCommandIntent.TACTIC_QUERY,
+  MainCommandIntent.ASK_RULE,
+];
 
-export type VttHazardCheckEffect = {
-  type: "vttHazard";
-  hazardId: string;
-  effect: "disarm";
-  nodeId: string;
-  mapPoint: { x: number; y: number };
-};
+const mainCommandScreenTypeValues: readonly MainCommandScreenType[] = [
+  MainCommandScreenType.STORY,
+  MainCommandScreenType.EXPLORATION,
+  MainCommandScreenType.COMBAT,
+];
 
-export type VttObjectCheckEffect = {
-  type: "vttObject";
-  objectId: string;
-  effect: "broken";
-  nodeId: string;
-  mapPoint: { x: number; y: number };
-};
-
-export type MainCommandCheckEffect = {
-  type: "mainCommandCheck";
-  requestId: string;
-  nodeId: string;
-  sessionCharacterId: string;
-  intent: MainCommandIntent;
-  screenType: MainCommandScreenType;
-  playerText: string;
-  actionSummary: string;
-  targetId: string | null;
-  targetName: string | null;
-  targetSummary: string | null;
-  targetDisposition: string | null;
-  itemId: string | null;
-  itemName: string | null;
-  mapPoint: { x: number; y: number } | null;
-  checkOption: MainCommandCheckOptionDto | null;
-  visibleEntityNames: string[];
-  publicClues: string[];
-  sceneText: string;
-  actionCandidate: MainCommandActionCandidateDto | null;
-};
+function isOneOf<T extends string>(value: string, values: readonly T[]): value is T {
+  return values.some((candidate) => candidate === value);
+}
 
 @Injectable()
 export class MainCommandCheckEffectParserService {
-  parseMainCommandCheckEffect(value: Record<string, unknown>): MainCommandCheckEffect | null {
-    if (value.type !== "mainCommandCheck") {
+  parseMainCommandCheckEffect(candidate: unknown): MainCommandNarrativeCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value || value.type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK) {
       return null;
     }
 
@@ -67,24 +78,25 @@ export class MainCommandCheckEffectParserService {
       !intent ||
       !screenType ||
       !playerText ||
-      !Object.values(MainCommandIntent).includes(intent as MainCommandIntent) ||
-      !Object.values(MainCommandScreenType).includes(screenType as MainCommandScreenType)
+      !isOneOf(intent, mainCommandIntentValues) ||
+      !isOneOf(screenType, mainCommandScreenTypeValues)
     ) {
       return null;
     }
 
     const mapPoint = this.readPoint(value.mapPoint);
-    const checkOption = value.checkOption && typeof value.checkOption === "object" ? this.parseCheckOption(value.checkOption as Record<string, unknown>) : null;
-    const actionCandidate =
-      value.actionCandidate && typeof value.actionCandidate === "object" ? this.parseActionCandidate(value.actionCandidate as Record<string, unknown>) : null;
+    const checkOptionRecord = this.readRecord(value.checkOption);
+    const actionCandidateRecord = this.readRecord(value.actionCandidate);
+    const checkOption = checkOptionRecord ? this.parseCheckOption(checkOptionRecord) : null;
+    const actionCandidate = actionCandidateRecord ? this.parseActionCandidate(actionCandidateRecord) : null;
 
     return {
-      type: "mainCommandCheck",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK,
       requestId,
       nodeId,
       sessionCharacterId: this.readString(value.sessionCharacterId) ?? "",
-      intent: intent as MainCommandIntent,
-      screenType: screenType as MainCommandScreenType,
+      intent,
+      screenType,
       playerText,
       actionSummary: actionSummary ?? playerText,
       targetId: this.readString(value.targetId),
@@ -102,24 +114,24 @@ export class MainCommandCheckEffectParserService {
     };
   }
 
-  parseVttDoorCheckEffect(value: Record<string, unknown>): VttDoorCheckEffect | null {
+  parseVttDoorCheckEffect(candidate: unknown): VttDoorCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value) {
+      return null;
+    }
     const type = value.type;
     const doorId = value.doorId;
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
+    const point = this.readPoint(mapPoint);
     if (
-      type !== "vttDoor" ||
+      type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR ||
       typeof doorId !== "string" ||
       typeof nodeId !== "string" ||
-      (effect !== "open" && effect !== "broken") ||
-      !mapPoint ||
-      typeof mapPoint !== "object"
+      (effect !== VTT_CHECK_EFFECT_ACTIONS.OPEN && effect !== VTT_CHECK_EFFECT_ACTIONS.BROKEN) ||
+      !point
     ) {
-      return null;
-    }
-    const point = mapPoint as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") {
       return null;
     }
     return {
@@ -127,28 +139,28 @@ export class MainCommandCheckEffectParserService {
       doorId,
       effect,
       nodeId,
-      mapPoint: { x: point.x, y: point.y },
+      mapPoint: point,
     };
   }
 
-  parseVttHazardCheckEffect(value: Record<string, unknown>): VttHazardCheckEffect | null {
+  parseVttHazardCheckEffect(candidate: unknown): VttHazardCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value) {
+      return null;
+    }
     const type = value.type;
     const hazardId = value.hazardId;
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
+    const point = this.readPoint(mapPoint);
     if (
-      type !== "vttHazard" ||
+      type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD ||
       typeof hazardId !== "string" ||
       typeof nodeId !== "string" ||
-      effect !== "disarm" ||
-      !mapPoint ||
-      typeof mapPoint !== "object"
+      effect !== VTT_CHECK_EFFECT_ACTIONS.DISARM ||
+      !point
     ) {
-      return null;
-    }
-    const point = mapPoint as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") {
       return null;
     }
     return {
@@ -156,28 +168,28 @@ export class MainCommandCheckEffectParserService {
       hazardId,
       effect,
       nodeId,
-      mapPoint: { x: point.x, y: point.y },
+      mapPoint: point,
     };
   }
 
-  parseVttObjectCheckEffect(value: Record<string, unknown>): VttObjectCheckEffect | null {
+  parseVttObjectCheckEffect(candidate: unknown): VttObjectCheckEffectDto | null {
+    const value = this.readRecord(candidate);
+    if (!value) {
+      return null;
+    }
     const type = value.type;
     const objectId = value.objectId;
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
+    const point = this.readPoint(mapPoint);
     if (
-      type !== "vttObject" ||
+      type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT ||
       typeof objectId !== "string" ||
       typeof nodeId !== "string" ||
-      effect !== "broken" ||
-      !mapPoint ||
-      typeof mapPoint !== "object"
+      effect !== VTT_CHECK_EFFECT_ACTIONS.BROKEN ||
+      !point
     ) {
-      return null;
-    }
-    const point = mapPoint as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") {
       return null;
     }
     return {
@@ -185,7 +197,7 @@ export class MainCommandCheckEffectParserService {
       objectId,
       effect,
       nodeId,
-      mapPoint: { x: point.x, y: point.y },
+      mapPoint: point,
     };
   }
 
@@ -222,16 +234,30 @@ export class MainCommandCheckEffectParserService {
     return typeof value === "string" && value.trim() ? value.trim() : null;
   }
 
+  private readRecord(value: unknown): Record<string, unknown> | null {
+    return isRecord(value) ? value : null;
+  }
+
   private readStringArray(value: unknown): string[] {
-    return Array.isArray(value) ? value.map((item) => this.readString(item)).filter((item): item is string => Boolean(item)) : [];
+    return Array.isArray(value) ? value.flatMap((item) => this.readStringEntry(item)) : [];
+  }
+
+  private readStringEntry(value: unknown): string[] {
+    const item = this.readString(value);
+    return item ? [item] : [];
   }
 
   private readPoint(value: unknown): { x: number; y: number } | null {
-    if (!value || typeof value !== "object") {
+    const point = this.readRecord(value);
+    if (!point) {
       return null;
     }
-    const point = value as Record<string, unknown>;
-    return typeof point.x === "number" && typeof point.y === "number" ? { x: point.x, y: point.y } : null;
+    return typeof point.x === "number" &&
+      typeof point.y === "number" &&
+      Number.isInteger(point.x) &&
+      Number.isInteger(point.y)
+      ? { x: point.x, y: point.y }
+      : null;
   }
 
   private readDc(value: unknown): number | null {

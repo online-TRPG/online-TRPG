@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
-import { VttMapStateDto } from "@trpg/shared-types";
+import { VTT_DOOR_STATES, VttMapStateDto } from "@trpg/shared-types";
 
 type VttToken = VttMapStateDto["tokens"][number];
 type GridCell = { column: number; row: number };
@@ -50,7 +50,10 @@ export class SessionVttMovementPolicyService {
     const reachable: Array<MovementNode & { targetDistance: number }> = [];
 
     while (queue.length) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
       const targetDistance = this.getChebyshevDistance(current.column, current.row, targetColumn, targetRow);
       if (current.steps > 0 && targetDistance >= stopWithinCells) {
         reachable.push({ ...current, targetDistance });
@@ -117,7 +120,7 @@ export class SessionVttMovementPolicyService {
     const blockers = [
       ...(map.terrainCells ?? []).filter((cell) => !cell.terrainEffectId),
       ...(map.wallCells ?? []),
-      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+      ...(map.doorCells ?? []).filter((door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN),
       ...(options.ignoreTokens
         ? []
         : map.tokens
@@ -204,7 +207,10 @@ export class SessionVttMovementPolicyService {
     const visited = new Set([`${startColumn}:${startRow}`]);
 
     while (queue.length) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
       if (current.column === endColumn && current.row === endRow) {
         return true;
       }

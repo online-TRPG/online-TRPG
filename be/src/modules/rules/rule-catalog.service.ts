@@ -18,6 +18,7 @@ import { P6_MONSTER_ABILITY_DEFINITIONS } from "./p6-monster-definitions";
 import { P6_SPELL_DEFINITIONS } from "./p6-spell-definitions";
 import canonicalClassFeatures from "@trpg/srd-data/generated/srd/class-features.json";
 import { resolveSubclassChoiceLevel } from "@trpg/srd-data/rules";
+import { isRecord, isString } from "@trpg/shared-types";
 
 type ClassFeatureRuntimeOverride = {
   id: string;
@@ -38,8 +39,40 @@ type CanonicalClassFeature = {
   summaryKo?: string | null;
 };
 const CANONICAL_CLASS_FEATURES_BY_ID = new Map(
-  (canonicalClassFeatures as CanonicalClassFeature[]).map((feature) => [feature.id, feature]),
+  decodeCanonicalClassFeatures(canonicalClassFeatures).map((feature) => [feature.id, feature]),
 );
+
+function decodeCanonicalClassFeatures(value: unknown): CanonicalClassFeature[] {
+  if (!Array.isArray(value)) {
+    throw new Error("canonical class features must be an array.");
+  }
+  return value.map(decodeCanonicalClassFeature);
+}
+
+function decodeCanonicalClassFeature(value: unknown): CanonicalClassFeature {
+  if (!isRecord(value) || !isString(value.id) || !value.id.trim()) {
+    throw new Error("canonical class feature id must be a non-empty string.");
+  }
+  return {
+    id: value.id,
+    ...readOptionalNullableStringProperty(value, "nameKo"),
+    ...readOptionalNullableStringProperty(value, "summaryKo"),
+  };
+}
+
+function readOptionalNullableStringProperty(
+  record: Record<string, unknown>,
+  key: "nameKo" | "summaryKo",
+): Partial<Pick<CanonicalClassFeature, "nameKo" | "summaryKo">> {
+  const value = record[key];
+  if (value === undefined) {
+    return {};
+  }
+  if (value === null || isString(value)) {
+    return key === "nameKo" ? { nameKo: value } : { summaryKo: value };
+  }
+  throw new Error(`canonical class feature ${key} must be a string or null.`);
+}
 
 function subclassChoiceRuntime(classKey: string): RuleRuntimeEffect {
   return {
@@ -2707,8 +2740,9 @@ export class RuleCatalogService {
       resourceIds: Array.from(
         new Set(
           features
-            .map((feature) => feature.runtimeEffect.resourceId)
-            .filter((resourceId): resourceId is string => Boolean(resourceId)),
+            .flatMap((feature) =>
+              feature.runtimeEffect.resourceId ? [feature.runtimeEffect.resourceId] : [],
+            ),
         ),
       ),
       passiveTags: Array.from(

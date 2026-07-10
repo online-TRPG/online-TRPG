@@ -27,9 +27,13 @@ import {
   ApplyScenarioModerationActionDto,
   ScenarioQueryDto,
   ScenarioResponseDto,
+  ScenarioCheckOptionDto,
   ScenarioNodeInputDto,
   ScenarioNodeImageUploadResponseDto,
+  ScenarioNpcDto,
   ScenarioSummaryResponseDto,
+  ScenarioTransitionDto,
+  ScenarioValidationReportDto,
   PublishScenarioDto,
   ForkScenarioDto,
   AppealScenarioModerationDto,
@@ -46,7 +50,25 @@ import {
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UpdateScenarioDto,
+  VttMapStateDto,
+  decodeLenientScenarioNodeCheckOptionsConfig,
+  decodeLenientScenarioTransitionArray,
+  decodeScenarioClueArray,
+  decodeScenarioNodeCheckOptionsConfig,
+  decodeScenarioNodeMeta,
+  decodeScenarioNpcArray,
+  decodeScenarioTransitionArray,
+  decodeScenarioValidationReport,
+  decodeTurnLogStateDiff,
+  decodeTurnLogStructuredAction,
+  isRecord,
 } from '@trpg/shared-types';
+import {
+  parseJsonOrFallback,
+  parseJsonOrThrow,
+  parseJsonRecordOrFallback,
+  parseUnknownJsonOrFallback,
+} from '../../common/utils/json-runtime';
 import { PrismaService } from '../../database/prisma.service';
 import { mapScenario, mapScenarioSummary } from '../../common/mappers/domain.mapper';
 import {
@@ -99,6 +121,22 @@ type ScenarioPublicModerationActionRecord = {
   creatorNoticeStatus?: ScenarioCreatorNoticeStatus;
   auditRecordType?: "scenario_moderation_action";
 };
+
+type ScenarioNodeMutationVttMap = Record<string, unknown> & {
+  imageUrl?: string | null;
+  tokens?: Array<Record<string, unknown> & { imageUrl?: string | null }>;
+};
+
+type NormalizedScenarioNodeInput = Required<
+  Pick<ScenarioNodeInputDto, "nodeType" | "title" | "sceneText">
+> &
+  Pick<ScenarioNodeInputDto, "id" | "imageUrl" | "fallbackNodeId"> & {
+    checkOptions: ScenarioCheckOptionDto[];
+    transitions: ScenarioTransitionDto[];
+    clues: NonNullable<ScenarioNodeInputDto["clues"]>;
+    vttMap: VttMapStateDto | null;
+    nodeMeta: NonNullable<ScenarioNodeInputDto["nodeMeta"]> | null;
+  };
 
 type ScenarioModerationProcessingStatus =
   | "queued"
@@ -289,6 +327,7 @@ export class ScenariosService {
       startNodeTitle: dto.startNodeTitle,
       startSceneText: dto.startSceneText,
     });
+    const npcs = this.decodeScenarioNpcsInput(dto.npcs ?? [], "scenario.npcs");
     const startNodeId =
       this.resolveStartNodeId(dto.startNodeId, nodes) ?? nodes[0]?.id ?? `${scenarioId}_start`;
 
@@ -307,7 +346,7 @@ export class ScenariosService {
         license: this.toPrismaScenarioLicense(dto.license ?? ScenarioLicense.ORIGINAL),
         attribution: this.nullableTrim(dto.attribution),
         startNodeId,
-        npcsJson: JSON.stringify(dto.npcs ?? []),
+        npcsJson: JSON.stringify(npcs),
         nodes: {
           create: nodes.map(({ scenarioId: _scenarioId, ...node }) => node),
         },
@@ -342,6 +381,9 @@ export class ScenariosService {
     const shouldUpdateStartNode =
       dto.startNodeTitle !== undefined || dto.startSceneText !== undefined;
     const nextNodes = dto.nodes ? this.normalizeNodeInputs(id, dto.nodes) : null;
+    const nextNpcs = dto.npcs === undefined
+      ? null
+      : this.decodeScenarioNpcsInput(dto.npcs, "scenario.npcs");
     const startNodeIdSource = nextNodes ?? existing.nodes;
     const nextStartNodeId =
       dto.startNodeId !== undefined || nextNodes
@@ -389,7 +431,7 @@ export class ScenariosService {
               ? existing.attribution
               : this.nullableTrim(dto.attribution),
           startNodeId: nextStartNodeId,
-          npcsJson: dto.npcs === undefined ? existing.npcsJson : JSON.stringify(dto.npcs ?? []),
+          npcsJson: nextNpcs === null ? existing.npcsJson : JSON.stringify(nextNpcs),
         },
       });
 
@@ -445,20 +487,7 @@ export class ScenariosService {
     const validationReport = this.buildScenarioValidationReport(
       draft,
       visibility,
-      previousRevision?.nodes.map((node): ScenarioPolicyNode => ({
-        id: node.id.replace(`${previousRevision.id}_`, ""),
-        nodeType: node.nodeType,
-        title: node.title,
-        sceneText: node.sceneText,
-        checkOptions: this.parseJson<unknown>(node.checkOptionsJson, null),
-        nodeMeta: this.parseJson<unknown>(node.nodeMetaJson, null),
-        transitions: this.parseJson<Array<{ nextNodeId?: string | null }>>(node.transitionsJson, [])
-          .map((transition) => ({
-            ...transition,
-            nextNodeId: transition.nextNodeId?.replace(`${previousRevision.id}_`, "") ?? null,
-          })),
-        fallbackNodeId: node.fallbackNodeId?.replace(`${previousRevision.id}_`, "") ?? null,
-      })),
+      previousRevision?.nodes.map((node) => this.parseScenarioPolicyNode(node, `${previousRevision.id}_`)),
     );
     this.assertScenarioPublishable(validationReport);
 
@@ -1276,12 +1305,14 @@ export class ScenariosService {
     const isPublishedRevision =
       scenario.sourceType === PrismaScenarioSourceType.CLONED &&
       (revision.status === 'public' || revision.status === 'link');
+    const collaborativeViewerUserId =
+      typeof viewerUserId === "string" && viewerUserId.length > 0 ? viewerUserId : null;
     const canViewCollaborativeDraft =
-      Boolean(viewerUserId) &&
+      collaborativeViewerUserId !== null &&
       scenario.sourceType !== PrismaScenarioSourceType.CLONED &&
       this.collaborationPolicy.resolvePermission({
         draft: this.buildScenarioPolicyDraft(scenario),
-        userId: viewerUserId as string,
+        userId: collaborativeViewerUserId,
         action: "view",
       }).allowed;
 
@@ -1342,9 +1373,7 @@ export class ScenariosService {
       metadata.moderationStatus !== "hidden" && metadata.moderationStatus !== "removed";
     const tags = metadata.tags.length
       ? metadata.tags
-      : [scenario.difficulty, summary.sourceType === "SYSTEM" ? "provided" : null]
-          .filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim()))
-          .map((tag) => tag.trim());
+      : this.compactTrimmedStrings([scenario.difficulty, summary.sourceType === "SYSTEM" ? "provided" : null]);
     return {
       ...summary,
       tags,
@@ -1422,8 +1451,9 @@ export class ScenariosService {
       evidence.forkCount ? `${evidence.forkCount}회 fork` : null,
       evidence.tags[0] ? `태그 ${evidence.tags[0]}` : null,
       scenario.startLevel ? `${scenario.startLevel}레벨 시작` : null,
-    ].filter((reason): reason is string => Boolean(reason));
-    return reasons.length ? reasons.slice(0, 3).join(" · ") : null;
+    ];
+    const presentReasons = this.compactStrings(reasons);
+    return presentReasons.length ? presentReasons.slice(0, 3).join(" · ") : null;
   }
 
   private buildScenarioValidationReport(
@@ -1455,10 +1485,11 @@ export class ScenariosService {
       issues.push({ code: 'INVALID_START_NODE', message: '발행하려면 유효한 시작 노드가 필요합니다.', nodeId: startNodeId });
     }
     const brokenTransitions = scenario.nodes.flatMap((node) => {
-      const transitions = this.parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+      const transitions = this.parseTransitionRecords(node.transitionsJson);
       return transitions
-        .map((transition) => transition.nextNodeId)
-        .filter((nextNodeId): nextNodeId is string => typeof nextNodeId === 'string')
+        .flatMap((transition) =>
+          typeof transition.nextNodeId === 'string' ? [transition.nextNodeId] : [],
+        )
         .filter((nextNodeId) => !nodeIds.has(nextNodeId))
         .map((nextNodeId) => ({ sourceNodeId: node.id, nextNodeId }));
     });
@@ -1542,16 +1573,7 @@ export class ScenariosService {
       attribution: this.parseScenarioRevisionMetadata(scenario.attribution).attribution,
       collaborators: collaboration.collaborators,
       reviews: collaboration.reviews,
-      nodes: scenario.nodes.map((node): ScenarioPolicyNode => ({
-        id: node.id,
-        nodeType: node.nodeType,
-        title: node.title,
-        sceneText: node.sceneText,
-        checkOptions: this.parseJson<unknown>(node.checkOptionsJson, null),
-        nodeMeta: this.parseJson<unknown>(node.nodeMetaJson, null),
-        transitions: this.parseJson<Array<{ nextNodeId?: string | null }>>(node.transitionsJson, []),
-        fallbackNodeId: node.fallbackNodeId,
-      })),
+      nodes: scenario.nodes.map((node) => this.parseScenarioPolicyNode(node)),
     };
   }
 
@@ -1572,7 +1594,7 @@ export class ScenariosService {
     sourceScenarioId: string,
     publishedScenarioId: string,
   ): string {
-    const transitions = this.parseJson<Record<string, unknown>[]>(transitionsJson, []);
+    const transitions = this.parseTransitionRecords(transitionsJson);
     return JSON.stringify(
       transitions.map((transition) => {
         const nextNodeId = transition.nextNodeId;
@@ -1591,7 +1613,7 @@ export class ScenariosService {
   }
 
   private rewriteScenarioNodeReferences(transitionsJson: string, nodeIdMap: Map<string, string>): string {
-    const transitions = this.parseJson<Record<string, unknown>[]>(transitionsJson, []);
+    const transitions = this.parseTransitionRecords(transitionsJson);
     return JSON.stringify(
       transitions.map((transition) => {
         const nextNodeId = transition.nextNodeId;
@@ -1603,7 +1625,7 @@ export class ScenariosService {
   }
 
   private rewriteScenarioJsonNodeReferences(json: string, nodeIdMap: Map<string, string>): string {
-    const parsed = this.parseJson<unknown>(json, null);
+    const parsed = this.parseJsonValueOrNull(json);
     if (parsed === null) {
       return json;
     }
@@ -1614,9 +1636,9 @@ export class ScenariosService {
       if (Array.isArray(value)) {
         return value.map(rewrite);
       }
-      if (value && typeof value === "object") {
+      if (isRecord(value)) {
         return Object.fromEntries(
-          Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, rewrite(entry)]),
+          Object.entries(value).map(([key, entry]) => [key, rewrite(entry)]),
         );
       }
       return value;
@@ -1629,19 +1651,17 @@ export class ScenariosService {
     sourceScenarioId: string,
     publishedScenarioId: string,
   ): string {
-    const parsed = this.parseJson<unknown>(checkOptionsJson, null);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    const parsed = this.parseJsonValueOrNull(checkOptionsJson);
+    if (!isRecord(parsed)) {
       return checkOptionsJson;
     }
 
-    const config = parsed as Record<string, unknown>;
-    const vttMap = config.vttMap;
-    if (!vttMap || typeof vttMap !== 'object' || Array.isArray(vttMap)) {
+    const vttMap = parsed.vttMap;
+    if (!isRecord(vttMap)) {
       return checkOptionsJson;
     }
 
-    const mapRecord = vttMap as Record<string, unknown>;
-    const scenarioNodeId = mapRecord.scenarioNodeId;
+    const scenarioNodeId = vttMap.scenarioNodeId;
     if (typeof scenarioNodeId !== 'string') {
       return checkOptionsJson;
     }
@@ -1651,9 +1671,9 @@ export class ScenariosService {
       : scenarioNodeId;
 
     return JSON.stringify({
-      ...config,
+      ...parsed,
       vttMap: {
-        ...mapRecord,
+        ...vttMap,
         scenarioNodeId: `${publishedScenarioId}_${localNodeId}`,
       },
     });
@@ -1744,7 +1764,7 @@ export class ScenariosService {
           })}`
         : null,
     ];
-    return parts.filter((part): part is string => Boolean(part)).join("\n") || null;
+    return this.compactStrings(parts).join("\n") || null;
   }
 
   private parseScenarioCollaborationMetadata(attribution: string | null | undefined): {
@@ -1763,37 +1783,63 @@ export class ScenariosService {
     ].filter((index) => index >= 0);
     const metadataText = afterMarker.slice(0, nextMarkers.length ? Math.min(...nextMarkers) : undefined).trim();
     try {
-      const metadata = JSON.parse(metadataText) as {
-        collaborators?: ScenarioCollaborator[];
-        reviews?: ScenarioReviewRecord[];
-      };
-      return {
-        collaborators: Array.isArray(metadata.collaborators)
-          ? metadata.collaborators.filter((collaborator) =>
-              collaborator &&
-              typeof collaborator.userId === "string" &&
-              (collaborator.role === "editor" ||
-                collaborator.role === "reviewer" ||
-                collaborator.role === "viewer"),
-            )
-          : [],
-        reviews: Array.isArray(metadata.reviews)
-          ? metadata.reviews.filter((review) =>
-              review &&
-              typeof review.reviewId === "string" &&
-              typeof review.requestedByUserId === "string" &&
-              typeof review.reviewerUserId === "string" &&
-              (review.status === "none" ||
-                review.status === "requested" ||
-                review.status === "approved" ||
-                review.status === "rejected" ||
-                review.status === "changes_requested"),
-            )
-          : [],
-      };
+      return parseJsonOrFallback(metadataText, { collaborators: [], reviews: [] }, (value) =>
+        this.decodeScenarioCollaborationMetadata(value),
+      );
     } catch {
       return { collaborators: [], reviews: [] };
     }
+  }
+
+  private decodeScenarioCollaborationMetadata(value: unknown): {
+    collaborators: ScenarioCollaborator[];
+    reviews: ScenarioReviewRecord[];
+  } {
+    if (!isRecord(value)) {
+      throw new Error("scenario collaboration metadata must be an object.");
+    }
+    return {
+      collaborators: Array.isArray(value.collaborators)
+        ? value.collaborators.flatMap((collaborator) => this.decodeScenarioCollaborator(collaborator))
+        : [],
+      reviews: Array.isArray(value.reviews)
+        ? value.reviews.flatMap((review) => this.decodeScenarioReviewRecord(review))
+        : [],
+    };
+  }
+
+  private decodeScenarioCollaborator(value: unknown): ScenarioCollaborator[] {
+    if (!isRecord(value) || typeof value.userId !== "string") {
+      return [];
+    }
+    if (value.role !== "editor" && value.role !== "reviewer" && value.role !== "viewer") {
+      return [];
+    }
+    return [{ userId: value.userId, role: value.role }];
+  }
+
+  private decodeScenarioReviewRecord(value: unknown): ScenarioReviewRecord[] {
+    if (
+      !isRecord(value) ||
+      typeof value.reviewId !== "string" ||
+      typeof value.requestedByUserId !== "string" ||
+      typeof value.reviewerUserId !== "string" ||
+      (value.status !== "none" &&
+        value.status !== "requested" &&
+        value.status !== "approved" &&
+        value.status !== "rejected" &&
+        value.status !== "changes_requested")
+    ) {
+      return [];
+    }
+    return [{
+      reviewId: value.reviewId,
+      requestedByUserId: value.requestedByUserId,
+      reviewerUserId: value.reviewerUserId,
+      status: value.status,
+      ...(typeof value.comment === "string" || value.comment === null ? { comment: value.comment } : {}),
+      ...(typeof value.decidedAt === "string" || value.decidedAt === null ? { decidedAt: value.decidedAt } : {}),
+    }];
   }
 
   private stripScenarioMetadataMarkers(attribution: string | null | undefined): string | null {
@@ -1817,7 +1863,7 @@ export class ScenariosService {
     const beforeMarker = markerIndex >= 0 ? raw.slice(0, markerIndex).trim() : raw.trim();
     const encoded = JSON.stringify(metadata);
     return [beforeMarker, `${ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER}${encoded}`]
-      .filter((part): part is string => Boolean(part))
+      .flatMap((part) => this.compactStrings([part]))
       .join("\n");
   }
 
@@ -1842,169 +1888,51 @@ export class ScenariosService {
     ].filter((index) => index >= 0);
     const metadataText = afterMarker.slice(0, nextMarkers.length ? Math.min(...nextMarkers) : undefined).trim();
     try {
-      const parsed = JSON.parse(metadataText) as Partial<ScenarioPublicEcosystemMetadata>;
       const fallback = this.getDefaultScenarioPublicEcosystemMetadata();
-      const ratings = Array.isArray(parsed.ratings)
-        ? parsed.ratings.filter((rating): rating is ScenarioPublicRatingRecord =>
-            rating &&
-            typeof rating.userId === "string" &&
-            typeof rating.rating === "number" &&
-            rating.rating >= 1 &&
-            rating.rating <= 5 &&
-            typeof rating.updatedAt === "string",
-          )
-        : fallback.ratings;
-      const reports = Array.isArray(parsed.reports)
-        ? parsed.reports.filter((report): report is ScenarioPublicModerationReportRecord =>
-            report &&
-            typeof report.reportId === "string" &&
-            typeof report.reportedByUserId === "string" &&
-            (report.reason === "copyright" ||
-              report.reason === "private_data" ||
-              report.reason === "license" ||
-              report.reason === "unsafe_content" ||
-              report.reason === "other") &&
-            typeof report.createdAt === "string",
-          )
-        : this.parseLegacyModerationReports(raw);
-      const appeals = Array.isArray(parsed.appeals)
-        ? parsed.appeals.filter((appeal): appeal is ScenarioPublicModerationAppealRecord =>
-            appeal &&
-            typeof appeal.appealId === "string" &&
-            typeof appeal.appealedByUserId === "string" &&
-            typeof appeal.message === "string" &&
-            typeof appeal.createdAt === "string" &&
-            (appeal.status === "submitted" ||
-              appeal.status === "under_review" ||
-              appeal.status === "accepted" ||
-              appeal.status === "rejected"),
-          )
-        : fallback.appeals;
-      const moderationActions = Array.isArray(parsed.moderationActions)
-        ? parsed.moderationActions.filter((action): action is ScenarioPublicModerationActionRecord =>
-            action &&
-            typeof action.actionId === "string" &&
-            typeof action.operatorUserId === "string" &&
-            (action.action === "hidden" ||
-              action.action === "restored" ||
-              action.action === "warning" ||
-              action.action === "creator_note_required" ||
-              action.action === "escalated" ||
-              action.action === "removed") &&
-            typeof action.reason === "string" &&
-            typeof action.createdAt === "string" &&
-            (action.previousStatus === "visible" ||
-              action.previousStatus === "reported" ||
-              action.previousStatus === "hidden" ||
-              action.previousStatus === "removed") &&
-            (action.nextStatus === "visible" ||
-              action.nextStatus === "reported" ||
-              action.nextStatus === "hidden" ||
-              action.nextStatus === "removed"),
-          )
-          .map((action) => ({
-            ...action,
-            targetUserId: typeof action.targetUserId === "string" ? action.targetUserId : null,
-            processingStatus:
-              action.processingStatus === "queued" ||
-              action.processingStatus === "reviewing" ||
-              action.processingStatus === "actioned" ||
-              action.processingStatus === "rejected" ||
-              action.processingStatus === "restored" ||
-              action.processingStatus === "escalated" ||
-              action.processingStatus === "removed"
-                ? action.processingStatus
-                : undefined,
-            creatorNoticeStatus:
-              action.creatorNoticeStatus === "none" ||
-              action.creatorNoticeStatus === "creator_notified" ||
-              action.creatorNoticeStatus === "creator_action_required"
-                ? action.creatorNoticeStatus
-                : undefined,
-            auditRecordType:
-              action.auditRecordType === "scenario_moderation_action"
-                ? action.auditRecordType
-                : undefined,
-          }))
-        : fallback.moderationActions;
-      return {
-        tags: Array.isArray(parsed.tags)
-          ? parsed.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())).map((tag) => tag.trim())
-          : fallback.tags,
-        estimatedMinutes:
-          typeof parsed.estimatedMinutes === "number" && parsed.estimatedMinutes > 0
-            ? Math.round(parsed.estimatedMinutes)
-            : fallback.estimatedMinutes,
-        gmMode:
-          parsed.gmMode === "AI" || parsed.gmMode === "HUMAN" || parsed.gmMode === "BOTH"
-            ? parsed.gmMode
-            : fallback.gmMode,
-        contentWarnings: Array.isArray(parsed.contentWarnings)
-          ? parsed.contentWarnings
-              .filter((warning): warning is string => typeof warning === "string" && Boolean(warning.trim()))
-              .map((warning) => warning.trim())
-          : fallback.contentWarnings,
-        ratings,
-        forkCount:
-          typeof parsed.forkCount === "number" && parsed.forkCount >= 0
-            ? Math.floor(parsed.forkCount)
-            : fallback.forkCount,
-        forkAllowed:
-          typeof parsed.forkAllowed === "boolean"
-            ? parsed.forkAllowed
-            : fallback.forkAllowed,
-        rightsDeclaration:
-          parsed.rightsDeclaration &&
-          typeof parsed.rightsDeclaration === "object" &&
-          !Array.isArray(parsed.rightsDeclaration)
-            ? {
-                confirmed: parsed.rightsDeclaration.confirmed === true,
-                basis:
-                  typeof parsed.rightsDeclaration.basis === "string"
-                    ? parsed.rightsDeclaration.basis
-                    : null,
-                confirmedByUserId:
-                  typeof parsed.rightsDeclaration.confirmedByUserId === "string"
-                    ? parsed.rightsDeclaration.confirmedByUserId
-                    : null,
-                confirmedAt:
-                  typeof parsed.rightsDeclaration.confirmedAt === "string"
-                    ? parsed.rightsDeclaration.confirmedAt
-                    : null,
-              }
-            : fallback.rightsDeclaration,
-        moderationStatus:
-          parsed.moderationStatus === "hidden" ||
-          parsed.moderationStatus === "removed" ||
-          parsed.moderationStatus === "reported" ||
-          parsed.moderationStatus === "visible"
-            ? parsed.moderationStatus
-            : reports.length >= 3
-              ? "hidden"
-              : reports.length > 0
-                ? "reported"
-                : "visible",
-        reports,
-        appeals,
-        moderationActions,
-        lineage:
-          parsed.lineage && typeof parsed.lineage === "object" && !Array.isArray(parsed.lineage)
-            ? {
-                sourceScenarioId:
-                  typeof parsed.lineage.sourceScenarioId === "string" ? parsed.lineage.sourceScenarioId : null,
-                sourceRevisionId:
-                  typeof parsed.lineage.sourceRevisionId === "string" ? parsed.lineage.sourceRevisionId : null,
-                forkedFromScenarioId:
-                  typeof parsed.lineage.forkedFromScenarioId === "string" ? parsed.lineage.forkedFromScenarioId : null,
-                forkedAt: typeof parsed.lineage.forkedAt === "string" ? parsed.lineage.forkedAt : null,
-                forkedByUserId:
-                  typeof parsed.lineage.forkedByUserId === "string" ? parsed.lineage.forkedByUserId : null,
-              }
-            : fallback.lineage,
-      };
+      return parseJsonOrFallback(metadataText, fallback, (value) =>
+        this.decodePublicEcosystemMetadata(value, fallback, raw),
+      );
     } catch {
       return this.getDefaultScenarioPublicEcosystemMetadata();
     }
+  }
+
+  private decodePublicEcosystemMetadata(
+    value: unknown,
+    fallback: ScenarioPublicEcosystemMetadata,
+    rawAttribution: string,
+  ): ScenarioPublicEcosystemMetadata {
+    if (!isRecord(value)) {
+      throw new Error("scenario public ecosystem metadata must be an object.");
+    }
+    const ratings = Array.isArray(value.ratings)
+      ? value.ratings.flatMap((rating) => this.decodePublicRating(rating))
+      : fallback.ratings;
+    const reports = Array.isArray(value.reports)
+      ? value.reports.flatMap((report) => this.decodePublicModerationReport(report))
+      : this.parseLegacyModerationReports(rawAttribution);
+    const appeals = Array.isArray(value.appeals)
+      ? value.appeals.flatMap((appeal) => this.decodePublicModerationAppeal(appeal))
+      : fallback.appeals;
+    const moderationActions = Array.isArray(value.moderationActions)
+      ? value.moderationActions.flatMap((action) => this.decodePublicModerationAction(action))
+      : fallback.moderationActions;
+
+    return {
+      tags: this.decodeTrimmedStringArray(value.tags, fallback.tags),
+      estimatedMinutes: this.decodePositiveRoundedNumber(value.estimatedMinutes, fallback.estimatedMinutes),
+      gmMode: this.decodeScenarioPublicGmMode(value.gmMode, fallback.gmMode),
+      contentWarnings: this.decodeTrimmedStringArray(value.contentWarnings, fallback.contentWarnings),
+      ratings,
+      forkCount: this.decodeNonNegativeInteger(value.forkCount, fallback.forkCount),
+      forkAllowed: typeof value.forkAllowed === "boolean" ? value.forkAllowed : fallback.forkAllowed,
+      rightsDeclaration: this.decodePublicRightsDeclaration(value.rightsDeclaration, fallback.rightsDeclaration),
+      moderationStatus: this.decodeScenarioPublicModerationStatus(value.moderationStatus, reports),
+      reports,
+      appeals,
+      moderationActions,
+      lineage: this.decodePublicLineage(value.lineage, fallback.lineage),
+    };
   }
 
   private getDefaultScenarioPublicEcosystemMetadata(): ScenarioPublicEcosystemMetadata {
@@ -2040,13 +1968,7 @@ export class ScenariosService {
     if (!userId) {
       return false;
     }
-    const users = this.prisma.user as unknown as {
-      findUnique(args: {
-        where: { id: string };
-        select: { role: true; deletedAt: true };
-      }): Promise<{ role: "USER" | "MODERATOR" | "ADMIN"; deletedAt: Date | null } | null>;
-    };
-    const user = await users.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { role: true, deletedAt: true },
     });
@@ -2162,7 +2084,7 @@ export class ScenariosService {
           actorUserId: action.operatorUserId,
           turnNumber: (latest?.turnNumber ?? 0) + 1,
           rawInput: `/scenario moderation ${action.action}`,
-          structuredActionJson: JSON.stringify({
+          structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction({
             type: "p6_scenario_moderation_action",
             auditRecordType: action.auditRecordType,
             actionId: action.actionId,
@@ -2173,8 +2095,8 @@ export class ScenariosService {
             nextStatus: action.nextStatus,
             processingStatus: action.processingStatus,
             creatorNoticeStatus: action.creatorNoticeStatus,
-          }),
-          stateDiffJson: JSON.stringify({
+          })),
+          stateDiffJson: JSON.stringify(decodeTurnLogStateDiff({
             reason: "p6_scenario_moderation_action",
             diff: {
               scenarioId,
@@ -2183,7 +2105,7 @@ export class ScenariosService {
               nextStatus: action.nextStatus,
               existingSessionSnapshotPreserved: true,
             },
-          }),
+          })),
           outcome: PrismaActionOutcome.SUCCESS,
           narration: `운영자 moderation 조치(${action.action})가 기록되었습니다. 기존 세션 snapshot은 유지됩니다.`,
         },
@@ -2242,17 +2164,240 @@ export class ScenariosService {
       .map((chunk) => chunk.trim())
       .map((chunk) => {
         try {
-          return JSON.parse(chunk) as ScenarioPublicModerationReportRecord;
+          return parseJsonOrFallback(chunk, null, (value) => this.decodeLegacyModerationReport(value));
         } catch {
           return null;
         }
       })
-      .filter((report): report is ScenarioPublicModerationReportRecord =>
-        Boolean(report) &&
-        typeof report?.reportId === "string" &&
-        typeof report?.reportedByUserId === "string" &&
-        typeof report?.createdAt === "string",
-      );
+      .flatMap((report) => report ? [report] : []);
+  }
+
+  private decodeLegacyModerationReport(value: unknown): ScenarioPublicModerationReportRecord {
+    const [report] = this.decodePublicModerationReport(value);
+    if (!report) {
+      throw new Error("legacy moderation report must include reportId, reportedByUserId, and createdAt.");
+    }
+    return report;
+  }
+
+  private decodePublicModerationReport(value: unknown): ScenarioPublicModerationReportRecord[] {
+    if (
+      !isRecord(value) ||
+      typeof value.reportId !== "string" ||
+      typeof value.reportedByUserId !== "string" ||
+      typeof value.createdAt !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      reportId: value.reportId,
+      reportedByUserId: value.reportedByUserId,
+      reason: this.toScenarioModerationReportReason(value.reason),
+      comment: typeof value.comment === "string" ? value.comment : null,
+      createdAt: value.createdAt,
+    }];
+  }
+
+  private decodePublicRating(value: unknown): ScenarioPublicRatingRecord[] {
+    if (
+      !isRecord(value) ||
+      typeof value.userId !== "string" ||
+      typeof value.rating !== "number" ||
+      value.rating < 1 ||
+      value.rating > 5 ||
+      typeof value.updatedAt !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      userId: value.userId,
+      rating: value.rating,
+      review: typeof value.review === "string" ? value.review : null,
+      updatedAt: value.updatedAt,
+    }];
+  }
+
+  private decodePublicModerationAppeal(value: unknown): ScenarioPublicModerationAppealRecord[] {
+    if (
+      !isRecord(value) ||
+      typeof value.appealId !== "string" ||
+      typeof value.appealedByUserId !== "string" ||
+      typeof value.message !== "string" ||
+      typeof value.createdAt !== "string" ||
+      (value.status !== "submitted" &&
+        value.status !== "under_review" &&
+        value.status !== "accepted" &&
+        value.status !== "rejected")
+    ) {
+      return [];
+    }
+    return [{
+      appealId: value.appealId,
+      appealedByUserId: value.appealedByUserId,
+      message: value.message,
+      createdAt: value.createdAt,
+      status: value.status,
+    }];
+  }
+
+  private decodePublicModerationAction(value: unknown): ScenarioPublicModerationActionRecord[] {
+    if (
+      !isRecord(value) ||
+      typeof value.actionId !== "string" ||
+      typeof value.operatorUserId !== "string" ||
+      typeof value.reason !== "string" ||
+      typeof value.createdAt !== "string"
+    ) {
+      return [];
+    }
+    const action = this.toScenarioModerationAction(value.action);
+    const previousStatus = this.toScenarioModerationStatus(value.previousStatus);
+    const nextStatus = this.toScenarioModerationStatus(value.nextStatus);
+    if (!action || !previousStatus || !nextStatus) {
+      return [];
+    }
+    const processingStatus = this.toScenarioModerationProcessingStatus(value.processingStatus);
+    const creatorNoticeStatus = this.toScenarioCreatorNoticeStatus(value.creatorNoticeStatus);
+    return [{
+      actionId: value.actionId,
+      operatorUserId: value.operatorUserId,
+      action,
+      reason: value.reason,
+      targetUserId: typeof value.targetUserId === "string" ? value.targetUserId : null,
+      createdAt: value.createdAt,
+      previousStatus,
+      nextStatus,
+      ...(processingStatus ? { processingStatus } : {}),
+      ...(creatorNoticeStatus ? { creatorNoticeStatus } : {}),
+      ...(value.auditRecordType === "scenario_moderation_action"
+        ? { auditRecordType: value.auditRecordType }
+        : {}),
+    }];
+  }
+
+  private decodePublicRightsDeclaration(
+    value: unknown,
+    fallback: ScenarioPublicEcosystemMetadata["rightsDeclaration"],
+  ): ScenarioPublicEcosystemMetadata["rightsDeclaration"] {
+    if (!isRecord(value)) {
+      return fallback;
+    }
+    return {
+      confirmed: value.confirmed === true,
+      basis: typeof value.basis === "string" ? value.basis : null,
+      confirmedByUserId: typeof value.confirmedByUserId === "string" ? value.confirmedByUserId : null,
+      confirmedAt: typeof value.confirmedAt === "string" ? value.confirmedAt : null,
+    };
+  }
+
+  private decodePublicLineage(
+    value: unknown,
+    fallback: ScenarioPublicEcosystemMetadata["lineage"],
+  ): ScenarioPublicEcosystemMetadata["lineage"] {
+    if (!isRecord(value)) {
+      return fallback;
+    }
+    return {
+      sourceScenarioId: typeof value.sourceScenarioId === "string" ? value.sourceScenarioId : null,
+      sourceRevisionId: typeof value.sourceRevisionId === "string" ? value.sourceRevisionId : null,
+      forkedFromScenarioId: typeof value.forkedFromScenarioId === "string" ? value.forkedFromScenarioId : null,
+      forkedAt: typeof value.forkedAt === "string" ? value.forkedAt : null,
+      forkedByUserId: typeof value.forkedByUserId === "string" ? value.forkedByUserId : null,
+    };
+  }
+
+  private decodeTrimmedStringArray(value: unknown, fallback: string[]): string[] {
+    return Array.isArray(value)
+      ? this.compactTrimmedStrings(value)
+      : fallback;
+  }
+
+  private compactStrings(values: Array<string | null | undefined>): string[] {
+    return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
+  }
+
+  private compactTrimmedStrings(values: unknown[]): string[] {
+    return values.flatMap((value) => {
+      if (typeof value !== "string") {
+        return [];
+      }
+      const trimmed = value.trim();
+      return trimmed ? [trimmed] : [];
+    });
+  }
+
+  private decodePositiveRoundedNumber(value: unknown, fallback: number | null): number | null {
+    return typeof value === "number" && value > 0 ? Math.round(value) : fallback;
+  }
+
+  private decodeNonNegativeInteger(value: unknown, fallback: number): number {
+    return typeof value === "number" && value >= 0 ? Math.floor(value) : fallback;
+  }
+
+  private decodeScenarioPublicGmMode(
+    value: unknown,
+    fallback: ScenarioPublicEcosystemMetadata["gmMode"],
+  ): ScenarioPublicEcosystemMetadata["gmMode"] {
+    return value === "AI" || value === "HUMAN" || value === "BOTH" ? value : fallback;
+  }
+
+  private decodeScenarioPublicModerationStatus(
+    value: unknown,
+    reports: ScenarioPublicModerationReportRecord[],
+  ): ScenarioPublicEcosystemMetadata["moderationStatus"] {
+    if (value === "hidden" || value === "removed" || value === "reported" || value === "visible") {
+      return value;
+    }
+    return reports.length >= 3 ? "hidden" : reports.length > 0 ? "reported" : "visible";
+  }
+
+  private toScenarioModerationAction(value: unknown): ApplyScenarioModerationActionDto["action"] | null {
+    return value === "hidden" ||
+      value === "restored" ||
+      value === "warning" ||
+      value === "creator_note_required" ||
+      value === "escalated" ||
+      value === "removed"
+      ? value
+      : null;
+  }
+
+  private toScenarioModerationStatus(
+    value: unknown,
+  ): ScenarioPublicEcosystemMetadata["moderationStatus"] | null {
+    return value === "visible" || value === "reported" || value === "hidden" || value === "removed"
+      ? value
+      : null;
+  }
+
+  private toScenarioModerationProcessingStatus(value: unknown): ScenarioModerationProcessingStatus | undefined {
+    return value === "queued" ||
+      value === "reviewing" ||
+      value === "actioned" ||
+      value === "rejected" ||
+      value === "restored" ||
+      value === "escalated" ||
+      value === "removed"
+      ? value
+      : undefined;
+  }
+
+  private toScenarioCreatorNoticeStatus(value: unknown): ScenarioCreatorNoticeStatus | undefined {
+    return value === "none" ||
+      value === "creator_notified" ||
+      value === "creator_action_required"
+      ? value
+      : undefined;
+  }
+
+  private toScenarioModerationReportReason(value: unknown): ScenarioPublicModerationReportRecord["reason"] {
+    return value === "copyright" ||
+      value === "private_data" ||
+      value === "license" ||
+      value === "unsafe_content" ||
+      value === "other"
+      ? value
+      : "other";
   }
 
   private appendScenarioRevisionMetadata(
@@ -2263,13 +2408,13 @@ export class ScenariosService {
       publishedAt: string;
       publishedByUserId: string;
       status: 'public' | 'link' | 'private' | 'unpublished';
-      validationReport?: Record<string, unknown> | null;
+      validationReport?: ScenarioValidationReportDto | null;
     },
   ): string | null {
     const publicAttribution = this.stripScenarioMetadataMarkers(attribution);
     const encoded = JSON.stringify(metadata);
     return [publicAttribution, `${ScenariosService.REVISION_METADATA_MARKER}${encoded}`]
-      .filter((part): part is string => Boolean(part))
+      .flatMap((part) => this.compactStrings([part]))
       .join('\n');
   }
 
@@ -2277,7 +2422,7 @@ export class ScenariosService {
     attribution: string | null;
     revisionNumber: number | null;
     changelog: string | null;
-    validationReport: Record<string, unknown> | null;
+    validationReport: ScenarioValidationReportDto | null;
     publishedAt: string | null;
     publishedByUserId: string | null;
     status: 'draft' | 'public' | 'link' | 'private' | 'unpublished';
@@ -2303,28 +2448,18 @@ export class ScenariosService {
       .split(ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER, 1)[0]
       .trim();
     try {
-      const metadata = JSON.parse(metadataText) as Record<string, unknown>;
-      const status = metadata.status;
+      const metadata = parseJsonOrFallback(metadataText, null, (value) => this.decodeScenarioRevisionMetadata(value));
+      if (!metadata) {
+        throw new Error("scenario revision metadata is missing.");
+      }
       return {
         attribution: publicAttribution,
-        revisionNumber:
-          typeof metadata.revisionNumber === 'number' && Number.isInteger(metadata.revisionNumber)
-            ? metadata.revisionNumber
-            : null,
-        changelog: typeof metadata.changelog === 'string' ? metadata.changelog : null,
-        validationReport:
-          metadata.validationReport &&
-          typeof metadata.validationReport === 'object' &&
-          !Array.isArray(metadata.validationReport)
-            ? (metadata.validationReport as Record<string, unknown>)
-            : null,
-        publishedAt: typeof metadata.publishedAt === 'string' ? metadata.publishedAt : null,
-        publishedByUserId:
-          typeof metadata.publishedByUserId === 'string' ? metadata.publishedByUserId : null,
-        status:
-          status === 'public' || status === 'link' || status === 'private' || status === 'unpublished'
-            ? status
-            : 'draft',
+        revisionNumber: metadata.revisionNumber,
+        changelog: metadata.changelog,
+        validationReport: this.parseScenarioValidationReportOrNull(metadata.validationReport),
+        publishedAt: metadata.publishedAt,
+        publishedByUserId: metadata.publishedByUserId,
+        status: metadata.status,
       };
     } catch {
       return {
@@ -2336,6 +2471,45 @@ export class ScenariosService {
         publishedByUserId: null,
         status: 'draft',
       };
+    }
+  }
+
+  private decodeScenarioRevisionMetadata(value: unknown): {
+    revisionNumber: number | null;
+    changelog: string | null;
+    validationReport: unknown;
+    publishedAt: string | null;
+    publishedByUserId: string | null;
+    status: 'draft' | 'public' | 'link' | 'private' | 'unpublished';
+  } {
+    if (!isRecord(value)) {
+      throw new Error("scenario revision metadata must be an object.");
+    }
+    const status = value.status;
+    return {
+      revisionNumber:
+        typeof value.revisionNumber === 'number' && Number.isInteger(value.revisionNumber)
+          ? value.revisionNumber
+          : null,
+      changelog: typeof value.changelog === 'string' ? value.changelog : null,
+      validationReport: value.validationReport,
+      publishedAt: typeof value.publishedAt === 'string' ? value.publishedAt : null,
+      publishedByUserId: typeof value.publishedByUserId === 'string' ? value.publishedByUserId : null,
+      status:
+        status === 'public' || status === 'link' || status === 'private' || status === 'unpublished'
+          ? status
+          : 'draft',
+    };
+  }
+
+  private parseScenarioValidationReportOrNull(value: unknown): ScenarioValidationReportDto | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    try {
+      return decodeScenarioValidationReport(value);
+    } catch {
+      return null;
     }
   }
 
@@ -2385,7 +2559,7 @@ export class ScenariosService {
     const incoming = new Map<string, number>();
 
     nodes.forEach((node) => {
-      const transitions = this.parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+      const transitions = this.parseTransitionRecords(node.transitionsJson);
       transitions.forEach((transition) => {
         const nextNodeId = transition.nextNodeId;
         if (typeof nextNodeId === 'string' && nodeIds.has(nextNodeId)) {
@@ -2410,15 +2584,65 @@ export class ScenariosService {
         : null;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+  private parseJsonValueOrNull(value: string | null | undefined): unknown | null {
+    return parseUnknownJsonOrFallback(value, null);
+  }
+
+  private parseScenarioNodeCheckOptionsConfig(value: string | null | undefined, nodeId: string | null): unknown {
+    return parseJsonOrFallback(value, null, (parsed) => decodeLenientScenarioNodeCheckOptionsConfig(parsed, nodeId));
+  }
+
+  private parseScenarioNodeMeta(value: string | null | undefined): unknown {
+    return parseJsonOrFallback(value, null, decodeScenarioNodeMeta);
+  }
+
+  private parseTransitionRecords(value: string | null | undefined): ScenarioTransitionDto[] {
+    return parseJsonOrFallback(value, [], decodeLenientScenarioTransitionArray);
+  }
+
+  private parsePolicyTransitions(value: string | null | undefined): Array<{ nextNodeId?: string | null }> {
+    return this.parseTransitionRecords(value).map((transition) => ({
+      ...transition,
+      nextNodeId: typeof transition.nextNodeId === "string" || transition.nextNodeId === null
+        ? transition.nextNodeId
+        : undefined,
+    }));
+  }
+
+  private parseScenarioPolicyNode(
+    node: {
+      id: string;
+      nodeType: string;
+      title: string;
+      sceneText: string;
+      checkOptionsJson: string;
+      nodeMetaJson: string | null;
+      transitionsJson: string;
+      fallbackNodeId: string | null;
+    },
+    idPrefixToStrip = "",
+  ): ScenarioPolicyNode {
+    const stripId = (value: string | null | undefined): string | null => {
+      if (!value) {
+        return null;
+      }
+      return idPrefixToStrip && value.startsWith(idPrefixToStrip)
+        ? value.slice(idPrefixToStrip.length)
+        : value;
+    };
+    return {
+      id: stripId(node.id) ?? node.id,
+      nodeType: node.nodeType,
+      title: node.title,
+      sceneText: node.sceneText,
+      checkOptions: this.parseScenarioNodeCheckOptionsConfig(node.checkOptionsJson, node.id),
+      nodeMeta: this.parseScenarioNodeMeta(node.nodeMetaJson),
+      transitions: this.parsePolicyTransitions(node.transitionsJson).map((transition) => ({
+        ...transition,
+        nextNodeId: stripId(transition.nextNodeId),
+      })),
+      fallbackNodeId: stripId(node.fallbackNodeId),
+    };
   }
 
   private toPrismaScenarioLicense(license: ScenarioLicense): PrismaScenarioLicense {
@@ -2463,7 +2687,7 @@ export class ScenariosService {
     return {
       id: asset.id,
       scenarioId: asset.scenarioId,
-      kind: asset.kind as unknown as ScenarioAssetKind,
+      kind: this.mapScenarioAssetKind(asset.kind),
       fileName: asset.fileName,
       contentType: asset.contentType,
       storageKey: asset.storageKey,
@@ -2475,6 +2699,17 @@ export class ScenariosService {
       createdAt: asset.createdAt.toISOString(),
       updatedAt: asset.updatedAt.toISOString(),
     };
+  }
+
+  private mapScenarioAssetKind(kind: PrismaScenarioAssetKind): ScenarioAssetKind {
+    switch (kind) {
+      case PrismaScenarioAssetKind.MAP:
+        return ScenarioAssetKind.MAP;
+      case PrismaScenarioAssetKind.SCENE:
+        return ScenarioAssetKind.SCENE;
+      case PrismaScenarioAssetKind.TOKEN:
+        return ScenarioAssetKind.TOKEN;
+    }
   }
 
   private normalizeNodeInputs(
@@ -2502,7 +2737,8 @@ export class ScenariosService {
         ];
     const usedIds = new Set<string>();
 
-    return source.map((node, index) => {
+    return source.map((rawNode, index) => {
+      const node = this.decodeScenarioNodeInput(rawNode, index, scenarioId);
       const rawId = this.nullableTrim(node.id) ?? `${scenarioId}_node_${index + 1}`;
       const id = usedIds.has(rawId) ? `${rawId}_${randomUUID()}` : rawId;
       usedIds.add(id);
@@ -2510,20 +2746,156 @@ export class ScenariosService {
       return {
         id,
         scenarioId,
-        nodeType: node.nodeType ?? ScenarioNodeType.STORY,
-        title: node.title.trim(),
-        sceneText: node.sceneText.trim(),
+        nodeType: node.nodeType,
+        title: node.title,
+        sceneText: node.sceneText,
         imageUrl: this.nullableTrim(node.imageUrl),
         checkOptionsJson: JSON.stringify({
-          checks: node.checkOptions ?? [],
-          vttMap: node.vttMap ?? null,
+          checks: node.checkOptions,
+          vttMap: node.vttMap,
         }),
-        transitionsJson: JSON.stringify(node.transitions ?? []),
-        cluesJson: JSON.stringify(node.clues ?? []),
-        nodeMetaJson: JSON.stringify(node.nodeMeta ?? null),
+        transitionsJson: JSON.stringify(node.transitions),
+        cluesJson: JSON.stringify(node.clues),
+        nodeMetaJson: JSON.stringify(node.nodeMeta),
         fallbackNodeId: this.nullableTrim(node.fallbackNodeId),
       };
     });
+  }
+
+  private decodeScenarioNodeInput(
+    value: unknown,
+    index: number,
+    scenarioId: string,
+  ): NormalizedScenarioNodeInput {
+    if (!isRecord(value)) {
+      throw new BadRequestException(`scenario.nodes[${index}] must be an object.`);
+    }
+
+    const id = this.readScenarioOptionalNullableString(value, "id", `scenario.nodes[${index}].id`);
+    const fallbackNodeId = this.readScenarioOptionalNullableString(
+      value,
+      "fallbackNodeId",
+      `scenario.nodes[${index}].fallbackNodeId`,
+    );
+    const nodeType = this.readScenarioNodeType(value.nodeType, `scenario.nodes[${index}].nodeType`);
+    const title = this.readScenarioRequiredString(value, "title", `scenario.nodes[${index}].title`, 100);
+    const sceneText = this.readScenarioRequiredString(
+      value,
+      "sceneText",
+      `scenario.nodes[${index}].sceneText`,
+      4000,
+    );
+    const imageUrl = this.readScenarioOptionalNullableString(
+      value,
+      "imageUrl",
+      `scenario.nodes[${index}].imageUrl`,
+    );
+    const nodeIdForMap = id ?? `${scenarioId}_node_${index + 1}`;
+    const checkOptionsConfig = this.decodeScenarioBodyField(
+      () =>
+        decodeScenarioNodeCheckOptionsConfig(
+          {
+            checks: value.checkOptions ?? [],
+            vttMap: value.vttMap ?? null,
+          },
+          nodeIdForMap,
+        ),
+      `scenario.nodes[${index}].checkOptions`,
+    );
+    const transitions = this.decodeScenarioBodyField(
+      () => decodeScenarioTransitionArray(value.transitions ?? []),
+      `scenario.nodes[${index}].transitions`,
+    );
+    const clues = this.decodeScenarioBodyField(
+      () => decodeScenarioClueArray(value.clues ?? []),
+      `scenario.nodes[${index}].clues`,
+    );
+    const nodeMeta = this.decodeScenarioBodyField(
+      () => decodeScenarioNodeMeta(value.nodeMeta ?? null),
+      `scenario.nodes[${index}].nodeMeta`,
+    );
+
+    return {
+      ...(id ? { id } : {}),
+      nodeType,
+      title,
+      sceneText,
+      imageUrl,
+      checkOptions: checkOptionsConfig.checks,
+      transitions,
+      clues,
+      vttMap: checkOptionsConfig.vttMap,
+      nodeMeta,
+      fallbackNodeId,
+    };
+  }
+
+  private decodeScenarioBodyField<T>(decode: () => T, label: string): T {
+    try {
+      return decode();
+    } catch {
+      throw new BadRequestException(`${label} 형식이 올바르지 않습니다.`);
+    }
+  }
+
+  private readScenarioNodeType(value: unknown, label: string): ScenarioNodeType {
+    if (value === undefined || value === null) {
+      return ScenarioNodeType.STORY;
+    }
+    if (
+      value === ScenarioNodeType.STORY ||
+      value === ScenarioNodeType.EXPLORATION ||
+      value === ScenarioNodeType.COMBAT
+    ) {
+      return value;
+    }
+    throw new BadRequestException(`${label} 형식이 올바르지 않습니다.`);
+  }
+
+  private readScenarioRequiredString(
+    record: Record<string, unknown>,
+    key: string,
+    label: string,
+    maxLength: number,
+  ): string {
+    const value = record[key];
+    if (typeof value !== "string") {
+      throw new BadRequestException(`${label} must be a string.`);
+    }
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > maxLength) {
+      throw new BadRequestException(`${label} 길이가 올바르지 않습니다.`);
+    }
+    return trimmed;
+  }
+
+  private readScenarioOptionalNullableString(
+    record: Record<string, unknown>,
+    key: string,
+    label: string,
+  ): string | null | undefined {
+    const value = record[key];
+    if (value === undefined || value === null) {
+      return value;
+    }
+    if (typeof value !== "string") {
+      throw new BadRequestException(`${label} must be a string or null.`);
+    }
+    return value;
+  }
+
+  private decodeScenarioNpcsInput(value: unknown, label: string): ScenarioNpcDto[] {
+    if (!Array.isArray(value)) {
+      throw new BadRequestException(`${label} must be an array.`);
+    }
+    const decoded = this.decodeScenarioBodyField(
+      () => decodeScenarioNpcArray(value),
+      label,
+    );
+    if (decoded.length !== value.length) {
+      throw new BadRequestException(`${label} 항목 형식이 올바르지 않습니다.`);
+    }
+    return decoded;
   }
 
   private async createScenarioAsset(
@@ -2669,50 +3041,43 @@ export class ScenariosService {
   }
 
   private parseScenarioNodeConfigForMutation(value: string): {
-    checks: Record<string, unknown>[];
-    vttMap:
-      | ({
-          imageUrl?: string | null;
-          tokens?: Array<Record<string, unknown> & { imageUrl?: string | null }>;
-        } & Record<string, unknown>)
-      | null;
+    checks: ScenarioCheckOptionDto[];
+    vttMap: ScenarioNodeMutationVttMap | null;
   } {
-    let parsed: unknown = [];
+    const config = parseJsonOrThrow(
+      value,
+      { checks: [], vttMap: null },
+      decodeScenarioNodeCheckOptionsConfig,
+      "scenarioNode.checkOptionsJson",
+    );
+    return {
+      checks: config.checks,
+      vttMap: this.toScenarioNodeMutationVttMap(config.vttMap),
+    };
+  }
 
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      parsed = [];
+  private toScenarioNodeMutationVttMap(value: VttMapStateDto | null): ScenarioNodeMutationVttMap | null {
+    if (!value) {
+      return null;
     }
 
-    if (Array.isArray(parsed)) {
-      return {
-        checks: parsed.filter(
-          (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'
-        ),
-        vttMap: null,
-      };
-    }
-
-    if (parsed && typeof parsed === 'object') {
-      const candidate = parsed as Record<string, unknown>;
-      return {
-        checks: Array.isArray(candidate.checks)
-          ? candidate.checks.filter(
-              (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'
-            )
-          : [],
-        vttMap:
-          candidate.vttMap && typeof candidate.vttMap === 'object'
-            ? (candidate.vttMap as {
-                imageUrl?: string | null;
-                tokens?: Array<Record<string, unknown> & { imageUrl?: string | null }>;
-              } & Record<string, unknown>)
-            : null,
-      };
-    }
-
-    return { checks: [], vttMap: null };
+    const { imageUrl, tokens, ...rest } = value;
+    return {
+      ...rest,
+      ...(typeof imageUrl === "string" || imageUrl === null ? { imageUrl } : {}),
+      ...(Array.isArray(tokens)
+        ? {
+            tokens: tokens
+              .map((token) => {
+                const { imageUrl: tokenImageUrl, ...tokenRest } = token;
+                return {
+                  ...tokenRest,
+                  ...(typeof tokenImageUrl === "string" || tokenImageUrl === null ? { imageUrl: tokenImageUrl } : {}),
+                };
+              }),
+          }
+        : {}),
+    };
   }
 
   private rethrowScenarioAssetStorageError(error: unknown): never {

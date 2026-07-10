@@ -23,12 +23,17 @@ import {
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
   UpdatePreparedSpellsDto,
+  isRecord,
 } from "@trpg/shared-types";
 import {
   normalizeSrdCharacterClassKey,
   resolveSubclassChoiceLevel,
 } from "@trpg/srd-data/rules";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
+import {
+  parseJsonOrFallback,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
@@ -42,7 +47,7 @@ import { CharacterEquipmentLoadoutService } from "./character-equipment-loadout.
 import { CharacterFeatureSnapshotService } from "./character-feature-snapshot.service";
 import { CharacterSpellSelectionService } from "./character-spell-selection.service";
 
-const defaultAbilityScores = {
+const defaultAbilityScores: AbilityScoresDto = {
   str: 10,
   dex: 10,
   con: 10,
@@ -247,13 +252,13 @@ export class CharactersService {
 
     // 변경 후 최종 상태 — 검증과 레벨 통계 재계산용
     const finalAbilities: AbilityScoresDto =
-      dto.abilities ?? (JSON.parse(existing.abilitiesJson) as AbilityScoresDto);
+      dto.abilities ?? parseAbilityScoresJsonForMutation(existing.abilitiesJson);
     const finalAncestry = dto.ancestry?.trim() ?? existing.ancestry;
     const finalRace = await this.characterCreation.findRaceForAncestry(finalAncestry);
     const finalClassName = dto.className?.trim() ?? existing.className;
     const finalLevel = dto.level ?? existing.level;
     const finalInventory: InventoryItemDto[] =
-      dto.inventory ?? (JSON.parse(existing.inventoryJson) as InventoryItemDto[]);
+      dto.inventory ?? parseInventoryJsonForMutation(existing.inventoryJson);
     const finalEquippedWeaponId =
       dto.equippedWeaponId === undefined ? existing.equippedWeaponId : dto.equippedWeaponId;
     const finalOffhandWeaponId =
@@ -347,7 +352,7 @@ export class CharactersService {
           resolvedStats?.proficiencyBonus ?? dto.proficiencyBonus ?? existing.proficiencyBonus,
         featuresJson: JSON.stringify(finalFeatures),
         proficientSkillsJson: JSON.stringify(
-          normalizedUpdateProficientSkills ?? JSON.parse(existing.proficientSkillsJson),
+          normalizedUpdateProficientSkills ?? this.parseStringArrayJson(existing.proficientSkillsJson),
         ),
         maxHp: resolvedStats?.maxHp ?? dto.maxHp ?? existing.maxHp,
         armorClass:
@@ -447,7 +452,7 @@ export class CharactersService {
       });
     }
 
-    const abilities = JSON.parse(existing.abilitiesJson) as AbilityScoresDto;
+    const abilities = parseAbilityScoresJsonForMutation(existing.abilitiesJson);
     const race = await this.characterCreation.findRaceForAncestry(existing.ancestry);
     const classKey = normalizeSrdCharacterClassKey(existing.className);
     const klass = await this.catalogService.findClassByKey(classKey);
@@ -457,11 +462,15 @@ export class CharactersService {
 
     let resolution;
     try {
+      const hitDie = parseHitDie(klass.hitDie);
+      if (!hitDie) {
+        throw new BadRequestException("클래스 hit die 형식이 올바르지 않습니다.");
+      }
       resolution = this.levelUpService.resolveLevelUp({
         classKey,
         currentLevel: existing.level,
         targetLevel: dto.targetLevel,
-        hitDie: klass.hitDie as HitDie,
+        hitDie,
         constitutionScore: abilities.con,
         currentMaxHp: existing.maxHp,
         hpMode: dto.hpMode ?? "average",
@@ -655,7 +664,7 @@ export class CharactersService {
     const spellsJson = this.characterSpellSelection.resolvePreparedSpellsJson(existing.spellsJson, dto.preparedSpells, {
       className: existing.className,
       level: existing.level,
-      abilities: JSON.parse(existing.abilitiesJson) as AbilityScoresDto,
+      abilities: parseAbilityScoresJsonForMutation(existing.abilitiesJson),
     });
 
     const updated = await this.prisma.character.update({
@@ -730,6 +739,21 @@ export class CharactersService {
   async cloneCharacter(userId: string, characterId: string): Promise<CharacterResponseDto> {
     const source = await this.getOwnedCharacterOrThrow(userId, characterId);
     await this.assertCharacterNotLocked(characterId);
+    const abilities = parseAbilityScoresJsonForMutation(source.abilitiesJson);
+    const inventory = parseInventoryJsonForMutation(source.inventoryJson);
+    const proficientSkills = this.parseStringArrayJson(source.proficientSkillsJson);
+    const spells = source.spellsJson === null
+      ? null
+      : parseCharacterInventorySpellsJsonForMutation(source.spellsJson);
+    const features = await this.characterFeatureSnapshot.resolveCharacterFeatureSnapshot({
+      ancestry: source.ancestry,
+      className: source.className,
+      subclassName: source.subclassName,
+      level: source.level,
+      requestedFeatures: this.parseStringArrayJson(source.featuresJson),
+      proficientSkills,
+      requireMissingFeatureChoices: false,
+    });
 
     const clone = await this.prisma.character.create({
       data: {
@@ -740,25 +764,15 @@ export class CharactersService {
         className: source.className,
         subclassName: source.subclassName,
         level: source.level,
-        abilitiesJson: source.abilitiesJson,
+        abilitiesJson: JSON.stringify(abilities),
         proficiencyBonus: source.proficiencyBonus,
-        featuresJson: JSON.stringify(
-          await this.characterFeatureSnapshot.resolveCharacterFeatureSnapshot({
-            ancestry: source.ancestry,
-            className: source.className,
-            subclassName: source.subclassName,
-            level: source.level,
-            requestedFeatures: this.parseStringArrayJson(source.featuresJson),
-            proficientSkills: this.parseStringArrayJson(source.proficientSkillsJson),
-            requireMissingFeatureChoices: false,
-          }),
-        ),
-        proficientSkillsJson: source.proficientSkillsJson,
+        featuresJson: JSON.stringify(features),
+        proficientSkillsJson: JSON.stringify(proficientSkills),
         maxHp: source.maxHp,
         armorClass: source.armorClass,
         speed: source.speed,
-        inventoryJson: source.inventoryJson,
-        spellsJson: source.spellsJson,
+        inventoryJson: JSON.stringify(inventory),
+        spellsJson: spells === null ? null : JSON.stringify(spells),
         equippedWeaponId: source.equippedWeaponId,
         offhandWeaponId: source.offhandWeaponId,
         bio: source.bio,
@@ -794,11 +808,9 @@ export class CharactersService {
 
     return {
       characterId: character.id,
-      inventory: normalizeInventoryItemsDisplay(
-        JSON.parse(character.inventoryJson) as CharacterInventoryResponseDto["inventory"],
-      ),
+      inventory: normalizeInventoryItemsDisplay(parseInventoryJson(character.inventoryJson)),
       spells: character.spellsJson
-        ? (JSON.parse(character.spellsJson) as CharacterInventoryResponseDto["spells"])
+        ? parseCharacterInventorySpellsJson(character.spellsJson)
         : null,
       equippedWeaponId: character.equippedWeaponId ?? null,
       offhandWeaponId: character.offhandWeaponId ?? null,
@@ -813,7 +825,7 @@ export class CharactersService {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
     await this.assertCharacterNotLocked(characterId);
 
-    const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
+    const inventory = parseInventoryJsonForMutation(character.inventoryJson);
     const finalLoadout = await this.characterEquipmentLoadout.resolveNextEquipmentLoadout({
       characterId,
       inventory,
@@ -836,7 +848,7 @@ export class CharactersService {
         offhandWeaponId: finalLoadout.offhandWeaponId,
         armorClass: this.characterEquipmentLoadout.resolveArmorClass(
           character.className,
-          JSON.parse(character.abilitiesJson) as AbilityScoresDto,
+          parseAbilityScoresJsonForMutation(character.abilitiesJson),
           inventory,
           character.armorClass,
           finalLoadout.offhandWeaponId,
@@ -931,13 +943,7 @@ export class CharactersService {
   }
 
   private parseInventoryItemsJson(value: string | null | undefined): InventoryItemDto[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as InventoryItemDto[]) : [];
-    } catch {
-      return [];
-    }
+    return parseInventoryJsonForMutation(value);
   }
 
   // 캐릭터가 PLAYING/PAUSED 세션에 속해 있으면 ConflictException(409).
@@ -961,15 +967,168 @@ export class CharactersService {
   }
 
   private parseStringArrayJson(value: string | null | undefined): string[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed)
-        ? parsed.filter((entry): entry is string => typeof entry === "string")
-        : [];
-    } catch {
-      return [];
-    }
+    return parseJsonOrThrow(value, [], decodeStringArray, "character string array JSON");
   }
 
+}
+
+function parseAbilityScoresJson(value: string | null | undefined): AbilityScoresDto {
+  return parseJsonOrFallback(value, defaultAbilityScores, decodeAbilityScores);
+}
+
+function parseAbilityScoresJsonForMutation(value: string | null | undefined): AbilityScoresDto {
+  return parseJsonOrThrow(value, defaultAbilityScores, decodeAbilityScores, "character.abilitiesJson");
+}
+
+function parseInventoryJson(value: string | null | undefined): InventoryItemDto[] {
+  return parseJsonOrFallback(value, [], decodeInventoryItems);
+}
+
+function parseInventoryJsonForMutation(value: string | null | undefined): InventoryItemDto[] {
+  return parseJsonOrThrow(value, [], decodeInventoryItems, "character.inventoryJson");
+}
+
+function parseCharacterInventorySpellsJson(
+  value: string | null | undefined,
+): CharacterInventoryResponseDto["spells"] {
+  return parseJsonOrFallback(value, null, decodeCharacterInventorySpells);
+}
+
+function parseCharacterInventorySpellsJsonForMutation(
+  value: string | null | undefined,
+): CharacterInventoryResponseDto["spells"] {
+  return parseJsonOrThrow(value, null, decodeCharacterInventorySpells, "character.spellsJson");
+}
+
+function parseHitDie(value: unknown): HitDie | null {
+  return value === "d6" || value === "d8" || value === "d10" || value === "d12" ? value : null;
+}
+
+function decodeAbilityScores(value: unknown): AbilityScoresDto {
+  if (!isRecord(value)) {
+    throw new Error("abilities must be an object.");
+  }
+  return {
+    str: readPositiveNumber(value.str),
+    dex: readPositiveNumber(value.dex),
+    con: readPositiveNumber(value.con),
+    int: readPositiveNumber(value.int),
+    wis: readPositiveNumber(value.wis),
+    cha: readPositiveNumber(value.cha),
+  };
+}
+
+function decodeInventoryItems(value: unknown): InventoryItemDto[] {
+  if (!Array.isArray(value)) {
+    throw new Error("inventory must be an array.");
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
+      return [];
+    }
+    const quantity = readPositiveIntegerProperty(item, "quantity");
+    if (quantity === null) {
+      return [];
+    }
+    const weightLb = readNonNegativeNumberProperty(item, "weightLb");
+    const volumeCuFt = readNonNegativeNumberProperty(item, "volumeCuFt");
+    const rangeFt = readNonNegativeNumberProperty(item, "rangeFt");
+    const longRangeFt = readNonNegativeNumberProperty(item, "longRangeFt");
+    const armorClassBase = readNonNegativeNumberProperty(item, "armorClassBase");
+    const armorClassBonus = readFiniteNumberProperty(item, "armorClassBonus");
+    const armorStrengthRequirement = readNonNegativeNumberProperty(item, "armorStrengthRequirement");
+    return [{
+      id: item.id,
+      name: item.name,
+      quantity,
+      ...(typeof item.itemDefinitionId === "string" ? { itemDefinitionId: item.itemDefinitionId } : {}),
+      ...(typeof item.itemType === "string" ? { itemType: item.itemType } : {}),
+      ...(typeof item.description === "string" ? { description: item.description } : {}),
+      ...(weightLb !== undefined ? { weightLb } : {}),
+      ...(volumeCuFt !== undefined ? { volumeCuFt } : {}),
+      ...(typeof item.damageDice === "string" ? { damageDice: item.damageDice } : {}),
+      ...(typeof item.damageType === "string" ? { damageType: item.damageType } : {}),
+      ...(rangeFt !== undefined ? { rangeFt } : {}),
+      ...(longRangeFt !== undefined ? { longRangeFt } : {}),
+      ...(armorClassBase !== undefined ? { armorClassBase } : {}),
+      ...(armorClassBonus !== undefined ? { armorClassBonus } : {}),
+      ...(armorStrengthRequirement !== undefined ? { armorStrengthRequirement } : {}),
+      ...(typeof item.armorStealthDisadvantage === "boolean" ? { armorStealthDisadvantage: item.armorStealthDisadvantage } : {}),
+      ...(typeof item.useEffect === "string" ? { useEffect: item.useEffect } : {}),
+      ...(Array.isArray(item.packContents) ? { packContents: decodeInventoryPackContents(item.packContents) } : {}),
+      ...(Array.isArray(item.properties) ? { properties: decodeOptionalStringArray(item.properties) } : {}),
+      ...(typeof item.containerId === "string" ? { containerId: item.containerId } : {}),
+      ...(typeof item.displayName === "string" ? { displayName: item.displayName } : {}),
+      ...(typeof item.displayTypeLabel === "string" ? { displayTypeLabel: item.displayTypeLabel } : {}),
+      ...(typeof item.displayDescription === "string" ? { displayDescription: item.displayDescription } : {}),
+      ...(typeof item.displayUseEffect === "string" ? { displayUseEffect: item.displayUseEffect } : {}),
+      ...(Array.isArray(item.displayPropertyLabels) ? { displayPropertyLabels: decodeOptionalStringArray(item.displayPropertyLabels) } : {}),
+      ...(Array.isArray(item.displayPackContents) ? { displayPackContents: decodeInventoryPackContents(item.displayPackContents) } : {}),
+    }];
+  });
+}
+
+function decodeCharacterInventorySpells(value: unknown): NonNullable<CharacterInventoryResponseDto["spells"]> {
+  if (!isRecord(value)) {
+    throw new Error("spells must be an object.");
+  }
+  return {
+    cantrips: decodeOptionalStringArray(value.cantrips),
+    spells: decodeOptionalStringArray(value.spells),
+    preparedSpells: Array.isArray(value.preparedSpells) ? decodeOptionalStringArray(value.preparedSpells) : undefined,
+  };
+}
+
+function decodeInventoryPackContents(value: unknown): NonNullable<InventoryItemDto["packContents"]> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.itemId !== "string" || typeof item.name !== "string") {
+      return [];
+    }
+    const quantity = readPositiveIntegerProperty(item, "quantity");
+    if (quantity === null) {
+      return [];
+    }
+    return [{
+      itemId: item.itemId,
+      name: item.name,
+      quantity,
+      ...(typeof item.displayName === "string" ? { displayName: item.displayName } : {}),
+    }];
+  });
+}
+
+function decodeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("value must be an array.");
+  }
+  return decodeOptionalStringArray(value);
+}
+
+function decodeOptionalStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => (typeof entry === "string" ? [entry] : []));
+}
+
+function readPositiveNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1 ? value : 10;
+}
+
+function readPositiveIntegerProperty(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
+function readFiniteNumberProperty(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readNonNegativeNumberProperty(record: Record<string, unknown>, key: string): number | undefined {
+  const value = readFiniteNumberProperty(record, key);
+  return value !== undefined && value >= 0 ? value : undefined;
 }

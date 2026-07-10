@@ -5,6 +5,10 @@ import type {
   VttMapStateDto,
 } from "@trpg/shared-types";
 import { notFound } from "../../common/exceptions/domain-error";
+import {
+  parseJsonRecordOrFallback,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import type { CoverModifierProduced } from "../rules/rule-engine.types";
 import { SessionsService } from "../sessions/sessions.service";
@@ -120,8 +124,8 @@ export class CombatReactionService {
 
   async hasPendingCombatReaction(sessionId: string): Promise<boolean> {
     const { state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    return Boolean(flags[PENDING_COMBAT_REACTION_FLAG]);
+    const flags = this.parseFlagsForRead(state.flagsJson);
+    return Boolean(this.readPendingCombatReaction(flags));
   }
 
   async storePendingCombatReaction(
@@ -129,7 +133,7 @@ export class CombatReactionService {
     pending: PendingCombatReaction,
   ): Promise<void> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseFlagsForMutation(state.flagsJson);
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
       data: {
@@ -146,8 +150,8 @@ export class CombatReactionService {
     reactionId: string,
   ): Promise<PendingCombatReaction> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const pending = flags[PENDING_COMBAT_REACTION_FLAG] as PendingCombatReaction | undefined;
+    const flags = this.parseFlagsForMutation(state.flagsJson);
+    const pending = this.readPendingCombatReaction(flags);
     if (!pending || pending.id !== reactionId) {
       throw notFound("COMBAT_404", "처리할 반응 요청을 찾을 수 없습니다.", {
         reason: "PENDING_REACTION_NOT_FOUND",
@@ -161,12 +165,87 @@ export class CombatReactionService {
     return pending;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) return fallback;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
+  private parseFlagsForRead(value: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrFallback(value, {});
+  }
+
+  private parseFlagsForMutation(value: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrThrow(value, {}, "gameState.flagsJson");
+  }
+
+  private readPendingCombatReaction(flags: Record<string, unknown>): PendingCombatReaction | null {
+    const pendingCandidate = flags[PENDING_COMBAT_REACTION_FLAG];
+    return this.isPendingCombatReaction(pendingCandidate) ? pendingCandidate : null;
+  }
+
+  private isPendingCombatReaction(value: unknown): value is PendingCombatReaction {
+    if (!this.isRecord(value) || !this.hasPendingReactionBase(value)) {
+      return false;
     }
+    switch (value.type) {
+      case "opportunity_attack":
+        return (
+          this.hasString(value.reactorParticipantId) &&
+          this.hasString(value.reactorUserId) &&
+          this.hasString(value.moverParticipantId) &&
+          this.hasFiniteNumber(value.movementDistanceFt) &&
+          (value.movementCostFt === undefined || this.hasFiniteNumber(value.movementCostFt)) &&
+          this.isRecord(value.map)
+        );
+      case "shield":
+        return (
+          this.hasString(value.reactorParticipantId) &&
+          this.hasString(value.reactorUserId) &&
+          this.hasString(value.attackerParticipantId) &&
+          this.hasString(value.targetParticipantId) &&
+          this.hasFiniteNumber(value.attackTotal) &&
+          this.hasFiniteNumber(value.targetArmorClass)
+        );
+      case "counterspell":
+        return (
+          this.hasString(value.reactorParticipantId) &&
+          this.hasString(value.reactorUserId) &&
+          this.hasString(value.casterParticipantId) &&
+          this.hasString(value.casterUserId) &&
+          this.hasString(value.spellId) &&
+          this.hasFiniteNumber(value.spellLevel) &&
+          (value.actionCost === "action" || value.actionCost === "bonus_action" || value.actionCost === "reaction") &&
+          this.isRecord(value.castDto)
+        );
+      default:
+        return false;
+    }
+  }
+
+  private hasPendingReactionBase(value: Record<string, unknown>): value is Record<string, unknown> & {
+    id: string;
+    type: "opportunity_attack" | "shield" | "counterspell";
+    sessionId: string;
+    combatId: string;
+    roundNo: number;
+    turnNo: number;
+    createdAt: string;
+  } {
+    return (
+      this.hasString(value.id) &&
+      (value.type === "opportunity_attack" || value.type === "shield" || value.type === "counterspell") &&
+      this.hasString(value.sessionId) &&
+      this.hasString(value.combatId) &&
+      this.hasFiniteNumber(value.roundNo) &&
+      this.hasFiniteNumber(value.turnNo) &&
+      this.hasString(value.createdAt)
+    );
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  private hasString(value: unknown): value is string {
+    return typeof value === "string" && value.length > 0;
+  }
+
+  private hasFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
   }
 }

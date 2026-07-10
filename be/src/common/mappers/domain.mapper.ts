@@ -38,10 +38,12 @@ import {
   ParticipantRole,
   ScenarioLicense,
   ScenarioNodeResponseDto,
+  ScenarioNodeCheckOptionsConfigDto,
   ScenarioNodeType,
   ScenarioResponseDto,
   ScenarioSourceType,
   ScenarioSummaryResponseDto,
+  ScenarioValidationReportDto,
   SessionCharacterResponseDto,
   SessionCharacterStatus,
   SessionParticipantResponseDto,
@@ -54,7 +56,18 @@ import {
   StartingSpellsDto,
   UserRole,
   UserResponseDto,
+  decodeLenientScenarioClueArray,
+  decodeLenientScenarioNodeCheckOptionsConfig,
+  decodeLenientScenarioNpcArray,
+  decodeLenientScenarioTransitionArray,
+  decodeScenarioNodeMeta,
+  decodeScenarioValidationReport,
 } from "@trpg/shared-types";
+import {
+  parseJsonOrFallback,
+  parseJsonRecordOrFallback,
+  parseJsonStringArrayOrFallback,
+} from "../utils/json-runtime";
 
 type SessionScenarioWithScenario = SessionScenario & {
   scenario: Scenario;
@@ -175,54 +188,216 @@ const characterAvatarTypeMap: Record<PrismaCharacterAvatarType, CharacterAvatarT
   UPLOAD: CharacterAvatarType.UPLOAD,
 };
 
-function parseJson<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) {
-    return fallback;
+const defaultAbilityScores: AbilityScoresDto = {
+  str: 10,
+  dex: 10,
+  con: 10,
+  int: 10,
+  wis: 10,
+  cha: 10,
+};
+
+type LevelUpPreviewDowntimeTaskSummary = {
+  status: "active" | "paused" | "completed";
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeLevelUpPreviewDowntimeTasks(value: unknown): LevelUpPreviewDowntimeTaskSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
   }
-  return JSON.parse(value) as T;
+  return value.flatMap((task) => {
+    if (!isRecord(task) || !isLevelUpPreviewDowntimeStatus(task.status)) {
+      return [];
+    }
+    return [{ status: task.status }];
+  });
+}
+
+function isLevelUpPreviewDowntimeStatus(value: unknown): value is LevelUpPreviewDowntimeTaskSummary["status"] {
+  return value === "active" || value === "paused" || value === "completed";
+}
+
+function readNumberOrFallback(record: Record<string, unknown>, key: string, fallback: number): number {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function parseAbilityScores(value: string | null | undefined): AbilityScoresDto {
+  return parseJsonOrFallback(value, defaultAbilityScores, decodeAbilityScores);
+}
+
+function decodeAbilityScores(value: unknown): AbilityScoresDto {
+  if (!isRecord(value)) {
+    throw new Error("ability scores must be an object.");
+  }
+  return {
+    str: readNumberOrFallback(value, "str", defaultAbilityScores.str),
+    dex: readNumberOrFallback(value, "dex", defaultAbilityScores.dex),
+    con: readNumberOrFallback(value, "con", defaultAbilityScores.con),
+    int: readNumberOrFallback(value, "int", defaultAbilityScores.int),
+    wis: readNumberOrFallback(value, "wis", defaultAbilityScores.wis),
+    cha: readNumberOrFallback(value, "cha", defaultAbilityScores.cha),
+  };
+}
+
+function readStringArrayFromRecord(record: Record<string, unknown>, key: string): string[] {
+  return decodeStringArray(record[key]);
+}
+
+function decodeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => (typeof entry === "string" ? [entry] : []));
+}
+
+function parseStartingSpells(value: string | null | undefined): StartingSpellsDto | null {
+  return parseJsonOrFallback(value, null, decodeStartingSpells);
+}
+
+function decodeStartingSpells(value: unknown): StartingSpellsDto | null {
+  if (value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw new Error("spells must be an object or null.");
+  }
+  const preparedSpells = readStringArrayFromRecord(value, "preparedSpells");
+  return {
+    cantrips: readStringArrayFromRecord(value, "cantrips"),
+    spells: readStringArrayFromRecord(value, "spells"),
+    ...(preparedSpells.length ? { preparedSpells } : {}),
+  };
+}
+
+function parseInventoryItems(value: string | null | undefined): InventoryItemDto[] {
+  return parseJsonOrFallback(value, [], decodeInventoryItems);
+}
+
+function decodeInventoryItems(value: unknown): InventoryItemDto[] {
+  if (!Array.isArray(value)) {
+    throw new Error("inventory must be an array.");
+  }
+  return value.flatMap((item) => {
+    const decoded = decodeInventoryItem(item);
+    return decoded ? [decoded] : [];
+  });
+}
+
+function readPositiveIntegerProperty(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
+function readFiniteNumberProperty(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readNonNegativeNumberProperty(record: Record<string, unknown>, key: string): number | undefined {
+  const value = readFiniteNumberProperty(record, key);
+  return value !== undefined && value >= 0 ? value : undefined;
+}
+
+function decodeInventoryItem(value: unknown): InventoryItemDto | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") {
+    return null;
+  }
+  const quantity = readPositiveIntegerProperty(value, "quantity");
+  if (quantity === null) {
+    return null;
+  }
+  const weightLb = readNonNegativeNumberProperty(value, "weightLb");
+  const volumeCuFt = readNonNegativeNumberProperty(value, "volumeCuFt");
+  const armorClassBase = readNonNegativeNumberProperty(value, "armorClassBase");
+  const armorClassBonus = readFiniteNumberProperty(value, "armorClassBonus");
+  const armorStrengthRequirement = readNonNegativeNumberProperty(value, "armorStrengthRequirement");
+  return {
+    id: value.id,
+    name: value.name,
+    quantity,
+    ...(typeof value.itemDefinitionId === "string" ? { itemDefinitionId: value.itemDefinitionId } : {}),
+    ...(typeof value.itemType === "string" ? { itemType: value.itemType } : {}),
+    ...(typeof value.description === "string" ? { description: value.description } : {}),
+    ...(weightLb !== undefined ? { weightLb } : {}),
+    ...(volumeCuFt !== undefined ? { volumeCuFt } : {}),
+    ...(typeof value.damageDice === "string" ? { damageDice: value.damageDice } : {}),
+    ...(typeof value.damageType === "string" ? { damageType: value.damageType } : {}),
+    ...(armorClassBase !== undefined ? { armorClassBase } : {}),
+    ...(armorClassBonus !== undefined ? { armorClassBonus } : {}),
+    ...(armorStrengthRequirement !== undefined ? { armorStrengthRequirement } : {}),
+    ...(typeof value.armorStealthDisadvantage === "boolean" ? { armorStealthDisadvantage: value.armorStealthDisadvantage } : {}),
+    ...(typeof value.useEffect === "string" ? { useEffect: value.useEffect } : {}),
+    ...(Array.isArray(value.packContents) ? { packContents: decodeInventoryPackContents(value.packContents) } : {}),
+    ...(Array.isArray(value.properties) ? { properties: decodeStringArray(value.properties) } : {}),
+    ...(typeof value.containerId === "string" ? { containerId: value.containerId } : {}),
+  };
+}
+
+function decodeInventoryPackContents(value: unknown): NonNullable<InventoryItemDto["packContents"]> {
+  if (!Array.isArray(value)) {
+    throw new Error("pack contents must be an array.");
+  }
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.itemId !== "string" || typeof entry.name !== "string") {
+      return [];
+    }
+    const quantity = readPositiveIntegerProperty(entry, "quantity");
+    if (quantity === null) {
+      return [];
+    }
+    return [{
+      itemId: entry.itemId,
+      name: entry.name,
+      quantity,
+      ...(typeof entry.displayName === "string" ? { displayName: entry.displayName } : {}),
+    }];
+  });
 }
 
 function parseConditionSummary(value: string | null | undefined): string[] {
-  const parsed = parseJson<unknown[]>(value, []);
-  if (!Array.isArray(parsed)) {
-    return [];
+  return parseJsonOrFallback(value, [], decodeConditionSummary);
+}
+
+function decodeConditionSummary(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("conditions must be an array.");
   }
   return Array.from(
     new Set(
-      parsed
+      value
         .flatMap((condition) => {
           if (typeof condition === "string") {
             return [condition];
           }
-          if (!condition || typeof condition !== "object") {
+          if (!isRecord(condition)) {
             return [];
           }
-          const record = condition as Record<string, unknown>;
-          const conditionId = typeof record.conditionId === "string" ? record.conditionId : null;
-          const tags = Array.isArray(record.tags)
-            ? record.tags.filter((tag): tag is string => typeof tag === "string")
-            : [];
+          const conditionId = typeof condition.conditionId === "string" ? condition.conditionId : null;
+          const tags = decodeStringArray(condition.tags);
           return conditionId ? [conditionId, ...tags] : tags;
         })
-        .filter(Boolean),
+        .filter((entry) => entry.length > 0),
     ),
   );
 }
 
 function parseSpellSummary(value: string | null | undefined): { knownSpellCount: number; preparedSpellCount: number } {
-  const parsed = parseJson<Record<string, unknown> | null>(value, null);
-  if (!parsed || typeof parsed !== "object") {
-    return { knownSpellCount: 0, preparedSpellCount: 0 };
+  return parseJsonOrFallback(value, { knownSpellCount: 0, preparedSpellCount: 0 }, decodeSpellSummary);
+}
+
+function decodeSpellSummary(value: unknown): { knownSpellCount: number; preparedSpellCount: number } {
+  if (!isRecord(value)) {
+    throw new Error("spell summary must be an object.");
   }
-  const spells = Array.isArray(parsed.spells)
-    ? parsed.spells.filter((spell): spell is string => typeof spell === "string")
-    : [];
-  const cantrips = Array.isArray(parsed.cantrips)
-    ? parsed.cantrips.filter((spell): spell is string => typeof spell === "string")
-    : [];
-  const preparedSpells = Array.isArray(parsed.preparedSpells)
-    ? parsed.preparedSpells.filter((spell): spell is string => typeof spell === "string")
-    : [];
+  const parsed = value;
+  const spells = decodeStringArray(parsed.spells);
+  const cantrips = decodeStringArray(parsed.cantrips);
+  const preparedSpells = decodeStringArray(parsed.preparedSpells);
   return {
     knownSpellCount: new Set([...spells, ...cantrips]).size,
     preparedSpellCount: new Set(preparedSpells).size,
@@ -230,6 +405,18 @@ function parseSpellSummary(value: string | null | undefined): { knownSpellCount:
 }
 
 type CharacterAssignmentWithSession = NonNullable<CharacterWithAssignments["sessionCharacters"]>[number];
+
+const LEVEL_UP_PREVIEW_FLAGS = {
+  campaignArchive: "p6CampaignArchive",
+  campaignCalendar: "campaignCalendar",
+  economy: "economy",
+} as const;
+
+const PRIVATE_GAME_FLAG_KEYS = new Set<string>([
+  "vttMap",
+  "gmPrivateNotes",
+  "humanGmAiAssistSuggestions",
+]);
 
 function getAssignmentActiveScenario(
   assignment: CharacterAssignmentWithSession | null,
@@ -244,7 +431,7 @@ function getAssignmentActiveScenario(
 function getAssignmentGameFlags(assignment: CharacterAssignmentWithSession | null): Record<string, unknown> {
   const activeScenario =
     getAssignmentActiveScenario(assignment);
-  return parseJson<Record<string, unknown>>(activeScenario?.gameState?.flagsJson, {});
+  return parseJsonRecordOrFallback(activeScenario?.gameState?.flagsJson);
 }
 
 function buildCharacterLevelUpPreviewContext(
@@ -259,20 +446,14 @@ function buildCharacterLevelUpPreviewContext(
         return false;
       }
       const flags = getAssignmentGameFlags(assignment);
-      return Boolean(flags.p6CampaignArchive && typeof flags.p6CampaignArchive === "object");
+      return Boolean(readRecordFlag(flags, LEVEL_UP_PREVIEW_FLAGS.campaignArchive));
     }) ?? null;
   const archiveFlags = getAssignmentGameFlags(archiveAssignment);
-  const archive = archiveFlags.p6CampaignArchive && typeof archiveFlags.p6CampaignArchive === "object"
-    ? (archiveFlags.p6CampaignArchive as Record<string, unknown>)
-    : null;
-  const calendar = activeFlags.campaignCalendar && typeof activeFlags.campaignCalendar === "object"
-    ? (activeFlags.campaignCalendar as Record<string, unknown>)
-    : null;
-  const downtimeTasks = Array.isArray(calendar?.downtimeTasks)
-    ? calendar.downtimeTasks.filter((task): task is Record<string, unknown> => Boolean(task) && typeof task === "object")
-    : [];
+  const archive = readRecordFlag(archiveFlags, LEVEL_UP_PREVIEW_FLAGS.campaignArchive);
+  const calendar = readRecordFlag(activeFlags, LEVEL_UP_PREVIEW_FLAGS.campaignCalendar);
+  const downtimeTasks = decodeLevelUpPreviewDowntimeTasks(calendar?.downtimeTasks);
   const activeConditions = parseConditionSummary(activeAssignment?.conditionsJson);
-  const inventory = parseJson<InventoryItemDto[]>(character.inventoryJson, []);
+  const inventory = parseInventoryItems(character.inventoryJson);
   const spellSummary = parseSpellSummary(character.spellsJson);
   const campaignArchiveAvailable = Boolean(archive);
   const campaignArchiveAllowsTransfer = archive?.allowCharacterTransfer !== false && campaignArchiveAvailable;
@@ -290,7 +471,7 @@ function buildCharacterLevelUpPreviewContext(
       : "not_archived",
     activeDowntimeTaskCount: downtimeTasks.filter((task) => task.status === "active" || task.status === "paused").length,
     completedDowntimeTaskCount: downtimeTasks.filter((task) => task.status === "completed").length,
-    hasEconomyState: Boolean(activeFlags.economy && typeof activeFlags.economy === "object"),
+    hasEconomyState: Boolean(readRecordFlag(activeFlags, LEVEL_UP_PREVIEW_FLAGS.economy)),
     inventoryItemCount: inventory.reduce((sum, item) => sum + Math.max(0, item.quantity ?? 0), 0),
     equippedWeaponId: character.equippedWeaponId ?? null,
     offhandWeaponId: character.offhandWeaponId ?? null,
@@ -301,37 +482,23 @@ function buildCharacterLevelUpPreviewContext(
   };
 }
 
-function parseScenarioNodeConfig(value: string): {
-  checks: Record<string, unknown>[];
-  vttMap: Record<string, unknown> | null;
-} {
-  const parsed = parseJson<unknown>(value, []);
-  if (Array.isArray(parsed)) {
-    return { checks: parsed as Record<string, unknown>[], vttMap: null };
-  }
-  if (parsed && typeof parsed === "object") {
-    const candidate = parsed as Record<string, unknown>;
-    return {
-      checks: Array.isArray(candidate.checks)
-        ? (candidate.checks as Record<string, unknown>[])
-        : [],
-      vttMap:
-        candidate.vttMap && typeof candidate.vttMap === "object"
-          ? (candidate.vttMap as Record<string, unknown>)
-          : null,
-    };
-  }
-  return { checks: [], vttMap: null };
+function readRecordFlag(flags: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = flags[key];
+  return isRecord(value) ? value : null;
+}
+
+function parseScenarioNodeConfig(value: string, nodeId: string): ScenarioNodeCheckOptionsConfigDto {
+  return parseJsonOrFallback(value, { checks: [], vttMap: null }, (candidate) => decodeScenarioNodeConfig(candidate, nodeId));
+}
+
+function decodeScenarioNodeConfig(parsed: unknown, nodeId: string): ScenarioNodeCheckOptionsConfigDto {
+  return decodeLenientScenarioNodeCheckOptionsConfig(parsed, nodeId);
 }
 
 function stripPrivateGameFlags(flags: Record<string, unknown>): Record<string, unknown> {
-  const {
-    vttMap: _vttMap,
-    gmPrivateNotes: _gmPrivateNotes,
-    humanGmAiAssistSuggestions: _humanGmAiAssistSuggestions,
-    ...publicFlags
-  } = flags;
-  return publicFlags;
+  return Object.fromEntries(
+    Object.entries(flags).filter(([key]) => !PRIVATE_GAME_FLAG_KEYS.has(key)),
+  );
 }
 
 function toIsoString(value: Date | string | undefined | null): string {
@@ -344,6 +511,16 @@ function toIsoString(value: Date | string | undefined | null): string {
   return new Date(0).toISOString();
 }
 
+function mapUserRole(user: User): UserRole {
+  if (!("role" in user)) {
+    return UserRole.USER;
+  }
+  const role = user.role;
+  return role === "MODERATOR" || role === "ADMIN" || role === "USER"
+    ? userRoleMap[role]
+    : UserRole.USER;
+}
+
 function getActiveSessionScenario(session: SessionWithRelations): SessionScenarioWithScenario | null {
   return (
     session.sessionScenarios?.find((candidate) => candidate.status === "ACTIVE") ??
@@ -353,7 +530,6 @@ function getActiveSessionScenario(session: SessionWithRelations): SessionScenari
 }
 
 export function mapUser(user: User): UserResponseDto {
-  const userWithRole = user as User & { role?: keyof typeof userRoleMap };
   const displayName = user.displayName || user.email || user.id;
   return {
     id: user.id,
@@ -363,7 +539,7 @@ export function mapUser(user: User): UserResponseDto {
     name: displayName,
     nickname: displayName,
     authProvider: authProviderMap[user.authProvider],
-    role: userRoleMap[userWithRole.role ?? "USER"],
+    role: mapUserRole(user),
     displayName,
     createdAt: toIsoString(user.createdAt),
   };
@@ -400,7 +576,7 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     ownerUserId: session.hostUserId,
     captainUserId: session.captainUserId,
     gmMode: gmModeMap[session.gmMode],
-    gmUserId: session.gmMode === "HUMAN" ? (session.gmUserId ?? session.hostUserId) : null,
+    gmUserId: session.gmMode === PrismaGmMode.HUMAN ? (session.gmUserId ?? session.hostUserId) : null,
     inviteCode: session.inviteCode,
     status: sessionStatusMap[session.status],
     visibility,
@@ -456,23 +632,16 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     subclassName: character.subclassName ?? null,
     level: character.level,
     bio: character.bio ?? null,
-    abilities: parseJson<AbilityScoresDto>(character.abilitiesJson, {
-      str: 10,
-      dex: 10,
-      con: 10,
-      int: 10,
-      wis: 10,
-      cha: 10,
-    }),
+    abilities: parseAbilityScores(character.abilitiesJson),
     proficiencyBonus: character.proficiencyBonus,
-    proficientSkills: parseJson<string[]>(character.proficientSkillsJson, []),
-    features: parseJson<string[]>(character.featuresJson, []),
+    proficientSkills: parseJsonStringArrayOrFallback(character.proficientSkillsJson, []),
+    features: parseJsonStringArrayOrFallback(character.featuresJson, []),
     maxHp: character.maxHp,
     armorClass: character.armorClass,
     speed: character.speed,
-    inventory: normalizeInventoryItemsDisplay(parseJson<InventoryItemDto[]>(character.inventoryJson, [])),
+    inventory: normalizeInventoryItemsDisplay(parseInventoryItems(character.inventoryJson)),
     spells: character.spellsJson
-      ? parseJson<StartingSpellsDto | null>(character.spellsJson, null)
+      ? parseStartingSpells(character.spellsJson)
       : null,
     equippedWeaponId: character.equippedWeaponId ?? null,
     offhandWeaponId: character.offhandWeaponId ?? null,
@@ -513,24 +682,17 @@ export function mapSessionCharacter(
     hitDiceSpent,
     hitDiceRemaining: Math.max(hitDiceTotal - hitDiceSpent, 0),
     bio: sessionCharacter.character.bio ?? null,
-    abilities: parseJson<AbilityScoresDto>(sessionCharacter.character.abilitiesJson, {
-      str: 10,
-      dex: 10,
-      con: 10,
-      int: 10,
-      wis: 10,
-      cha: 10,
-    }),
+    abilities: parseAbilityScores(sessionCharacter.character.abilitiesJson),
     proficiencyBonus: sessionCharacter.character.proficiencyBonus,
-    proficientSkills: parseJson<string[]>(sessionCharacter.character.proficientSkillsJson, []),
-    features: parseJson<string[]>(sessionCharacter.character.featuresJson, []),
+    proficientSkills: parseJsonStringArrayOrFallback(sessionCharacter.character.proficientSkillsJson, []),
+    features: parseJsonStringArrayOrFallback(sessionCharacter.character.featuresJson, []),
     maxHp: sessionCharacter.character.maxHp,
     currentHp: sessionCharacter.currentHp,
     tempHp: sessionCharacter.tempHp,
     armorClass: sessionCharacter.character.armorClass,
     speed: sessionCharacter.character.speed,
     inventory: mapSessionCharacterInventory(sessionCharacter),
-    spells: parseJson<StartingSpellsDto | null>(sessionCharacter.character.spellsJson, null),
+    spells: parseStartingSpells(sessionCharacter.character.spellsJson),
     equippedWeaponId: sessionCharacter.character.equippedWeaponId ?? null,
     offhandWeaponId: sessionCharacter.character.offhandWeaponId ?? null,
     avatarType: characterAvatarTypeMap[sessionCharacter.character.avatarType],
@@ -564,20 +726,20 @@ function mapSessionCharacterInventory(
         armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
         armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
         useEffect: entry.itemDefinition.useEffect ?? undefined,
-        packContents: parseJson<InventoryItemDto["packContents"]>(
+        packContents: parseJsonOrFallback(
           entry.itemDefinition.packContentsJson,
           undefined,
+          decodeInventoryPackContents,
         ),
-        properties: parseJson<string[] | undefined>(entry.itemDefinition.propertiesJson, undefined),
+        properties: parseJsonStringArrayOrFallback(entry.itemDefinition.propertiesJson, undefined),
         containerId: entry.containerEntryId ?? undefined,
       })),
     );
   }
 
   return normalizeInventoryItemsDisplay(
-    parseJson<InventoryItemDto[]>(
+    parseInventoryItems(
       sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
-      [],
     ),
   );
 }
@@ -586,7 +748,7 @@ export function mapGameState(
   state: GameState,
   sessionId: string | null = null,
 ): GameStateResponseDto {
-  const flags = stripPrivateGameFlags(parseJson<Record<string, unknown>>(state.flagsJson, {}));
+  const flags = stripPrivateGameFlags(parseJsonRecordOrFallback(state.flagsJson));
 
   return {
     sessionScenarioId: state.sessionScenarioId,
@@ -616,6 +778,17 @@ type ScenarioSummarySource = Scenario & {
 
 function mapUserDisplayName(user?: ScenarioUserDisplaySource | null): string | null {
   return user?.profile?.nickname?.trim() || user?.displayName?.trim() || null;
+}
+
+function parseScenarioValidationReportOrNull(value: unknown): ScenarioValidationReportDto | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  try {
+    return decodeScenarioValidationReport(value);
+  } catch {
+    return null;
+  }
 }
 
 export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSummaryResponseDto {
@@ -657,7 +830,7 @@ function parseScenarioRevisionMetadata(attribution: string | null | undefined): 
   attribution: string | null;
   revisionNumber: number | null;
   changelog: string | null;
-  validationReport: Record<string, unknown> | null;
+  validationReport: ScenarioValidationReportDto | null;
   publishedAt: string | null;
   publishedByUserId: string | null;
   publishStatus: "draft" | "public" | "link" | "private" | "unpublished";
@@ -679,28 +852,18 @@ function parseScenarioRevisionMetadata(attribution: string | null | undefined): 
   const publicAttribution = raw.slice(0, markerIndex).trim() || null;
   const metadataText = raw.slice(markerIndex + marker.length).trim();
   try {
-    const metadata = JSON.parse(metadataText) as Record<string, unknown>;
-    const status = metadata.status;
+    const metadata = parseJsonOrFallback(metadataText, null, decodeDomainScenarioRevisionMetadata);
+    if (!metadata) {
+      throw new Error("scenario revision metadata is missing.");
+    }
     return {
       attribution: publicAttribution,
-      revisionNumber:
-        typeof metadata.revisionNumber === "number" && Number.isInteger(metadata.revisionNumber)
-          ? metadata.revisionNumber
-          : null,
-      changelog: typeof metadata.changelog === "string" ? metadata.changelog : null,
-      validationReport:
-        metadata.validationReport &&
-        typeof metadata.validationReport === "object" &&
-        !Array.isArray(metadata.validationReport)
-          ? (metadata.validationReport as Record<string, unknown>)
-          : null,
-      publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt : null,
-      publishedByUserId:
-        typeof metadata.publishedByUserId === "string" ? metadata.publishedByUserId : null,
-      publishStatus:
-        status === "public" || status === "link" || status === "private" || status === "unpublished"
-          ? status
-          : "draft",
+      revisionNumber: metadata.revisionNumber,
+      changelog: metadata.changelog,
+      validationReport: parseScenarioValidationReportOrNull(metadata.validationReport),
+      publishedAt: metadata.publishedAt,
+      publishedByUserId: metadata.publishedByUserId,
+      publishStatus: metadata.publishStatus,
     };
   } catch {
     return {
@@ -715,8 +878,37 @@ function parseScenarioRevisionMetadata(attribution: string | null | undefined): 
   }
 }
 
+function decodeDomainScenarioRevisionMetadata(value: unknown): {
+  revisionNumber: number | null;
+  changelog: string | null;
+  validationReport: unknown;
+  publishedAt: string | null;
+  publishedByUserId: string | null;
+  publishStatus: "draft" | "public" | "link" | "private" | "unpublished";
+} {
+  if (!isRecord(value)) {
+    throw new Error("scenario revision metadata must be an object.");
+  }
+  const status = value.status;
+  return {
+    revisionNumber:
+      typeof value.revisionNumber === "number" && Number.isInteger(value.revisionNumber)
+        ? value.revisionNumber
+        : null,
+    changelog: typeof value.changelog === "string" ? value.changelog : null,
+    validationReport: value.validationReport,
+    publishedAt: typeof value.publishedAt === "string" ? value.publishedAt : null,
+    publishedByUserId:
+      typeof value.publishedByUserId === "string" ? value.publishedByUserId : null,
+    publishStatus:
+      status === "public" || status === "link" || status === "private" || status === "unpublished"
+        ? status
+        : "draft",
+  };
+}
+
 export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
-  const nodeConfig = parseScenarioNodeConfig(node.checkOptionsJson);
+  const nodeConfig = parseScenarioNodeConfig(node.checkOptionsJson, node.id);
 
   return {
     id: node.id,
@@ -725,10 +917,10 @@ export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
     sceneText: node.sceneText,
     imageUrl: node.imageUrl ?? null,
     checkOptions: nodeConfig.checks,
-    transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson, []),
-    clues: parseJson<Record<string, unknown>[]>(node.cluesJson, []),
+    transitions: parseJsonOrFallback(node.transitionsJson, [], decodeLenientScenarioTransitionArray),
+    clues: parseJsonOrFallback(node.cluesJson, [], decodeLenientScenarioClueArray),
     vttMap: nodeConfig.vttMap,
-    nodeMeta: parseJson<Record<string, unknown> | null>(node.nodeMetaJson, null),
+    nodeMeta: parseJsonOrFallback(node.nodeMetaJson, null, decodeScenarioNodeMeta),
     fallbackNodeId: node.fallbackNodeId,
   };
 }
@@ -752,7 +944,7 @@ export function mapScenario(
   return {
     ...mapScenarioSummary(scenario),
     startNodeId,
-    npcs: parseJson<Record<string, unknown>[]>(scenario.npcsJson, []),
+    npcs: parseJsonOrFallback(scenario.npcsJson, [], decodeLenientScenarioNpcArray),
     nodes: sortScenarioNodes(scenario.nodes, startNodeId).map(mapScenarioNode),
   };
 }
@@ -773,7 +965,7 @@ function sortScenarioNodes(nodes: ScenarioNode[], startNodeId: string | null): S
     visited.add(nodeId);
     ordered.push(node);
 
-    const transitions = parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+    const transitions = parseJsonOrFallback(node.transitionsJson, [], decodeLenientScenarioTransitionArray);
     transitions.forEach((transition) => {
       const nextNodeId = transition.nextNodeId;
       if (typeof nextNodeId === "string") {
@@ -795,7 +987,7 @@ function resolveScenarioStartNodeId(nodes: ScenarioNode[], requestedStartNodeId:
 
   const incoming = new Map<string, number>();
   nodes.forEach((node) => {
-    const transitions = parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+    const transitions = parseJsonOrFallback(node.transitionsJson, [], decodeLenientScenarioTransitionArray);
     transitions.forEach((transition) => {
       const nextNodeId = transition.nextNodeId;
       if (typeof nextNodeId === "string" && nodeIds.has(nextNodeId)) {

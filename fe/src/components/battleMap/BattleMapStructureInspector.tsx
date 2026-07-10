@@ -1,3 +1,4 @@
+import { VTT_CHECK_DC_MAX, VTT_CHECK_DC_MIN, VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { VttMapStateDto } from '@trpg/shared-types';
 
 type MapStructureKind = 'terrain' | 'wall' | 'door' | 'object';
@@ -6,13 +7,16 @@ type WallCell = NonNullable<VttMapStateDto['wallCells']>[number];
 type DoorCell = NonNullable<VttMapStateDto['doorCells']>[number];
 type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
 type StructureCell = TerrainCell | WallCell | DoorCell | ObjectCell;
+type StructurePatch =
+  | Partial<TerrainCell>
+  | Partial<WallCell>
+  | Partial<DoorCell>
+  | Partial<ObjectCell>;
 type ObjectEvent = NonNullable<ObjectCell['events']>[number];
 type ObjectHazard = NonNullable<ObjectCell['hazard']>;
 type ObjectRevealCheck = NonNullable<ObjectCell['revealChecks']>[number];
 
-interface BattleMapStructureInspectorProps {
-  kind: MapStructureKind;
-  cell: StructureCell;
+type BattleMapStructureInspectorBaseProps = {
   clueOptions: Array<{ id: string; label: string }>;
   itemOptions: Array<{ id: string; label: string }>;
   enableObjectEventEditing: boolean;
@@ -56,7 +60,7 @@ interface BattleMapStructureInspectorProps {
     deleteFeature: string;
   };
   onClose: () => void;
-  onUpdate: (kind: MapStructureKind, cellId: string, patch: Partial<StructureCell>) => void;
+  onUpdate: (kind: MapStructureKind, cellId: string, patch: StructurePatch) => void;
   onDelete: (kind: MapStructureKind, cellId: string) => void;
   onUpdateObjectRevealChecks: (contentIds: string[]) => void;
   onPatchObjectRevealCheck: (contentId: string, patch: Partial<ObjectRevealCheck>) => void;
@@ -66,7 +70,13 @@ interface BattleMapStructureInspectorProps {
   onAddObjectFogRevealEvent: () => void;
   onUpdateObjectEvent: (eventId: string, updater: (event: ObjectEvent) => ObjectEvent) => void;
   onDeleteObjectEvent: (eventId: string) => void;
-}
+};
+
+type BattleMapStructureInspectorProps =
+  | (BattleMapStructureInspectorBaseProps & { kind: 'terrain'; cell: TerrainCell })
+  | (BattleMapStructureInspectorBaseProps & { kind: 'wall'; cell: WallCell })
+  | (BattleMapStructureInspectorBaseProps & { kind: 'door'; cell: DoorCell })
+  | (BattleMapStructureInspectorBaseProps & { kind: 'object'; cell: ObjectCell });
 
 const objectRevealAbilityOptions = [
   { value: 'int', label: '지능' },
@@ -95,9 +105,40 @@ const terrainEffectOptions = [
   { value: 'terrain.poison_cloud', label: '독구름' },
 ] as const;
 
+const doorStateOptions = [
+  { value: VTT_DOOR_STATES.OPEN, label: '열림' },
+  { value: VTT_DOOR_STATES.CLOSED, label: '닫힘' },
+  { value: VTT_DOOR_STATES.LOCKED, label: '잠김' },
+  { value: VTT_DOOR_STATES.BROKEN, label: '파괴됨' },
+] as const;
+
+function toDoorState(value: string): DoorCell['state'] | null {
+  return doorStateOptions.find((option) => option.value === value)?.value ?? null;
+}
+
+function toObjectHazardKind(value: string): ObjectHazard['kind'] | null {
+  return value === 'TRAP' || value === 'AMBUSH' || value === 'HAZARD' ? value : null;
+}
+
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(Math.max(value, min), max);
+}
+
+function readFiniteNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readPositiveNumber(value: string, fallback: number): number {
+  return Math.max(1, readFiniteNumber(value, fallback));
+}
+
+function readNullableClampedNumber(value: string, fallback: number | null, min: number, max: number): number | null {
+  if (!value) {
+    return null;
+  }
+  return clamp(readFiniteNumber(value, fallback ?? min), min, max);
 }
 
 export function BattleMapStructureInspector({
@@ -119,9 +160,9 @@ export function BattleMapStructureInspector({
   onUpdateObjectEvent,
   onDeleteObjectEvent,
 }: BattleMapStructureInspectorProps) {
-  const terrainCell = kind === 'terrain' ? (cell as TerrainCell) : null;
-  const doorCell = kind === 'door' ? (cell as DoorCell) : null;
-  const objectCell = kind === 'object' ? (cell as ObjectCell) : null;
+  const terrainCell = kind === 'terrain' ? cell : null;
+  const doorCell = kind === 'door' ? cell : null;
+  const objectCell = kind === 'object' ? cell : null;
 
   return (
     <aside className="vtt-inspector">
@@ -152,7 +193,7 @@ export function BattleMapStructureInspector({
             onChange={(event) =>
               onUpdate(kind, cell.id, {
                 terrainEffectId: event.target.value || null,
-              } as Partial<TerrainCell>)
+              })
             }
           >
             {terrainEffectOptions.map((option) => (
@@ -166,11 +207,19 @@ export function BattleMapStructureInspector({
       <div className="vtt-field-row">
         <label>
           X
-          <input type="number" value={cell.x} onChange={(event) => onUpdate(kind, cell.id, { x: Number(event.target.value) })} />
+          <input
+            type="number"
+            value={cell.x}
+            onChange={(event) => onUpdate(kind, cell.id, { x: readFiniteNumber(event.target.value, cell.x) })}
+          />
         </label>
         <label>
           Y
-          <input type="number" value={cell.y} onChange={(event) => onUpdate(kind, cell.id, { y: Number(event.target.value) })} />
+          <input
+            type="number"
+            value={cell.y}
+            onChange={(event) => onUpdate(kind, cell.id, { y: readFiniteNumber(event.target.value, cell.y) })}
+          />
         </label>
       </div>
       <div className="vtt-field-row">
@@ -179,7 +228,7 @@ export function BattleMapStructureInspector({
           <input
             type="number"
             value={cell.width}
-            onChange={(event) => onUpdate(kind, cell.id, { width: Number(event.target.value) })}
+            onChange={(event) => onUpdate(kind, cell.id, { width: readPositiveNumber(event.target.value, cell.width) })}
           />
         </label>
         <label>
@@ -187,7 +236,7 @@ export function BattleMapStructureInspector({
           <input
             type="number"
             value={cell.height}
-            onChange={(event) => onUpdate(kind, cell.id, { height: Number(event.target.value) })}
+            onChange={(event) => onUpdate(kind, cell.id, { height: readPositiveNumber(event.target.value, cell.height) })}
           />
         </label>
       </div>
@@ -198,16 +247,18 @@ export function BattleMapStructureInspector({
             {labels.doorState}
             <select
               value={doorCell.state}
-              onChange={(event) =>
-                onUpdate(kind, cell.id, {
-                  state: event.target.value as DoorCell['state'],
-                })
-              }
+              onChange={(event) => {
+                const state = toDoorState(event.target.value);
+                if (state) {
+                  onUpdate(kind, cell.id, { state });
+                }
+              }}
             >
-              <option value="open">열림</option>
-              <option value="closed">닫힘</option>
-              <option value="locked">잠김</option>
-              <option value="broken">파괴됨</option>
+              {doorStateOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -231,12 +282,17 @@ export function BattleMapStructureInspector({
             {labels.breakDc}
             <input
               type="number"
-              min={1}
-              max={40}
+              min={VTT_CHECK_DC_MIN}
+              max={VTT_CHECK_DC_MAX}
               value={doorCell.breakCheckDc ?? ''}
               onChange={(event) =>
                 onUpdate(kind, cell.id, {
-                  breakCheckDc: event.target.value ? Number(event.target.value) : null,
+                  breakCheckDc: readNullableClampedNumber(
+                    event.target.value,
+                    doorCell.breakCheckDc ?? null,
+                    VTT_CHECK_DC_MIN,
+                    VTT_CHECK_DC_MAX,
+                  ),
                 })
               }
             />
@@ -259,7 +315,7 @@ export function BattleMapStructureInspector({
               <input
                 type="checkbox"
                 checked={objectCell.canBreak === true}
-                onChange={(event) => onUpdate(kind, cell.id, { canBreak: event.target.checked } as Partial<ObjectCell>)}
+                onChange={(event) => onUpdate(kind, cell.id, { canBreak: event.target.checked })}
               />
               {labels.canBreak}
             </label>
@@ -267,7 +323,7 @@ export function BattleMapStructureInspector({
               <input
                 type="checkbox"
                 checked={objectCell.broken === true}
-                onChange={(event) => onUpdate(kind, cell.id, { broken: event.target.checked } as Partial<ObjectCell>)}
+                onChange={(event) => onUpdate(kind, cell.id, { broken: event.target.checked })}
               />
               파괴됨
             </label>
@@ -276,14 +332,19 @@ export function BattleMapStructureInspector({
             {labels.breakDc}
             <input
               type="number"
-              min={1}
-              max={40}
+              min={VTT_CHECK_DC_MIN}
+              max={VTT_CHECK_DC_MAX}
               disabled={!objectCell.canBreak}
               value={objectCell.breakCheckDc ?? ''}
               onChange={(event) =>
                 onUpdate(kind, cell.id, {
-                  breakCheckDc: event.target.value ? Number(event.target.value) : null,
-                } as Partial<ObjectCell>)
+                  breakCheckDc: readNullableClampedNumber(
+                    event.target.value,
+                    objectCell.breakCheckDc ?? null,
+                    VTT_CHECK_DC_MIN,
+                    VTT_CHECK_DC_MAX,
+                  ),
+                })
               }
             />
           </label>
@@ -375,13 +436,17 @@ export function BattleMapStructureInspector({
                       DC
                       <input
                         type="number"
-                        min={1}
-                        max={40}
+                        min={VTT_CHECK_DC_MIN}
+                        max={VTT_CHECK_DC_MAX}
                         value={revealCheck.dc ?? 15}
                         disabled={!requiresCheck}
                         onChange={(event) =>
                           onPatchObjectRevealCheck(contentId, {
-                            dc: clamp(Number(event.target.value) || 15, 1, 40),
+                            dc: clamp(
+                              readFiniteNumber(event.target.value, revealCheck.dc ?? 15),
+                              VTT_CHECK_DC_MIN,
+                              VTT_CHECK_DC_MAX,
+                            ),
                           })
                         }
                       />
@@ -400,7 +465,7 @@ export function BattleMapStructureInspector({
               onChange={(event) =>
                 onUpdate(kind, cell.id, {
                   hiddenItemIds: Array.from(event.target.selectedOptions, (option) => option.value).slice(0, 30),
-                } as Partial<ObjectCell>)
+                })
               }
             >
               {itemOptions.length ? (
@@ -432,11 +497,12 @@ export function BattleMapStructureInspector({
                   {labels.hazardKind}
                   <select
                     value={objectCell.hazard.kind ?? 'TRAP'}
-                    onChange={(event) =>
-                      onUpdateObjectHazard({
-                        kind: event.target.value as ObjectHazard['kind'],
-                      })
-                    }
+                    onChange={(event) => {
+                      const hazardKind = toObjectHazardKind(event.target.value);
+                      if (hazardKind) {
+                        onUpdateObjectHazard({ kind: hazardKind });
+                      }
+                    }}
                   >
                     <option value="TRAP">{labels.hazardTrap}</option>
                     <option value="AMBUSH">{labels.hazardAmbush}</option>
@@ -453,7 +519,11 @@ export function BattleMapStructureInspector({
                       value={objectCell.hazard.detectionRadiusCells ?? 3}
                       onChange={(event) =>
                         onUpdateObjectHazard({
-                          detectionRadiusCells: clamp(Number(event.target.value) || 3, 1, 20),
+                          detectionRadiusCells: clamp(
+                            readFiniteNumber(event.target.value, objectCell.hazard?.detectionRadiusCells ?? 3),
+                            1,
+                            20,
+                          ),
                         })
                       }
                     />
@@ -462,12 +532,16 @@ export function BattleMapStructureInspector({
                     {labels.hazardDc}
                     <input
                       type="number"
-                      min={1}
-                      max={40}
+                      min={VTT_CHECK_DC_MIN}
+                      max={VTT_CHECK_DC_MAX}
                       value={objectCell.hazard.detectionDc ?? 12}
                       onChange={(event) =>
                         onUpdateObjectHazard({
-                          detectionDc: clamp(Number(event.target.value) || 12, 1, 40),
+                          detectionDc: clamp(
+                            readFiniteNumber(event.target.value, objectCell.hazard?.detectionDc ?? 12),
+                            VTT_CHECK_DC_MIN,
+                            VTT_CHECK_DC_MAX,
+                          ),
                         })
                       }
                     />
@@ -544,7 +618,11 @@ export function BattleMapStructureInspector({
                             ...current,
                             trigger: {
                               ...current.trigger,
-                              distanceFeet: clamp(Number(changeEvent.target.value) || 0, 0, 500),
+                              distanceFeet: clamp(
+                                readFiniteNumber(changeEvent.target.value, current.trigger?.distanceFeet ?? 15),
+                                0,
+                                500,
+                              ),
                             },
                           }))
                         }
@@ -561,7 +639,11 @@ export function BattleMapStructureInspector({
                             ...current,
                             effect: {
                               ...current.effect,
-                              revealRadiusFeet: clamp(Number(changeEvent.target.value) || 5, 5, 500),
+                              revealRadiusFeet: clamp(
+                                readFiniteNumber(changeEvent.target.value, current.effect?.revealRadiusFeet ?? 30),
+                                5,
+                                500,
+                              ),
                             },
                           }))
                         }

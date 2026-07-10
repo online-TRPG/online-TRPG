@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type {
-  AiHumanGmAssistSuggestionRequestDto,
-  CreateHumanGmAiAssistSuggestionDto,
-  HumanGmAiAssistSuggestionDto,
-  PlayerScenarioNodeDto,
-  RestActionDto,
-  SessionCharacterResponseDto,
+import {
+  type AiHumanGmAssistSuggestionRequestDto,
+  type CreateHumanGmAiAssistSuggestionDto,
+  type HumanGmAiAssistSuggestionDto,
+  type PlayerScenarioNodeDto,
+  type RestActionDto,
+  type SessionCharacterResponseDto,
 } from '@trpg/shared-types';
+import {
+  HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH,
+  HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH,
+} from '@trpg/shared-types/frontend';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -66,6 +70,14 @@ interface StoryNodeSurfaceProps {
 type VisibleStoryRpUtterance = StoryRpUtterance & {
   isFading: boolean;
 };
+
+function readClampedInteger(value: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
 
 export type StoryNodeMoveOption = {
   nodeId: string;
@@ -337,14 +349,11 @@ export function StoryNodeSurface({
               value={clampedShortRestHitDiceToSpend}
               disabled={isBusy || !restTargetCharacterId}
               aria-label={storyPresentation.shortRestHitDiceAriaLabel}
-              onChange={(event) => {
-                const nextValue = Number(event.target.value);
-                setShortRestHitDiceToSpend(
-                  Number.isInteger(nextValue)
-                    ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
-                    : 0
-                );
-              }}
+              onChange={(event) =>
+                setShortRestHitDiceToSpend((current) =>
+                  readClampedInteger(event.target.value, current, 0, restHitDiceMaximum)
+                )
+              }
             />
           </label>
           <button
@@ -383,14 +392,14 @@ export function StoryNodeSurface({
               value={gmMessageContent}
               placeholder={storyPresentation.gmMessagePlaceholder}
               rows={3}
-              maxLength={2000}
+              maxLength={HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH}
               onChange={(event) => setGmMessageContent(event.target.value)}
             />
             <input
               className="story-gm-input"
               value={gmMessagePrivateNote}
               placeholder={storyPresentation.gmPrivateNotePlaceholder}
-              maxLength={1000}
+              maxLength={HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH}
               onChange={(event) => setGmMessagePrivateNote(event.target.value)}
             />
             <button

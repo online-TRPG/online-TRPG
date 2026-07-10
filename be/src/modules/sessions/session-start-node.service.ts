@@ -1,4 +1,6 @@
 import { Injectable } from "@nestjs/common";
+import { decodeScenarioTransitionArray } from "@trpg/shared-types";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 
 type ScenarioStartNodeSource = {
   id: string;
@@ -18,7 +20,12 @@ export class SessionStartNodeService {
 
     const incoming = new Map<string, number>();
     nodes.forEach((node) => {
-      const transitions = this.parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+      const transitions = parseJsonOrThrow(
+        node.transitionsJson,
+        [],
+        decodeScenarioTransitionArray,
+        "scenarioNode.transitionsJson",
+      );
       transitions.forEach((transition) => {
         const nextNodeId = transition.nextNodeId;
         if (typeof nextNodeId === "string" && nodeIds.has(nextNodeId)) {
@@ -43,14 +50,4 @@ export class SessionStartNodeService {
         : nodes[0].id;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
 }

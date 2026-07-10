@@ -12,7 +12,7 @@ import {
   WebSocketServer,
   WsException,
 } from "@nestjs/websockets";
-import { ChatSendMessageDto, SessionJoinMessageDto } from "@trpg/shared-types";
+import { CHAT_MESSAGE_MAX_LENGTH, ChatSendMessageDto, SessionJoinMessageDto } from "@trpg/shared-types";
 import { ConnectionStatus as PrismaConnectionStatus } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { Server, Socket } from "socket.io";
@@ -137,8 +137,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     if (!content) {
       throw new WsException("content is required.");
     }
-    if (content.length > 1000) {
-      throw new WsException("content must be shorter than or equal to 1000 characters.");
+    if (content.length > CHAT_MESSAGE_MAX_LENGTH) {
+      throw new WsException(`content must be shorter than or equal to ${CHAT_MESSAGE_MAX_LENGTH} characters.`);
     }
     const scope = dto.scope === "MAIN" ? "MAIN" : "CHAT";
 

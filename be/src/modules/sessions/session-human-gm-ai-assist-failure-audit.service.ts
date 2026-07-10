@@ -5,6 +5,7 @@ import {
   HumanGmAiAssistSuggestionDto,
   StateDiffResponseDto,
   TurnLogResponseDto,
+  decodeTurnLogStructuredAction,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 
@@ -47,6 +48,7 @@ export class SessionHumanGmAiAssistFailureAuditService {
         failureReason,
       },
     };
+    const structuredActionForLog = decodeTurnLogStructuredAction(structuredAction);
     const created = await this.prisma.turnLog.create({
       data: {
         sessionId: params.sessionId,
@@ -54,7 +56,7 @@ export class SessionHumanGmAiAssistFailureAuditService {
         actorUserId: params.gmUserId,
         turnNumber: (latest?.turnNumber ?? 0) + 1,
         rawInput: "gm:ai_assist_apply_failure",
-        structuredActionJson: JSON.stringify(structuredAction),
+        structuredActionJson: JSON.stringify(structuredActionForLog),
         stateDiffJson: null,
         outcome: PrismaActionOutcome.FAILURE,
         narration: "GM AI assist 제안 승인 후 적용에 실패했습니다.",
@@ -72,14 +74,27 @@ export class SessionHumanGmAiAssistFailureAuditService {
         actionCreatedAt: null,
         actionQueueStatus: null,
         rawInput: created.rawInput,
-        structuredAction: JSON.parse(created.structuredActionJson ?? "{}") as Record<string, unknown>,
+        structuredAction: structuredActionForLog,
         diceResult: null,
         stateDiff: null,
-        outcome: created.outcome as ActionOutcome,
+        outcome: this.toSharedOutcome(created.outcome),
         narration: created.narration,
         createdAt: created.createdAt.toISOString(),
       },
       stateDiff: null,
     };
+  }
+
+  private toSharedOutcome(value: PrismaActionOutcome): ActionOutcome {
+    switch (value) {
+      case PrismaActionOutcome.SUCCESS:
+        return ActionOutcome.SUCCESS;
+      case PrismaActionOutcome.FAILURE:
+        return ActionOutcome.FAILURE;
+      case PrismaActionOutcome.IMPOSSIBLE:
+        return ActionOutcome.IMPOSSIBLE;
+      case PrismaActionOutcome.NO_ROLL:
+        return ActionOutcome.NO_ROLL;
+    }
   }
 }

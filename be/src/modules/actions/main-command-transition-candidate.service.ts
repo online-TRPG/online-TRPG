@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { ScenarioNodeType } from "@trpg/shared-types";
+import { ScenarioNodeType, decodeScenarioTransitionArray } from "@trpg/shared-types";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import type { LoadedContext } from "./main-commands.service";
 import { MainCommandTransitionEvaluatorService } from "./main-command-transition-evaluator.service";
@@ -13,17 +14,22 @@ export class MainCommandTransitionCandidateService {
   ) {}
 
   async loadTransitionCandidates(context: LoadedContext): Promise<TransitionCandidate[]> {
-    const transitions = this.parseJson<Record<string, unknown>[]>(context.currentNodeTransitionsJson, []);
+    const transitions = parseJsonOrThrow(
+      context.currentNodeTransitionsJson,
+      [],
+      decodeScenarioTransitionArray,
+      "scenarioNode.transitionsJson",
+    );
     const candidateStubs: Array<Omit<TransitionCandidate, "title" | "nodeType">> = [];
     for (const transition of transitions) {
-      const nextNodeId = this.readString(transition.nextNodeId);
+      const nextNodeId = transition.nextNodeId?.trim() || null;
       if (nextNodeId) {
         candidateStubs.push({
-          transitionId: this.readString(transition.id),
-          label: this.readString(transition.label),
-          condition: this.readString(transition.condition),
+          transitionId: transition.id?.trim() || null,
+          label: transition.label?.trim() || null,
+          condition: transition.condition?.trim() || null,
           conditionRule: this.mainCommandTransitionEvaluator.readTransitionConditionRule(transition.conditionRule),
-          note: this.readString(transition.note),
+          note: transition.note?.trim() || null,
           nodeId: nextNodeId,
           isFallback: false,
         });
@@ -63,18 +69,17 @@ export class MainCommandTransitionCandidateService {
 
     const nodeByNodeId = new Map(nodes.map((node) => [node.nodeId, node]));
     return candidateStubs
-      .map((candidate) => {
+      .flatMap((candidate) => {
         const node = nodeByNodeId.get(candidate.nodeId);
         if (!node) {
-          return null;
+          return [];
         }
-        return {
+        return [{
           ...candidate,
           title: node.title,
           nodeType: this.toScenarioNodeType(node.nodeType),
-        };
-      })
-      .filter((candidate): candidate is TransitionCandidate => Boolean(candidate));
+        }];
+      });
   }
 
   private toScenarioNodeType(nodeType: string): ScenarioNodeType {
@@ -87,21 +92,5 @@ export class MainCommandTransitionCandidateService {
       default:
         return ScenarioNodeType.STORY;
     }
-  }
-
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
-
-  private readString(value: unknown): string | null {
-    return typeof value === "string" && value.trim() ? value.trim() : null;
   }
 }

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 
 type ScenarioRevisionSnapshotSource = {
   id: string;
@@ -47,24 +48,36 @@ export class SessionScenarioRevisionSnapshotService {
     }
 
     try {
-      const metadata = JSON.parse(raw.slice(markerIndex + marker.length).trim()) as Record<string, unknown>;
-      const status = metadata.status;
-      return {
-        revisionNumber:
-          typeof metadata.revisionNumber === "number" && Number.isInteger(metadata.revisionNumber)
-            ? metadata.revisionNumber
-            : null,
-        publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt : null,
-        publishedByUserId:
-          typeof metadata.publishedByUserId === "string" ? metadata.publishedByUserId : null,
-        status:
-          status === "public" || status === "link" || status === "private" || status === "unpublished"
-            ? status
-            : "draft",
-      };
+      return parseJsonOrFallback(raw.slice(markerIndex + marker.length).trim(), this.createDraftMetadata(), (value) =>
+        this.decodeScenarioRevisionMetadata(value),
+      );
     } catch {
       return this.createDraftMetadata();
     }
+  }
+
+  private decodeScenarioRevisionMetadata(value: unknown): ScenarioRevisionMetadata {
+    if (!this.isRecord(value)) {
+      throw new Error("scenario revision metadata must be an object.");
+    }
+    const status = value.status;
+    return {
+      revisionNumber:
+        typeof value.revisionNumber === "number" && Number.isInteger(value.revisionNumber)
+          ? value.revisionNumber
+          : null,
+      publishedAt: typeof value.publishedAt === "string" ? value.publishedAt : null,
+      publishedByUserId:
+        typeof value.publishedByUserId === "string" ? value.publishedByUserId : null,
+      status:
+        status === "public" || status === "link" || status === "private" || status === "unpublished"
+          ? status
+          : "draft",
+    };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
   }
 
   private createDraftMetadata(): ScenarioRevisionMetadata {

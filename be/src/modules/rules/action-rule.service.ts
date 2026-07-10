@@ -1,6 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, AvailableActionDto, DiceAdvantageState, DiceRollResponseDto, GamePhase } from "@trpg/shared-types";
+import {
+  ActionOutcome,
+  AvailableActionDto,
+  DiceAdvantageState,
+  DiceRollResponseDto,
+  GamePhase,
+  isRecord,
+} from "@trpg/shared-types";
 import { forbidden } from "../../common/exceptions/domain-error";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
 import { AoeDamageService, AoeDamageTarget } from "./aoe-damage.service";
 import {
   AoeTargetingService,
@@ -8,7 +19,7 @@ import {
 } from "./aoe-targeting.service";
 import { CommandParserService, ParsedCommand } from "./command-parser.service";
 import { ConcentrationRuntimeService } from "./concentration-runtime.service";
-import { ConditionRuntimeService } from "./condition-runtime.service";
+import { ConditionRuntimeService, type ConditionInstance, type ConditionStateEntry } from "./condition-runtime.service";
 import { DiceService } from "./dice.service";
 import { ItemInteractionEntry, ItemInteractionPoint, ItemInteractionService } from "./item-interaction.service";
 import { RestResolution, RestResolutionService } from "./rest-resolution.service";
@@ -16,7 +27,10 @@ import { RuleCatalogService } from "./rule-catalog.service";
 import { RuleCatalogEntry } from "./rule-catalog.types";
 import { RuleEngineService } from "./rule-engine.service";
 import { SpellScalingResult, SpellScalingRule, SpellScalingService } from "./spell-scaling.service";
-import { ActionSpellRuleService } from "./action-spell-rule.service";
+import {
+  ActionSpellRuleService,
+  type ActionSpellRuleRuntime,
+} from "./action-spell-rule.service";
 import { CriticalThresholdModifierProduced, RuleAdvantageState, RuleHookResult, SavingThrowAbility } from "./rule-engine.types";
 import { MapPositionService, RuleMapRuntimeContext, RuleMapRuntimeObjectCell } from "./map-position.service";
 import { ReadyActionService } from "./ready-action.service";
@@ -166,7 +180,7 @@ export type CharacterStatePatch = {
   combatParticipantId?: string;
   currentHp?: number;
   tempHp?: number;
-  conditions?: unknown[];
+  conditions?: ConditionStateEntry[];
   markDead?: boolean;
 };
 
@@ -279,14 +293,13 @@ export class ActionRuleService {
     private readonly aoeTargeting: AoeTargetingService = new AoeTargetingService(),
   ) {}
 
-  private createActionSpellRuleRuntime() {
+  private createActionSpellRuleRuntime(): ActionSpellRuleRuntime {
     return {
       createActionUnavailableResolution: this.createActionUnavailableResolution.bind(this),
       createTargetStatePatch: this.createTargetStatePatch.bind(this),
       hasActionAvailable: this.hasActionAvailable.bind(this),
       hasCondition: this.hasCondition.bind(this),
       normalizeRuleToken: this.normalizeRuleToken.bind(this),
-      parseJson: this.parseJson.bind(this),
       requireTarget: this.requireTarget.bind(this),
       resolveConcentrationDamageCheck: this.resolveConcentrationDamageCheck.bind(this),
       resolveDamageProfile: this.resolveDamageProfile.bind(this),
@@ -471,10 +484,7 @@ export class ActionRuleService {
     const stateChanges = hasGuidance || hasDarkOnesOwnLuck
       ? [
           this.createTargetStatePatch(actor, {
-            conditions: this.parseJson<unknown[]>(
-              actor.conditionsJson,
-              [],
-            ).filter(
+            conditions: this.parseConditionEntriesJson(actor.conditionsJson).filter(
               (entry) => {
                 const tags = this.conditionRuntime.toConditionTags(
                   JSON.stringify([entry]),
@@ -595,11 +605,8 @@ export class ActionRuleService {
       bonusModifiers,
     });
     const stateChanges: CharacterStatePatch[] = [];
-    let expiredConditions: unknown[] = [];
-    const currentConditionEntries = this.parseJson<unknown[]>(
-      target.conditionsJson,
-      [],
-    );
+    let expiredConditions: ConditionInstance[] = [];
+    const currentConditionEntries = this.parseConditionEntriesJson(target.conditionsJson);
     let nextConditionEntries = currentConditionEntries;
 
     if (command.condition) {
@@ -995,7 +1002,7 @@ export class ActionRuleService {
     const optionTokens = (command.option ?? "")
       .split(/[\s,]+/)
       .map((token) => token.trim())
-      .filter(Boolean);
+      .filter((token) => token.length > 0);
     const damageTypes = new Set([
       "acid",
       "cold",
@@ -1055,7 +1062,7 @@ export class ActionRuleService {
       targets: uniqueTargets.map((target) => this.toAoeDamageTarget(target, "dex")),
     });
     const actorConditions = this.addConditionEntry(
-      this.parseJson<unknown[]>(actor.conditionsJson, []),
+      this.parseConditionEntriesJson(actor.conditionsJson),
       DRAGONBORN_BREATH_EXPENDED_TAG,
     );
 
@@ -1241,7 +1248,7 @@ export class ActionRuleService {
       };
     }
 
-    const abilities = this.parseJson<Record<string, number>>(actor.character.abilitiesJson, {});
+    const abilities = this.parseNumberRecordJson(actor.character.abilitiesJson);
     const result = this.itemInteractions.resolveThrow({
       item,
       quantity: command.quantity,
@@ -1503,7 +1510,7 @@ export class ActionRuleService {
   private resolveExpertise(command: Extract<ParsedCommand, { type: "use_class_feature" }>, actor: SessionCharacterForRules): ActionResolution {
     const selections = this.parseFeatureOptionTokens(command.option);
     const currentConditions = this.getConditions(actor);
-    const proficientSkills = this.parseJson<string[]>(actor.character.proficientSkillsJson, []);
+    const proficientSkills = this.parseStringArrayJson(actor.character.proficientSkillsJson);
     const ruleResult = this.ruleEngine.applyExpertise({
       rogueLevel: this.isClass(actor, "rogue") ? actor.character.level : 0,
       selections,
@@ -1832,8 +1839,7 @@ export class ActionRuleService {
     const option = this.normalizeRuleToken(command.option ?? "");
     const currentConditions = this.getConditions(actor);
     const spent = currentConditions
-      .map((condition) => /^resource:ki_spent:(\d+)$/.exec(condition)?.[1])
-      .filter((value): value is string => Boolean(value))
+      .flatMap((condition) => this.matchFirstGroup(condition, /^resource:ki_spent:(\d+)$/))
       .map(Number)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
     const available =
@@ -1888,13 +1894,7 @@ export class ActionRuleService {
     const maximumUses = actor.character.level >= 6 ? 2 : 1;
     const spentUses = Math.max(
       ...currentConditions
-        .map(
-          (condition) =>
-            new RegExp(`^${CHANNEL_DIVINITY_SPENT_PREFIX}(\\d+)$`).exec(
-              condition,
-            )?.[1],
-        )
-        .filter((value): value is string => Boolean(value))
+        .flatMap((condition) => this.matchFirstGroup(condition, new RegExp(`^${CHANNEL_DIVINITY_SPENT_PREFIX}(\\d+)$`)))
         .map(Number),
       this.hasCondition(actor, CHANNEL_DIVINITY_EXPENDED_TAG) ? 1 : 0,
     );
@@ -1965,11 +1965,7 @@ export class ActionRuleService {
     );
     const currentConditions = this.getConditions(actor);
     const spent = currentConditions
-      .map(
-        (condition) =>
-          /^resource:bardic_inspiration_spent:(\d+)$/.exec(condition)?.[1],
-      )
-      .filter((value): value is string => Boolean(value))
+      .flatMap((condition) => this.matchFirstGroup(condition, /^resource:bardic_inspiration_spent:(\d+)$/))
       .map(Number)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
     const maximumUses = Math.max(this.resolveAbilityModifier(actor, "cha"), 1);
@@ -2027,11 +2023,7 @@ export class ActionRuleService {
   ): ActionResolution {
     const currentConditions = this.getConditions(actor);
     const spent = currentConditions
-      .map(
-        (condition) =>
-          /^resource:sorcery_points_spent:(\d+)$/.exec(condition)?.[1],
-      )
-      .filter((value): value is string => Boolean(value))
+      .flatMap((condition) => this.matchFirstGroup(condition, /^resource:sorcery_points_spent:(\d+)$/))
       .map(Number)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
     const maximumPoints = Math.max(actor.character.level, 0);
@@ -2087,11 +2079,7 @@ export class ActionRuleService {
   ): ActionResolution {
     const currentConditions = this.getConditions(actor);
     const spent = currentConditions
-      .map(
-        (condition) =>
-          /^resource:wild_shape_spent:(\d+)$/.exec(condition)?.[1],
-      )
-      .filter((value): value is string => Boolean(value))
+      .flatMap((condition) => this.matchFirstGroup(condition, /^resource:wild_shape_spent:(\d+)$/))
       .map(Number)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
     const requestedForm = this.normalizeRuleToken(command.option ?? "wolf");
@@ -2223,7 +2211,7 @@ export class ActionRuleService {
   private resolveShortRest(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): ActionResolution {
     const spellRecovery = this.resolveShortRestSpellRecovery(actor, runtimeContext);
     const nextConditions = spellRecovery
-      ? this.addConditions(rest.conditions as string[], [spellRecovery.expendedTag])
+      ? this.addConditionEntry(rest.conditions, spellRecovery.expendedTag)
       : rest.conditions;
     return {
       structuredAction: {
@@ -2392,7 +2380,7 @@ export class ActionRuleService {
     };
   }
 
-  private describeRemovedConditions(before: unknown[], after: unknown[]): string[] {
+  private describeRemovedConditions(before: ConditionStateEntry[], after: ConditionStateEntry[]): string[] {
     const remaining = new Map<string, number>();
     for (const condition of after) {
       const key = JSON.stringify(condition);
@@ -2411,9 +2399,8 @@ export class ActionRuleService {
         removed.push(condition);
         continue;
       }
-      if (condition && typeof condition === "object") {
-        const record = condition as Record<string, unknown>;
-        removed.push(String(record.conditionId ?? record.sourceId ?? "condition"));
+      if (isRecord(condition)) {
+        removed.push(String(condition.conditionId ?? condition.sourceId ?? "condition"));
       }
     }
     return removed;
@@ -2436,7 +2423,7 @@ export class ActionRuleService {
     const remainingTempHp = Math.max(target.tempHp - finalDamage, 0);
     const overflowDamage = Math.max(finalDamage - target.tempHp, 0);
     let nextHp = Math.max(target.currentHp - overflowDamage, 0);
-    let relentlessEnduranceConditions: unknown[] | null = null;
+    let relentlessEnduranceConditions: ConditionStateEntry[] | null = null;
     const relentlessEnduranceTriggered =
       nextHp === 0 &&
       target.currentHp > 0 &&
@@ -2445,7 +2432,7 @@ export class ActionRuleService {
     if (relentlessEnduranceTriggered) {
       nextHp = 1;
       relentlessEnduranceConditions = this.addConditionEntry(
-        this.parseJson<unknown[]>(target.conditionsJson, []),
+        this.parseConditionEntriesJson(target.conditionsJson),
         "resource:relentless_endurance_expended",
       );
     }
@@ -2503,8 +2490,8 @@ export class ActionRuleService {
   ): {
     diceResult: DiceRollResponseDto;
     ruleResult: RuleHookResult<unknown> | null;
-    conditions: unknown[];
-    removedConditions: unknown[];
+    conditions: ConditionStateEntry[];
+    removedConditions: ConditionStateEntry[];
     concentrationState: unknown;
     concentrationMaintained: boolean;
   } | null {
@@ -2551,7 +2538,7 @@ export class ActionRuleService {
 
   private resolveCondition(command: Extract<ParsedCommand, { type: "condition" }>, sessionCharacters: SessionCharacterForRules[]): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
-    const currentConditionEntries = this.parseJson<unknown[]>(target.conditionsJson, []);
+    const currentConditionEntries = this.parseConditionEntriesJson(target.conditionsJson);
     const nextConditions =
       command.operation === "add"
         ? this.addConditionEntry(currentConditionEntries, command.condition)
@@ -2572,8 +2559,8 @@ export class ActionRuleService {
   }
 
   private getCheckModifier(actor: SessionCharacterForRules, checkName: string): number {
-    const abilities = this.parseJson<Record<string, number>>(actor.character.abilitiesJson, {});
-    const proficientSkills = this.parseJson<string[]>(actor.character.proficientSkillsJson, []);
+    const abilities = this.parseNumberRecordJson(actor.character.abilitiesJson);
+    const proficientSkills = this.parseStringArrayJson(actor.character.proficientSkillsJson);
     const normalizedCheckName = this.normalizeRuleToken(checkName);
     const abilityKey = this.resolveAbilityKey(checkName);
     const abilityScore = abilities[abilityKey] ?? 10;
@@ -2654,7 +2641,7 @@ export class ActionRuleService {
     const targets = targetToken
       .split(",")
       .map((token) => token.trim())
-      .filter(Boolean)
+      .filter((token) => token.length > 0)
       .map((token) => this.requireTarget(token, sessionCharacters));
     return Array.from(new Map(targets.map((target) => [target.id, target])).values());
   }
@@ -2676,7 +2663,7 @@ export class ActionRuleService {
       candidate.user?.id,
       candidate.user?.displayName,
       candidate.user?.profile?.nickname,
-    ].filter((alias): alias is string => Boolean(alias?.trim()));
+    ].flatMap((alias) => (typeof alias === "string" && alias.trim() ? [alias] : []));
   }
 
   private createTargetStatePatch(
@@ -2712,7 +2699,7 @@ export class ActionRuleService {
     const conditions = this.getConditions(actor).map((condition) => this.normalizeRuleToken(condition));
     const className = this.normalizeRuleToken(actor.character.className);
     const subclassName = this.normalizeRuleToken(actor.character.subclassName ?? "");
-    const characterFeatures = this.parseJson<string[]>(actor.character.featuresJson, []).map((feature) => this.normalizeRuleToken(feature));
+    const characterFeatures = this.parseStringArrayJson(actor.character.featuresJson).map((feature) => this.normalizeRuleToken(feature));
     const featureIds: string[] = [];
 
     if (
@@ -2747,7 +2734,7 @@ export class ActionRuleService {
       return normalizedEntryWeapon;
     }
 
-    const inventory = this.parseJson<InventoryItemForRules[]>(actor.inventorySnapshotJson ?? actor.character.inventoryJson, []);
+    const inventory = this.parseInventoryItemsJson(actor.inventorySnapshotJson ?? actor.character.inventoryJson);
     const equippedWeapon = equippedWeaponId ? inventory.find((item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId) : null;
     const properties = equippedWeapon?.properties ?? [];
     const normalizedProperties = properties.map((property) => this.normalizeRuleToken(property));
@@ -2802,10 +2789,10 @@ export class ActionRuleService {
 
   private requireInventoryItemForInteraction(actor: SessionCharacterForRules, itemId: string): ItemInteractionEntry {
     const normalizedItemId = this.normalizeRuleToken(itemId);
-    const inventory = this.parseJson<InventoryItemForRules[]>(actor.inventorySnapshotJson ?? actor.character.inventoryJson, []);
+    const inventory = this.parseInventoryItemsJson(actor.inventorySnapshotJson ?? actor.character.inventoryJson);
     const item = inventory.find((candidate) =>
       [candidate.id, candidate.itemDefinitionId]
-        .filter((value): value is string => Boolean(value))
+        .flatMap((value) => (value ? [value] : []))
         .map((value) => this.normalizeRuleToken(value))
         .includes(normalizedItemId),
     );
@@ -2991,7 +2978,7 @@ export class ActionRuleService {
     return (option ?? "")
       .split(/[\s,]+/)
       .map((token) => this.normalizeRuleToken(token).replace(/-/g, "_"))
-      .filter(Boolean);
+      .filter((token) => token.length > 0);
   }
 
   private hasFeatureTag(actor: SessionCharacterForRules, tag: string): boolean {
@@ -3000,7 +2987,7 @@ export class ActionRuleService {
   }
 
   private getFeatureTags(actor: SessionCharacterForRules): string[] {
-    const featureIds = this.parseJson<string[]>(actor.character.featuresJson, []);
+    const featureIds = this.parseStringArrayJson(actor.character.featuresJson);
     return [
       ...this.getConditions(actor),
       ...featureIds,
@@ -3239,10 +3226,7 @@ export class ActionRuleService {
     actor: SessionCharacterForRules,
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    const currentConditions = this.parseJson<unknown[]>(
-      actor.conditionsJson,
-      [],
-    );
+    const currentConditions = this.parseConditionEntriesJson(actor.conditionsJson);
     const removableConditions = [
       "charmed",
       "condition.charmed",
@@ -3441,7 +3425,7 @@ export class ActionRuleService {
   }
 
   private resolveAbilityModifier(character: SessionCharacterForRules, ability: SavingThrowAbility): number {
-    const abilities = this.parseJson<Record<string, number>>(character.character.abilitiesJson, {});
+    const abilities = this.parseNumberRecordJson(character.character.abilitiesJson);
     const score = abilities[ability] ?? 10;
     return this.abilityModifierFromScore(score);
   }
@@ -3468,10 +3452,7 @@ export class ActionRuleService {
   private resolveDraconicAncestryDamageType(
     actor: SessionCharacterForRules,
   ): string | null {
-    const ancestry = this.parseJson<string[]>(
-      actor.character.featuresJson,
-      [],
-    )
+    const ancestry = this.parseStringArrayJson(actor.character.featuresJson)
       .map((feature) => this.normalizeRuleToken(feature))
       .find((feature) => feature.startsWith("draconic_ancestry:"))
       ?.slice("draconic_ancestry:".length);
@@ -3522,12 +3503,15 @@ export class ActionRuleService {
       anchorCell.row - actorCell.row,
     );
     const tokenCells = map.tokens
-      .filter((token) => token.sessionCharacterId)
-      .map((token) => ({
-        id: token.sessionCharacterId as string,
-        ...toCell(token),
-        hidden: token.hidden,
-      }));
+      .flatMap((token) =>
+        typeof token.sessionCharacterId === "string"
+          ? [{
+              id: token.sessionCharacterId,
+              ...toCell(token),
+              hidden: token.hidden,
+            }]
+          : [],
+      );
     const columns =
       Math.max(actorCell.column, ...tokenCells.map((token) => token.column)) + 2;
     const rows =
@@ -3624,7 +3608,7 @@ export class ActionRuleService {
       .map((condition) => this.normalizeRuleToken(condition))
       .filter((condition) => condition.startsWith(normalizedPrefix))
       .map((condition) => condition.slice(normalizedPrefix.length))
-      .filter(Boolean);
+      .filter((condition) => condition.length > 0);
   }
 
   private hasCondition(character: SessionCharacterForRules, conditionName: string): boolean {
@@ -3636,7 +3620,7 @@ export class ActionRuleService {
   }
 
   private getConditions(character: SessionCharacterForRules): string[] {
-    const entries = this.parseJson<unknown[]>(character.conditionsJson, []);
+    const entries = this.parseConditionEntriesJson(character.conditionsJson);
     const tags = entries.flatMap((entry) => {
       if (typeof entry === "string") {
         return [entry];
@@ -3647,7 +3631,7 @@ export class ActionRuleService {
     return Array.from(new Set(tags));
   }
 
-  private addConditionEntry(currentEntries: unknown[], condition: string): unknown[] {
+  private addConditionEntry(currentEntries: ConditionStateEntry[], condition: string): ConditionStateEntry[] {
     const normalized = this.normalizeRuleToken(condition);
     if (currentEntries.some((entry) => typeof entry === "string" && this.normalizeRuleToken(entry) === normalized)) {
       return currentEntries;
@@ -3655,14 +3639,14 @@ export class ActionRuleService {
     return [...currentEntries, condition];
   }
 
-  private removeConditionEntry(currentEntries: unknown[], condition: string): unknown[] {
+  private removeConditionEntry(currentEntries: ConditionStateEntry[], condition: string): ConditionStateEntry[] {
     const normalized = this.normalizeRuleToken(condition);
     return currentEntries.filter((entry) => {
       if (typeof entry === "string") {
         return this.normalizeRuleToken(entry) !== normalized;
       }
-      if (entry && typeof entry === "object" && !Array.isArray(entry) && "conditionId" in entry) {
-        const conditionId = (entry as { conditionId?: unknown }).conditionId;
+      if (isRecord(entry)) {
+        const conditionId = entry.conditionId;
         return typeof conditionId !== "string" || !this.conditionNameMatches(conditionId, normalized);
       }
       return true;
@@ -3670,25 +3654,13 @@ export class ActionRuleService {
   }
 
   private mergeConditionResolutionEntries(
-    currentEntries: unknown[],
+    currentEntries: ConditionStateEntry[],
     parsedConditions: Array<{ conditionId: string; sourceId: string | null; appliedAtRound: number | null }>,
-    remainingConditions: unknown[],
-  ): unknown[] {
+    remainingConditions: ConditionInstance[],
+  ): ConditionStateEntry[] {
     const remainingByKey = new Map(
       remainingConditions
-        .filter(
-          (
-            condition,
-          ): condition is {
-            conditionId: string;
-            sourceId: string | null;
-            appliedAtRound: number | null;
-          } =>
-            Boolean(condition) &&
-            typeof condition === "object" &&
-            !Array.isArray(condition) &&
-            typeof (condition as { conditionId?: unknown }).conditionId === "string",
-        )
+        .filter((condition) => isRecord(condition) && typeof condition.conditionId === "string")
         .map((condition) => [this.conditionEntryKey(condition), condition]),
     );
 
@@ -3763,27 +3735,113 @@ export class ActionRuleService {
     return result.hit ? "공격이 명중했습니다." : "공격이 빗나갔습니다.";
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
+  private parseConditionEntriesJson(value: string | null | undefined): ConditionStateEntry[] {
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeConditionEntriesForRules(parsed),
+      "sessionCharacter.conditionsJson",
+    );
+  }
+
+  private decodeConditionEntriesForRules(value: unknown): ConditionStateEntry[] {
+    if (!Array.isArray(value)) {
+      throw new Error("conditions must be an array.");
     }
-    return JSON.parse(value) as T;
+    return value.map((entry, index) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+      const [condition] = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]));
+      if (!condition) {
+        throw new Error(`conditions[${index}] is invalid.`);
+      }
+      return condition;
+    });
+  }
+
+  private parseNumberRecordJson(value: string | null | undefined): Record<string, number> {
+    return parseJsonOrThrow(value, {}, (parsed) => this.decodeNumberRecord(parsed), "character.abilitiesJson");
   }
 
   private parseStringArrayJson(value: string | null | undefined): string[] {
-    if (!value) {
-      return [];
-    }
+    return parseJsonOrThrow(value, [], decodeStringArray, "character string array JSON");
+  }
 
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
+  private parseInventoryItemsJson(value: string | null | undefined): InventoryItemForRules[] {
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeInventoryItemsForRules(parsed),
+      "sessionCharacter.inventorySnapshotJson",
+    );
+  }
+
+  private decodeInventoryItemsForRules(value: unknown): InventoryItemForRules[] {
+    if (!Array.isArray(value)) {
+      throw new Error("inventory must be an array.");
+    }
+    return value.map((item, index) => {
+      const decoded = this.decodeInventoryItemForRules(item);
+      if (!decoded) {
+        throw new Error(`inventory[${index}] is invalid.`);
       }
+      return decoded;
+    });
+  }
 
-      return parsed.filter((entry): entry is string => typeof entry === "string");
-    } catch {
-      return [];
+  private decodeNumberRecord(value: unknown): Record<string, number> {
+    if (!isRecord(value)) {
+      throw new Error("number record must be an object.");
     }
+    return Object.fromEntries(Object.entries(value).map(([key, numericValue]) => {
+      if (typeof numericValue !== "number" || !Number.isFinite(numericValue)) {
+        throw new Error(`${key} must be a finite number.`);
+      }
+      return [key, numericValue];
+    }));
+  }
+
+  private decodeInventoryItemForRules(value: unknown): InventoryItemForRules | null {
+    if (!isRecord(value) || typeof value.id !== "string") {
+      return null;
+    }
+    const quantity = this.readPositiveInteger(value.quantity);
+    if (value.quantity !== undefined && quantity === undefined) {
+      return null;
+    }
+    if (value.itemDefinitionId !== undefined && typeof value.itemDefinitionId !== "string") {
+      return null;
+    }
+    if (value.name !== undefined && typeof value.name !== "string") {
+      return null;
+    }
+    if (value.damageDice !== undefined && typeof value.damageDice !== "string") {
+      return null;
+    }
+    if (value.damageType !== undefined && typeof value.damageType !== "string") {
+      return null;
+    }
+    if (value.properties !== undefined && !Array.isArray(value.properties)) {
+      return null;
+    }
+    return {
+      id: value.id,
+      ...(typeof value.itemDefinitionId === "string" ? { itemDefinitionId: value.itemDefinitionId } : {}),
+      ...(typeof value.name === "string" ? { name: value.name } : {}),
+      ...(quantity !== undefined ? { quantity } : {}),
+      ...(typeof value.damageDice === "string" ? { damageDice: value.damageDice } : {}),
+      ...(typeof value.damageType === "string" ? { damageType: value.damageType } : {}),
+      ...(value.properties !== undefined ? { properties: decodeStringArray(value.properties) } : {}),
+    };
+  }
+
+  private matchFirstGroup(value: string, pattern: RegExp): string[] {
+    const match = pattern.exec(value)?.[1];
+    return match ? [match] : [];
+  }
+
+  private readPositiveInteger(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : undefined;
   }
 }

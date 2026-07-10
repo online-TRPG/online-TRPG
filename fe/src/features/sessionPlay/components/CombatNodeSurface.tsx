@@ -47,7 +47,7 @@ import {
 } from '../utils/inventoryItemModel';
 import {
   getThrowableLongRangeFt,
-  getWeaponFallbackRangeFt,
+  getWeaponRangeFt,
   isLightMeleeWeaponItem,
   isSneakAttackWeaponItem,
 } from '../utils/combatInventoryRules';
@@ -83,6 +83,7 @@ import {
   p3CombatSpellMetadataById,
 } from '../utils/combatSpellModel';
 import { getMapObjectItemPayload } from '../utils/explorationMapObjectModel';
+import type { InventoryItemWithEquipmentDisplayState } from '../hooks/useInventoryItemActions';
 import { getGridDistanceFt } from '../utils/explorationMapGeometry';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
 import './CombatNodeSurface.css';
@@ -129,7 +130,7 @@ interface CombatNodeSurfaceProps {
     targetParticipantId?: string | null,
     point?: { x: number; y: number } | null
   ) => void;
-  onEquipInventoryItem: (item: InventoryItemDto) => void;
+  onEquipInventoryItem: (item: InventoryItemWithEquipmentDisplayState) => void;
   onThrowInventoryItem: (
     item: InventoryItemDto,
     point: { x: number; y: number }
@@ -226,6 +227,24 @@ const gmForcedMovementOptions: Array<{ mode: ForcedMovementMode; label: string }
   { mode: 'slide', label: '이동시키기' },
 ];
 const gmForcedMovementDistanceOptions = [5, 10, 15, 20, 30];
+
+function readFiniteNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function readGmHpInput(value: string, fallback: number, maxHp: number | null | undefined): number {
+  return clamp(readFiniteNumber(value, fallback), 0, Math.max(0, maxHp ?? fallback));
+}
+
+function readAllowedNumber(value: string, allowedValues: readonly number[], fallback: number): number {
+  const parsed = readFiniteNumber(value, fallback);
+  return allowedValues.includes(parsed) ? parsed : fallback;
+}
 
 function CombatResourceIcon({ kind }: { kind: CombatResourceIconKind }) {
   if (kind === 'action') return <GameIcon name="game-icons:rune-sword" size={21} />;
@@ -407,11 +426,11 @@ export function CombatNodeSurface({
       !isCombatBusy
   );
   const attackName = equippedWeapon ? getUserFacingItemName(equippedWeapon) : '기본 공격';
-  const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
+  const attackRangeFt = equippedWeapon ? getWeaponRangeFt(equippedWeapon) : 5;
   const offhandAttackName = offhandWeapon
     ? `보조 공격(${getUserFacingItemName(offhandWeapon)})`
     : '보조 공격';
-  const offhandAttackRangeFt = offhandWeapon ? getWeaponFallbackRangeFt(offhandWeapon) : 5;
+  const offhandAttackRangeFt = offhandWeapon ? getWeaponRangeFt(offhandWeapon) : 5;
   const offhandWeaponIsLightMelee = isLightMeleeWeaponItem(offhandWeapon);
   const isSelectedTargetInRange = useMemo(() => {
     if (!map || !myCombatParticipant || !selectedTargetParticipant) return false;
@@ -737,18 +756,19 @@ export function CombatNodeSurface({
   const tokenMovementRangeFtByTokenId = useMemo(() => {
     const entries =
       combat?.participants
-        .map((participant) => {
+        .flatMap((participant) => {
           const tokenId = getParticipantTokenId(participant);
           return tokenId
             ? [
-                tokenId,
-                participant.sessionEntityId === combat.currentEntityId
-                  ? participant.actionResources.movementFtRemaining
-                  : 0,
+                [
+                  tokenId,
+                  participant.sessionEntityId === combat.currentEntityId
+                    ? participant.actionResources.movementFtRemaining
+                    : 0,
+                ] as const,
               ]
-            : null;
-        })
-        .filter((entry): entry is [string, number] => Boolean(entry)) ?? [];
+            : [];
+        }) ?? [];
     return Object.fromEntries(entries);
   }, [combat, map?.tokens]);
   const controllableCombatTokenIds = useMemo(() => {
@@ -1259,7 +1279,7 @@ export function CombatNodeSurface({
                             `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`,
                             participant.concentration ? '집중 유지 중' : null,
                           ]
-                            .filter(Boolean)
+                            .flatMap((value) => (value ? [value] : []))
                             .join(' / ');
                   return (
                     <button
@@ -1279,7 +1299,7 @@ export function CombatNodeSurface({
                             : 'sneak-ineligible'
                           : '',
                       ]
-                        .filter(Boolean)
+                        .filter((className) => className.length > 0)
                         .join(' ')}
                       title={participantTitle}
                       aria-label={participant.name}
@@ -1593,7 +1613,11 @@ export function CombatNodeSurface({
                                 value={selectedSlotLevel}
                                 disabled={disabled || targetingSpellId === spellId}
                                 onChange={(event) => {
-                                  const nextLevel = Number(event.target.value);
+                                  const nextLevel = readAllowedNumber(
+                                    event.target.value,
+                                    availableSlotLevels,
+                                    selectedSlotLevel ?? availableSlotLevels[0] ?? 1,
+                                  );
                                   setSpellSlotLevelBySpellId((current) => ({
                                     ...current,
                                     [spellId]: nextLevel,
@@ -1773,7 +1797,11 @@ export function CombatNodeSurface({
                           max={selectedTargetParticipant?.maxHp ?? undefined}
                           value={gmHpValue}
                           disabled={!canAdjustGmHp}
-                          onChange={(event) => setGmHpValue(Number(event.target.value))}
+                          onChange={(event) =>
+                            setGmHpValue((current) =>
+                              readGmHpInput(event.target.value, current, selectedTargetParticipant?.maxHp),
+                            )
+                          }
                         />
                       </label>
                       <button
@@ -1807,7 +1835,9 @@ export function CombatNodeSurface({
                               value={gmForcedMovementDistanceFt}
                               disabled={isCombatBusy}
                               onChange={(event) =>
-                                setGmForcedMovementDistanceFt(Number(event.target.value))
+                                setGmForcedMovementDistanceFt((current) =>
+                                  readAllowedNumber(event.target.value, gmForcedMovementDistanceOptions, current),
+                                )
                               }
                             >
                               {gmForcedMovementDistanceOptions.map((distanceFt) => (
@@ -2234,10 +2264,10 @@ export function CombatNodeSurface({
                       : isShield
                         ? equipmentDisplayState === 'equipped'
                         : isArmor;
-                    const equipmentActionItem = {
+                    const equipmentActionItem: InventoryItemWithEquipmentDisplayState = {
                       ...item,
                       __equipmentDisplayState: equipmentDisplayState,
-                    } as InventoryItemDto;
+                    };
                     const itemDisplayName = formatInternalIdAsReadableName(
                       item.name,
                       formatInternalIdAsReadableName(item.itemDefinitionId, '아이템')

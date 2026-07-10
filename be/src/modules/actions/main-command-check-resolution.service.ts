@@ -1,13 +1,21 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandResponseDto, MainCommandStatus, ResolveMainCommandCheckDto } from "@trpg/shared-types";
+import {
+  ActionOutcome,
+  MainCommandNarrativeCheckEffectDto,
+  MainCommandResponseDto,
+  MainCommandStatus,
+  ResolveMainCommandCheckDto,
+} from "@trpg/shared-types";
 import { randomUUID } from "node:crypto";
 import { MainCommandCheckEffectParserService } from "./main-command-check-effect-parser.service";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
-import { MainCommandCheckResultNarrationService } from "./main-command-check-result-narration.service";
+import {
+  MainCommandCheckResultNarrationService,
+  type SanitizedMainCommandDiceResult,
+} from "./main-command-check-result-narration.service";
 
 export type PreparedMainCommandCheckResult = {
-  effect: MainCommandCheckEffect;
-  checkDiceResult: Record<string, unknown> | null;
+  effect: MainCommandNarrativeCheckEffectDto;
+  checkDiceResult: SanitizedMainCommandDiceResult | null;
   checkRollSummary: string | null;
   result: {
     status: MainCommandStatus;

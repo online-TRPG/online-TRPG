@@ -53,6 +53,7 @@ import {
   InventoryItemDto,
   JoinSessionDto,
   MainCommandCheckOptionDto,
+  MainCommandCheckEffectDto,
   MainCommandStatus,
   MainCommandTargetType,
   MoveSessionTokenDto,
@@ -85,6 +86,15 @@ import {
   VttMapInteractionDto,
   VttObjectHazardDto,
   VttMapStateDto,
+  VTT_CHECK_EFFECT_ACTIONS,
+  decodeVttMapState,
+  decodeLenientScenarioClueArray,
+  decodeStateDiffResponse,
+  ScenarioCheckOptionDto,
+  decodeTurnLogStateDiff,
+  decodeTurnLogStructuredAction,
+  isRecord,
+  type JsonObject,
 } from "@trpg/shared-types";
 import {
   mapGameState,
@@ -93,6 +103,11 @@ import {
   mapSessionCharacter,
   mapSessionScenario,
 } from "../../common/mappers/domain.mapper";
+import {
+  parseJsonOrFallback,
+  parseJsonRecordOrFallback,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { GmOverrideKind, GmOverrideService } from "../rules/gm-override.service";
@@ -130,7 +145,7 @@ import { SessionListFilterService } from "./session-list-filter.service";
 import { SessionListItemService } from "./session-list-item.service";
 import { SessionParticipantStatusService } from "./session-participant-status.service";
 import { SessionPublicIdService } from "./session-public-id.service";
-import { SessionRevealService, type RevealPolicyMode } from "./session-reveal.service";
+import { SessionRevealService, type RecordSessionRevealParams, type RevealableScenarioClue, type RevealPolicyMode } from "./session-reveal.service";
 import { SessionVttInteractionPointService } from "./session-vtt-interaction-point.service";
 import { SessionVttDefaultMapReaderService } from "./session-vtt-default-map-reader.service";
 import { SessionScenarioNodeSnapshotService } from "./session-scenario-node-snapshot.service";
@@ -151,7 +166,10 @@ import {
   type VttCombatMovementSpend,
 } from "./session-vtt-combat-movement-spend.service";
 import { SessionVttMovementPolicyService } from "./session-vtt-movement-policy.service";
-import { SessionVttObjectRuntimeService } from "./session-vtt-object-runtime.service";
+import {
+  SessionVttObjectRuntimeService,
+  type SessionVttObjectRuntime,
+} from "./session-vtt-object-runtime.service";
 import { SessionVttPlayerMapUpdateService } from "./session-vtt-player-map-update.service";
 
 export type SessionPageParams = {
@@ -248,7 +266,6 @@ export class SessionsService {
       recordNodeVisit: this.recordNodeVisit.bind(this),
       createHumanGmOverrideTurnLog: this.createHumanGmOverrideTurnLog.bind(this),
       buildSnapshot: this.buildSnapshot.bind(this),
-      parseJson: this.parseJson.bind(this),
       grantSessionInventoryItem: this.grantSessionInventoryItem.bind(this),
       removeSessionInventoryItem: this.removeSessionInventoryItem.bind(this),
       refreshSessionInventorySnapshot: this.refreshSessionInventorySnapshot.bind(this),
@@ -279,7 +296,6 @@ export class SessionsService {
       buildSnapshot: this.buildSnapshot.bind(this),
       createHumanGmOverrideTurnLog: this.createHumanGmOverrideTurnLog.bind(this),
       findSessionScenarioRevealable: this.findSessionScenarioRevealable.bind(this),
-      parseJson: this.parseJson.bind(this),
       getStringProperty: this.getStringProperty.bind(this),
       extractChecksFromCheckOptions: this.extractChecksFromCheckOptions.bind(this),
     };
@@ -295,7 +311,7 @@ export class SessionsService {
     };
   }
 
-  createSessionVttObjectRuntime() {
+  createSessionVttObjectRuntime(): SessionVttObjectRuntime {
     return {
       prisma: this.prisma,
       realtimeEvents: this.realtimeEvents,
@@ -308,7 +324,6 @@ export class SessionsService {
       getVttMapBaseline: this.getVttMapBaseline.bind(this),
       getVttMapForSessionScenario: this.getVttMapForSessionScenario.bind(this),
       normalizeVttMap: this.normalizeVttMap.bind(this),
-      parseJson: this.parseJson.bind(this),
       recordSessionReveal: this.recordSessionReveal.bind(this),
       rectsOverlap: this.rectsOverlap.bind(this),
       refreshSessionInventorySnapshot: this.refreshSessionInventorySnapshot.bind(this),
@@ -562,8 +577,8 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const existingMap = this.toVttMapOrNull(flags.vttMap);
+    const flags = this.parseRecordJson(state.flagsJson);
+    const existingMap = this.readRuntimeVttMapFromFlags(flags);
     const canSeeGmMap = this.canSeeGmOnlyRuntimeData(userId, session);
 
     if (existingMap) {
@@ -600,9 +615,9 @@ export class SessionsService {
       return this.getVttMapForUser(userId, resolvedSessionId);
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
-    const requestedMap = this.normalizeVttMap(dto.map, state.currentNodeId ?? null);
+    const requestedMap = this.normalizeInputVttMap(dto.map, state.currentNodeId ?? null, "vttMap");
     const hasActiveCombat = Boolean(
       await this.prisma.combat.findFirst({
         where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
@@ -616,46 +631,15 @@ export class SessionsService {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");
     }
 
-    let map = requestedMap;
-    map = await this.applyVttObjectProximityEvents({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.applyVttHazardTriggers({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      map,
-      previousMap,
-    });
-    map = hazardTriggerResult.map;
-    const beforeHazardDetectionMap = map;
-    map = await this.applyVttHazardDetections({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
-
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: sessionScenario.id,
       flags,
-      map,
+      map: requestedMap,
+      previousMap,
     });
-
-    const playerMap = this.redactVttMapForPlayer(map);
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: resolvedSessionId,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap,
-    });
-    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
-      this.sessionVttMapPersistence.publishSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
-    }
-    return session.hostUserId === userId ? map : playerMap;
+    return session.hostUserId === userId ? result.map : result.playerMap;
   }
 
   async updateGmVttMap(userId: string, sessionId: string, dto: UpdateVttMapDto): Promise<VttMapStateDto> {
@@ -675,7 +659,7 @@ export class SessionsService {
       throw new ForbiddenException("Combat movement must use the combat move command.");
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const controlledTokenIds = await this.getControlledSessionCharacterIds(userId, resolvedSessionId);
     const token = previousMap.tokens.find((candidate) => {
@@ -692,10 +676,11 @@ export class SessionsService {
       throw new ForbiddenException("Players can only move their own tokens.");
     }
 
+    const moveTo = this.readVttMapPointInput(dto.to, "moveToken.to");
     const requestedToken = {
       ...token,
-      x: this.clampNumber(Math.floor(dto.to.x), 0, Math.max(0, previousMap.width - token.size)),
-      y: this.clampNumber(Math.floor(dto.to.y), 0, Math.max(0, previousMap.height - token.size)),
+      x: this.clampNumber(Math.floor(moveTo.x), 0, Math.max(0, previousMap.width - token.size)),
+      y: this.clampNumber(Math.floor(moveTo.y), 0, Math.max(0, previousMap.height - token.size)),
     };
     this.ensureTokenPathIsReachable(previousMap, token, requestedToken);
 
@@ -721,7 +706,7 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const now = Date.now();
     const map: VttMapStateDto = {
@@ -730,8 +715,8 @@ export class SessionsService {
         ...(previousMap.pings ?? []).filter((ping) => Date.parse(ping.expiresAt) > now).slice(-4),
         {
           id: `ping:${randomUUID()}`,
-          x: this.clampNumber(Math.floor(dto.x), 0, previousMap.width),
-          y: this.clampNumber(Math.floor(dto.y), 0, previousMap.height),
+          x: this.clampNumber(Math.floor(this.readVttMapNumberInput(dto.x, "ping.x")), 0, previousMap.width),
+          y: this.clampNumber(Math.floor(this.readVttMapNumberInput(dto.y, "ping.y")), 0, previousMap.height),
           label: dto.label?.trim().slice(0, 8) || "!",
           expiresAt: new Date(now + 2200).toISOString(),
         },
@@ -760,7 +745,7 @@ export class SessionsService {
     const session = await this.getSessionEntityOrThrow(params.sessionId);
     const resolvedSessionId = session.id;
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const movement = this.calculateTokenStepTowardTarget(previousMap, {
       sourceTokenId: params.sourceTokenId,
@@ -781,7 +766,7 @@ export class SessionsService {
       path: movement.path,
     });
 
-    let map: VttMapStateDto = {
+    const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
         token.id === params.sourceTokenId
@@ -794,56 +779,29 @@ export class SessionsService {
       ),
       updatedAt: new Date().toISOString(),
     };
-    map = await this.applyVttObjectProximityEvents({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.applyVttHazardTriggers({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      map,
-      previousMap,
-    });
-    map = hazardTriggerResult.map;
-    map = await this.applyVttHazardDetections({
-      sessionId: resolvedSessionId,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: sessionScenario.id,
       flags,
-      map,
+      map: changedMap,
+      previousMap,
     });
 
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: resolvedSessionId,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap: this.redactVttMapForPlayer(map),
-    });
-    if (hazardTriggerResult.triggered) {
-      this.sessionVttMapPersistence.publishSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
-    }
-
-    return { map, moved: true, distanceMovedFt: movement.distanceMovedFt };
+    return { map: result.map, moved: true, distanceMovedFt: movement.distanceMovedFt };
   }
 
   async hideVttToken(sessionId: string, tokenId: string): Promise<VttMapStateDto | null> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(session.id, sessionScenario.id, state);
     const targetToken = previousMap.tokens.find((token) => token.id === tokenId);
     if (!targetToken || targetToken.hidden === true) {
       return targetToken ? previousMap : null;
     }
 
-    const map: VttMapStateDto = {
+    const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
         token.id === tokenId
@@ -856,20 +814,16 @@ export class SessionsService {
       updatedAt: new Date().toISOString(),
     };
 
-    await this.sessionVttMapPersistence.saveMap({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
       flags,
-      map,
+      map: changedMap,
+      previousMap,
     });
 
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: session.id,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap: this.redactVttMapForPlayer(map),
-    });
-
-    return map;
+    return result.map;
   }
 
   async hideVttTokenForSessionCharacter(sessionId: string, sessionCharacterId: string): Promise<VttMapStateDto | null> {
@@ -887,7 +841,7 @@ export class SessionsService {
   }): Promise<{ status: MainCommandStatus; message: string; map: VttMapStateDto | null }> {
     const session = await this.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(session.id, sessionScenario.id, state);
     const token = previousMap.tokens.find(
       (candidate) => candidate.sessionCharacterId === params.sessionCharacterId && candidate.hidden !== true && candidate.isHostile !== true,
@@ -924,51 +878,24 @@ export class SessionsService {
       };
     }
 
-    let map: VttMapStateDto = {
+    const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((candidate) => (candidate.id === token.id ? requestedToken : candidate)),
       updatedAt: new Date().toISOString(),
     };
-    map = await this.applyVttObjectProximityEvents({
+    const result = await this.finalizeRuntimeVttMapChange({
+      session,
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
-      map,
-    });
-    const hazardTriggerResult = await this.applyVttHazardTriggers({
-      sessionId: session.id,
-      sessionScenarioId: sessionScenario.id,
-      map,
-      previousMap,
-    });
-    map = hazardTriggerResult.map;
-    map = await this.applyVttHazardDetections({
-      sessionId: session.id,
-      sessionScenarioId: sessionScenario.id,
-      currentNodeId: state.currentNodeId,
-      map,
-      previousMap,
-    });
-
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: sessionScenario.id,
       flags,
-      map,
+      map: changedMap,
+      previousMap,
     });
-
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: session.id,
-      hostUserId: session.hostUserId,
-      hostMap: map,
-      playerMap: this.redactVttMapForPlayer(map),
-    });
-    if (hazardTriggerResult.triggered) {
-      this.sessionVttMapPersistence.publishSnapshot(session.id, await this.buildSnapshot(session.id));
-    }
 
     return {
       status: MainCommandStatus.RESOLVED,
       message: `${token.name}이(가) 목표 위치로 이동했습니다.`,
-      map,
+      map: result.map,
     };
   }
 
@@ -980,7 +907,11 @@ export class SessionsService {
     return this.sessionReveal.getPublicClueSummariesForUser(this.createSessionRevealRuntime(), userId, sessionId);
   }
 
-  async revealSessionContent(userId: string, sessionId: string, dto: RevealSessionContentDto): Promise<SessionRevealResponseDto> {
+  async revealSessionContent(
+    userId: string,
+    sessionId: string,
+    dto: Omit<RevealSessionContentDto, "contentKind"> & { contentKind?: string },
+  ): Promise<SessionRevealResponseDto> {
     return this.sessionReveal.revealSessionContent(this.createSessionRevealRuntime(), userId, sessionId, dto);
   }
 
@@ -1249,8 +1180,8 @@ export class SessionsService {
     const state = activeScenario.gameState;
     await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
     const currentNodeId = state?.currentNodeId ?? null;
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const existingMap = this.toVttMapOrNull(flags.vttMap);
+    const flags = this.parseRecordJson(state?.flagsJson);
+    const existingMap = this.readRuntimeVttMapFromFlags(flags);
     const scenarioMap = currentNodeId ? await this.getScenarioDefaultVttMapForNode(activeScenario.id, currentNodeId) : null;
     const runtimeMap = existingMap
       ? await this.applyScenarioStartingPositions(resolvedSessionId, existingMap)
@@ -1341,17 +1272,22 @@ export class SessionsService {
 
     if (
       result.auditEvent.type === "party_stash_distributed" &&
-      result.auditEvent.sessionCharacterId &&
-      result.auditEvent.itemDefinitionId &&
-      result.auditEvent.quantity
+      typeof result.auditEvent.sessionCharacterId === "string" &&
+      typeof result.auditEvent.itemDefinitionId === "string" &&
+      typeof result.auditEvent.quantity === "number" &&
+      Number.isInteger(result.auditEvent.quantity) &&
+      result.auditEvent.quantity >= 1
     ) {
+      const sessionCharacterId = result.auditEvent.sessionCharacterId;
+      const itemDefinitionId = result.auditEvent.itemDefinitionId;
+      const quantity = result.auditEvent.quantity;
       await this.prisma.$transaction(async (tx) => {
         await this.grantSessionInventoryItem(tx, {
-          sessionCharacterId: result.auditEvent.sessionCharacterId as string,
-          itemDefinitionId: result.auditEvent.itemDefinitionId as string,
-          quantity: result.auditEvent.quantity as number,
+          sessionCharacterId,
+          itemDefinitionId,
+          quantity,
         });
-        await this.refreshSessionInventorySnapshot(result.auditEvent.sessionCharacterId as string, tx);
+        await this.refreshSessionInventorySnapshot(sessionCharacterId, tx);
       });
       const updatedCharacter = await this.prisma.sessionCharacter.findUnique({
         where: { id: result.auditEvent.sessionCharacterId },
@@ -1433,7 +1369,7 @@ export class SessionsService {
       where: { sessionScenarioId: activeScenario.id },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const flags = this.parseRecordJsonForRead(state?.flagsJson);
     return this.sessionHumanGmPrivateNoteStore.listNewestFirst(flags);
   }
 
@@ -1451,7 +1387,7 @@ export class SessionsService {
       where: { sessionScenarioId: activeScenario.id },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const flags = this.parseRecordJson(state?.flagsJson);
     const suggestion: HumanGmAiAssistSuggestionDto = {
       id: `ai-assist:${randomUUID()}`,
       assistType: dto.assistType,
@@ -1485,7 +1421,7 @@ export class SessionsService {
       where: { sessionScenarioId: activeScenario.id },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const flags = this.parseRecordJsonForRead(state?.flagsJson);
     return this.getHumanGmAiAssistSuggestions(flags)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
@@ -1504,8 +1440,8 @@ export class SessionsService {
       where: { sessionScenarioId: activeScenario.id },
       select: { flagsJson: true },
     });
-    const initialFlags = this.parseJson<Record<string, unknown>>(initialState?.flagsJson, {});
-    const suggestion = this.getHumanGmAiAssistSuggestions(initialFlags).find((candidate) => candidate.id === dto.suggestionId);
+    const initialFlags = this.parseRecordJson(initialState?.flagsJson);
+    const suggestion = this.getHumanGmAiAssistSuggestion(initialFlags, dto.suggestionId);
     if (!suggestion) {
       throw new NotFoundException("승인할 AI assist 제안을 찾을 수 없습니다.");
     }
@@ -1518,8 +1454,8 @@ export class SessionsService {
         where: { sessionScenarioId: activeScenario.id },
         select: { flagsJson: true },
       });
-      const currentFlags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
-      const currentSuggestion = this.getHumanGmAiAssistSuggestions(currentFlags).find((candidate) => candidate.id === dto.suggestionId);
+      const currentFlags = this.parseRecordJson(currentState?.flagsJson);
+      const currentSuggestion = this.getHumanGmAiAssistSuggestion(currentFlags, dto.suggestionId);
       if (!currentSuggestion) {
         throw new NotFoundException("승인할 AI assist 제안을 찾을 수 없습니다.");
       }
@@ -1545,7 +1481,7 @@ export class SessionsService {
         where: { sessionScenarioId: activeScenario.id },
         select: { flagsJson: true },
       });
-      const mergedFlags = this.parseJson<Record<string, unknown>>(mergedState?.flagsJson, {});
+      const mergedFlags = this.parseRecordJson(mergedState?.flagsJson);
       await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: {
@@ -1575,8 +1511,8 @@ export class SessionsService {
       where: { sessionScenarioId: activeScenario.id },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const suggestion = this.getHumanGmAiAssistSuggestions(flags).find((candidate) => candidate.id === dto.suggestionId);
+    const flags = this.parseRecordJson(state?.flagsJson);
+    const suggestion = this.getHumanGmAiAssistSuggestion(flags, dto.suggestionId);
     if (!suggestion) {
       throw new NotFoundException("실패를 기록할 AI assist 제안을 찾을 수 없습니다.");
     }
@@ -1627,7 +1563,7 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     const state = activeScenario.gameState;
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const flags = this.parseRecordJson(state?.flagsJson);
     const currentNodeId = state?.currentNodeId ?? null;
     const combatCompletionFlags = this.sessionCompletionFlagStore.buildCombatCompletionFlags(flags, currentNodeId);
 
@@ -1680,7 +1616,7 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     const state = activeScenario.gameState;
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const flags = this.parseRecordJson(state?.flagsJson);
     const defeatedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -1723,12 +1659,8 @@ export class SessionsService {
     return snapshot;
   }
 
-  private async lockSessionRuntime(tx: unknown, sessionId: string): Promise<void> {
-    const client = tx as { $executeRaw?: Prisma.TransactionClient["$executeRaw"] };
-    if (!client.$executeRaw) {
-      return;
-    }
-    await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
+  private async lockSessionRuntime(tx: Pick<Prisma.TransactionClient, "$executeRaw">, sessionId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
   }
 
   async completeSessionFromEndingNode(params: { sessionId: string; sessionScenarioId: string; nodeId: string; reason: string }): Promise<SessionSnapshotDto> {
@@ -1740,7 +1672,7 @@ export class SessionsService {
     }
 
     const state = activeScenario.gameState;
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const flags = this.parseRecordJson(state?.flagsJson);
     const completedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -1787,7 +1719,7 @@ export class SessionsService {
     if (!state) {
       throw new NotFoundException(`Game state for session ${session.id} was not found.`);
     }
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = this.parseRecordJson(state.flagsJson);
     const existingArchive = this.campaignArchiveRuntime.parseCampaignArchive(flags);
     if (existingArchive) {
       return existingArchive;
@@ -1858,7 +1790,7 @@ export class SessionsService {
     const session = await this.getSessionEntityOrThrow(sessionId);
     await this.ensureMembership(userId, session.id);
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
-    const flags = this.parseJson<Record<string, unknown>>(activeScenario.gameState?.flagsJson, {});
+    const flags = this.parseRecordJsonForRead(activeScenario.gameState?.flagsJson);
     const archive = this.campaignArchiveRuntime.parseCampaignArchive(flags);
     if (!archive) {
       throw new NotFoundException(`Campaign archive for session ${session.id} was not found.`);
@@ -1924,7 +1856,7 @@ export class SessionsService {
     }
     const sourceScenario = this.getActiveSessionScenario(sourceAssignment.session.sessionScenarios);
     const sourceArchive = this.campaignArchiveRuntime.parseCampaignArchive(
-      this.parseJson<Record<string, unknown>>(sourceScenario?.gameState?.flagsJson, {}),
+      this.parseRecordJson(sourceScenario?.gameState?.flagsJson),
     );
     if (!sourceArchive?.allowCharacterTransfer) {
       throw new ConflictException("이 캠페인은 캐릭터 이관을 허용하지 않습니다.");
@@ -1939,7 +1871,7 @@ export class SessionsService {
       sourceAssignment.inventorySnapshotJson ?? sourceAssignment.character.inventoryJson,
     );
 
-    const flags = this.parseJson<Record<string, unknown>>(targetState.flagsJson, {});
+    const flags = this.parseRecordJson(targetState.flagsJson);
     const requests = this.campaignArchiveRuntime.parseCharacterTransferRequests(flags);
     const duplicate = this.sessionCharacterTransferRequestStore.findPendingDuplicate(requests, {
       requestedByUserId: userId,
@@ -1989,13 +1921,13 @@ export class SessionsService {
     if (!targetState) {
       throw new NotFoundException(`Game state for session ${targetSession.id} was not found.`);
     }
-    const flags = this.parseJson<Record<string, unknown>>(targetState.flagsJson, {});
+    const flags = this.parseRecordJson(targetState.flagsJson);
     const requests = this.campaignArchiveRuntime.parseCharacterTransferRequests(flags);
-    const requestIndex = requests.findIndex((request) => request.requestId === requestId);
-    if (requestIndex < 0) {
+    const requestEntry = this.sessionCharacterTransferRequestStore.findByIdWithIndex(requests, requestId);
+    if (!requestEntry) {
       throw new NotFoundException(`Character transfer request ${requestId} was not found.`);
     }
-    const request = requests[requestIndex];
+    const { request, requestIndex } = requestEntry;
     if (request.status === "approved") {
       return this.campaignArchiveRuntime.toCharacterTransferResponse(request);
     }
@@ -2100,13 +2032,13 @@ export class SessionsService {
     if (!targetState) {
       throw new NotFoundException(`Game state for session ${targetSession.id} was not found.`);
     }
-    const flags = this.parseJson<Record<string, unknown>>(targetState.flagsJson, {});
+    const flags = this.parseRecordJson(targetState.flagsJson);
     const requests = this.campaignArchiveRuntime.parseCharacterTransferRequests(flags);
-    const requestIndex = requests.findIndex((request) => request.requestId === requestId);
-    if (requestIndex < 0) {
+    const requestEntry = this.sessionCharacterTransferRequestStore.findByIdWithIndex(requests, requestId);
+    if (!requestEntry) {
       throw new NotFoundException(`Character transfer request ${requestId} was not found.`);
     }
-    const request = requests[requestIndex];
+    const { request, requestIndex } = requestEntry;
     if (request.status === "rejected") {
       return this.campaignArchiveRuntime.toCharacterTransferResponse(request);
     }
@@ -2209,7 +2141,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).openVttDoorAtPoint(params);
   }
@@ -2235,7 +2167,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).breakVttDoorAtPoint(params);
   }
@@ -2244,7 +2176,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).breakVttObjectAtPoint(params);
   }
@@ -2254,7 +2186,7 @@ export class SessionsService {
     sessionScenarioId: string;
     doorId: string;
     nodeId: string;
-    effect: "open" | "broken";
+    effect: typeof VTT_CHECK_EFFECT_ACTIONS.OPEN | typeof VTT_CHECK_EFFECT_ACTIONS.BROKEN;
   }): Promise<{ status: MainCommandStatus; message: string }> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).applyVttDoorCheckSuccess(params);
   }
@@ -2272,7 +2204,7 @@ export class SessionsService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).disarmVttHazardAtPoint(params);
   }
@@ -2312,15 +2244,15 @@ export class SessionsService {
     );
   }
 
-  async findSessionScenarioRevealable(sessionScenarioId: string, contentId: string): Promise<Record<string, unknown>> {
+  async findSessionScenarioRevealable(sessionScenarioId: string, contentId: string): Promise<RevealableScenarioClue> {
     const nodes = await this.prisma.sessionScenarioNode.findMany({
       where: { sessionScenarioId },
       select: { nodeId: true, cluesJson: true },
     });
 
     for (const node of nodes) {
-      const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
-      const clue = clues.find((candidate) => this.getStringProperty(candidate, "id") === contentId);
+      const clues = parseJsonOrFallback(node.cluesJson, [], decodeLenientScenarioClueArray);
+      const clue = clues.find((candidate) => candidate.id === contentId);
       if (clue) {
         return { ...clue, nodeId: node.nodeId };
       }
@@ -2500,8 +2432,8 @@ export class SessionsService {
     publicNarration: string;
     privateNote?: string | null;
     targetId?: string | null;
-    statePatch?: Record<string, unknown> | null;
-    metadata?: Record<string, unknown> | null;
+    statePatch?: JsonObject | null;
+    metadata?: JsonObject | null;
   }): Promise<HumanGmOverrideLogResult> {
     const resolution = this.gmOverrideService.resolveOverride({
       kind: params.kind,
@@ -2535,12 +2467,12 @@ export class SessionsService {
     const baseVersion = state?.version ?? 1;
     const nextVersion = resolution.stateDiff ? baseVersion + 1 : baseVersion;
     const stateDiff: StateDiffResponseDto | null = resolution.stateDiff
-      ? {
+      ? decodeStateDiffResponse({
           baseVersion,
           nextVersion,
           reason: resolution.stateDiff.reason,
           diff: resolution.stateDiff.diff,
-        }
+        })
       : null;
 
     const created = await client.turnLog.create({
@@ -2550,15 +2482,15 @@ export class SessionsService {
         actorUserId: resolution.turnLog.actorUserId,
         turnNumber: (latest?.turnNumber ?? 0) + 1,
         rawInput: resolution.turnLog.rawInput,
-        structuredActionJson: JSON.stringify(resolution.turnLog.structuredAction),
-        stateDiffJson: stateDiff ? JSON.stringify(stateDiff) : null,
+        structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction(resolution.turnLog.structuredAction)),
+        stateDiffJson: stateDiff ? JSON.stringify(decodeTurnLogStateDiff(stateDiff)) : null,
         outcome: PrismaActionOutcome.SUCCESS,
         narration: resolution.turnLog.narration,
       },
     });
 
     const nextFlagsJson = privateNote
-      ? JSON.stringify(this.appendHumanGmPrivateNote(this.parseJson<Record<string, unknown>>(state?.flagsJson, {}), {
+      ? JSON.stringify(this.appendHumanGmPrivateNote(this.parseRecordJson(state?.flagsJson), {
           id: `gm-note:${created.id}`,
           turnLogId: created.id,
           kind: params.kind,
@@ -2601,10 +2533,10 @@ export class SessionsService {
       actionCreatedAt: null,
       actionQueueStatus: null,
       rawInput: created.rawInput,
-      structuredAction: this.parseJson<Record<string, unknown> | null>(created.structuredActionJson, null),
+      structuredAction: parseJsonOrFallback(created.structuredActionJson, null, decodeTurnLogStructuredAction),
       diceResult: null,
-      stateDiff: this.parseJson<Record<string, unknown> | null>(created.stateDiffJson, null),
-      outcome: created.outcome as ActionOutcome,
+      stateDiff: parseJsonOrFallback(created.stateDiffJson, null, decodeTurnLogStateDiff),
+      outcome: this.toSharedOutcome(created.outcome),
       narration: created.narration,
       createdAt: created.createdAt.toISOString(),
     };
@@ -2660,6 +2592,13 @@ export class SessionsService {
     return this.sessionHumanGmAiAssistSuggestionStore.list(flags);
   }
 
+  private getHumanGmAiAssistSuggestion(
+    flags: Record<string, unknown>,
+    suggestionId: string,
+  ): HumanGmAiAssistSuggestionDto | null {
+    return this.sessionHumanGmAiAssistSuggestionStore.findById(flags, suggestionId);
+  }
+
   private async transitionHumanGmCombat(userId: string, sessionId: string, phase: PrismaGamePhase): Promise<void> {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
@@ -2698,11 +2637,25 @@ export class SessionsService {
     });
   }
 
-  parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
+  private parseRecordJson(value: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrThrow(value, {}, "gameState.flagsJson");
+  }
+
+  private parseRecordJsonForRead(value: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrFallback(value);
+  }
+
+  private toSharedOutcome(value: PrismaActionOutcome): ActionOutcome {
+    switch (value) {
+      case PrismaActionOutcome.SUCCESS:
+        return ActionOutcome.SUCCESS;
+      case PrismaActionOutcome.FAILURE:
+        return ActionOutcome.FAILURE;
+      case PrismaActionOutcome.IMPOSSIBLE:
+        return ActionOutcome.IMPOSSIBLE;
+      case PrismaActionOutcome.NO_ROLL:
+        return ActionOutcome.NO_ROLL;
     }
-    return JSON.parse(value) as T;
   }
 
   private async replaceSessionInventoryEntries(sessionCharacterId: string, inventory: InventoryItemDto[]): Promise<void> {
@@ -2753,8 +2706,8 @@ export class SessionsService {
     sessionScenarioId: string,
     state: { currentNodeId: string | null; flagsJson: string | null },
   ): Promise<VttMapStateDto> {
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const existingMap = this.toVttMapOrNull(flags.vttMap);
+    const flags = this.parseRecordJsonForRead(state.flagsJson);
+    const existingMap = this.readRuntimeVttMapFromFlags(flags);
     if (existingMap) {
       return this.applyScenarioStartingPositions(sessionId, existingMap);
     }
@@ -2810,14 +2763,22 @@ export class SessionsService {
       .redactVttMapForPlayer(map);
   }
 
-  private async finalizeRuntimeVttMapChange(params: {
+  async finalizeRuntimeVttMapChange(params: {
     session: { id: string; hostUserId: string };
     sessionScenarioId: string;
     currentNodeId: string | null;
     flags: Record<string, unknown>;
     map: VttMapStateDto;
     previousMap: VttMapStateDto;
-  }): Promise<{ map: VttMapStateDto; playerMap: VttMapStateDto }> {
+  }): Promise<{
+    map: VttMapStateDto;
+    playerMap: VttMapStateDto;
+    hazardTriggered: boolean;
+    hazardDetectionChanged: boolean;
+    snapshotPublished: boolean;
+  }> {
+    // Keep VTT mutations in one sequence: proximity events, hazard triggers,
+    // hazard discovery, persistence, redacted publish, then optional snapshot.
     let map = await this.applyVttObjectProximityEvents({
       sessionScenarioId: params.sessionScenarioId,
       currentNodeId: params.currentNodeId,
@@ -2853,11 +2814,18 @@ export class SessionsService {
       hostMap: map,
       playerMap,
     });
-    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
+    const snapshotPublished = hazardTriggerResult.triggered || hazardDetectionChanged;
+    if (snapshotPublished) {
       this.sessionVttMapPersistence.publishSnapshot(params.session.id, await this.buildSnapshot(params.session.id));
     }
 
-    return { map, playerMap };
+    return {
+      map,
+      playerMap,
+      hazardTriggered: hazardTriggerResult.triggered,
+      hazardDetectionChanged,
+      snapshotPublished,
+    };
   }
 
   async resolveVttMapInteractionPoint(
@@ -3003,8 +2971,33 @@ export class SessionsService {
     return this.sessionVttMapNormalization.normalize(map, scenarioNodeId);
   }
 
-  private toVttMapOrNull(value: unknown): VttMapStateDto | null {
-    return this.sessionVttMapNormalization.toVttMapOrNull(value);
+  normalizeInputVttMap(value: unknown, scenarioNodeId: string | null, label = "vttMap"): VttMapStateDto {
+    try {
+      return this.normalizeVttMap(decodeVttMapState(value), scenarioNodeId);
+    } catch {
+      throw new BadRequestException(`${label} 형식이 올바르지 않습니다.`);
+    }
+  }
+
+  readVttMapPointInput(value: unknown, label: string): { x: number; y: number } {
+    if (!isRecord(value)) {
+      throw new BadRequestException(`${label} must be an object.`);
+    }
+    return {
+      x: this.readVttMapNumberInput(value.x, `${label}.x`),
+      y: this.readVttMapNumberInput(value.y, `${label}.y`),
+    };
+  }
+
+  readVttMapNumberInput(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new BadRequestException(`${label} must be a finite number.`);
+    }
+    return value;
+  }
+
+  private readRuntimeVttMapFromFlags(flags: unknown): VttMapStateDto | null {
+    return this.sessionVttMapNormalization.toVttMapFromFlags(flags);
   }
 
   clampNumber(value: number, min: number, max: number): number {
@@ -3029,7 +3022,7 @@ export class SessionsService {
     return this.sessionVttDefaultMapReader.extractVttMapFromCheckOptions(value);
   }
 
-  private extractChecksFromCheckOptions(value: string): Record<string, unknown>[] {
+  private extractChecksFromCheckOptions(value: string): ScenarioCheckOptionDto[] {
     return this.sessionVttDefaultMapReader.extractChecksFromCheckOptions(value);
   }
 
@@ -3085,17 +3078,7 @@ export class SessionsService {
 
   private async recordSessionReveal(
     tx: Prisma.TransactionClient,
-    params: {
-      sessionScenarioId: string;
-      contentId: string;
-      contentKind: string;
-      scope: string;
-      recipientId?: string | null;
-      revealedBy: string;
-      reason?: string | null;
-      turnLogId?: string | null;
-      snapshot?: Record<string, unknown> | null;
-    },
+    params: RecordSessionRevealParams,
   ) {
     return this.sessionReveal.recordSessionReveal(this.createSessionRevealRuntime(), tx, params);
   }
@@ -3117,7 +3100,9 @@ export class SessionsService {
     return this.sessionInvite.generateCode();
   }
 
-  private async ensureSessionPublicId<T extends { id: string; publicId: string | null }>(session: T): Promise<T & { publicId: string }> {
+  private async ensureSessionPublicId<T extends { id: string; publicId: string | null }>(
+    session: T,
+  ): Promise<Omit<T, "publicId"> & { publicId: string }> {
     return this.sessionPublicId.ensure(session);
   }
 

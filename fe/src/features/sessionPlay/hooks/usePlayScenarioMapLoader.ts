@@ -11,7 +11,7 @@ type UsePlayScenarioMapLoaderParams = {
   isRecruiting: boolean;
   currentNodeId?: string | null;
   stateVersion?: number;
-  snapshotVttMap: unknown;
+  snapshotVttMap: VttMapStateDto | null;
   latestConfirmedMapRef: MutableRefObject<VttMapStateDto | null>;
   setPlayerScenario: Dispatch<SetStateAction<PlayerScenarioView | null>>;
   setMap: Dispatch<SetStateAction<VttMapStateDto | null>>;
@@ -99,11 +99,9 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
   ]);
 
   useEffect(() => {
-    if (snapshotVttMap && typeof snapshotVttMap === 'object') {
-      const nextMap = snapshotVttMap as VttMapStateDto;
-      setMapIfChangedRef.current(nextMap, 'snapshot');
-      setIsMapLoaded(true);
-    }
+    if (!snapshotVttMap) return;
+    setMapIfChangedRef.current(snapshotVttMap, 'snapshot');
+    setIsMapLoaded(true);
   }, [snapshotVttMap]);
 
   useEffect(() => {

@@ -1,5 +1,11 @@
 import { Injectable } from "@nestjs/common";
+import { decodeLenientScenarioClueArray, isRecord } from "@trpg/shared-types";
+import {
+  parseJsonOrFallback,
+  parseJsonRecordOrFallback,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
+import { readCompletedCombatNodeIds } from "../sessions/session-completion-flag-store.service";
 import type { LoadedContext } from "./main-commands.service";
 import { MainCommandTransitionEvaluatorService } from "./main-command-transition-evaluator.service";
 import type { TransitionEvidence } from "./main-command-transition-evaluator.service";
@@ -17,10 +23,8 @@ export class MainCommandProgressEvidenceService {
   ) {}
 
   async buildTransitionEvidence(context: LoadedContext, recentLogs: string[]): Promise<TransitionEvidence> {
-    const flags = this.parseJson<Record<string, unknown>>(context.flagsJson, {});
-    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
-      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
-      : [];
+    const flags = parseJsonRecordOrFallback(context.flagsJson);
+    const completedCombatNodeIds = readCompletedCombatNodeIds(flags);
     const revealedClueState = await this.loadRevealedClueState(context.sessionScenarioId);
     const revealedClues = revealedClueState.summaries;
     const revealedClueText = this.mainCommandTransitionEvaluator.normalizeTransitionConditionText(revealedClues.join(" "));
@@ -58,16 +62,33 @@ export class MainCommandProgressEvidenceService {
       ids: reveals.map((reveal) => reveal.contentId),
       summaries: reveals
         .map((reveal) => {
-          const snapshot = this.parseJson<Record<string, unknown>>(reveal.snapshotJson, {});
+          const snapshot = this.parseRevealedClueEvidenceSnapshot(reveal.snapshotJson);
           const title = this.readString(snapshot.title) ?? reveal.contentId;
           const text =
             this.readString(snapshot.handoutText) ??
             this.readString(snapshot.playerText) ??
             this.readString(snapshot.text) ??
             this.readString(snapshot.revelation);
-          return [title, text].filter((value): value is string => Boolean(value)).join(": ");
+          return compactStrings([title, text]).join(": ");
         })
-        .filter(Boolean),
+      .flatMap((summary) => compactStrings([summary])),
+    };
+  }
+
+  private parseRevealedClueEvidenceSnapshot(value: string | null | undefined): Record<string, string | undefined> {
+    return parseJsonOrFallback(value, {}, (parsed) => this.decodeRevealedClueEvidenceSnapshot(parsed));
+  }
+
+  private decodeRevealedClueEvidenceSnapshot(value: unknown): Record<string, string | undefined> {
+    if (!isRecord(value)) {
+      throw new Error("revealed clue snapshot must be an object.");
+    }
+    return {
+      title: this.readString(value.title) ?? undefined,
+      handoutText: this.readString(value.handoutText) ?? undefined,
+      playerText: this.readString(value.playerText) ?? undefined,
+      text: this.readString(value.text) ?? undefined,
+      revelation: this.readString(value.revelation) ?? undefined,
     };
   }
 
@@ -80,17 +101,17 @@ export class MainCommandProgressEvidenceService {
   }
 
   extractPublicClueSummaries(cluesJson: string): string[] {
-    const clues = this.parseJson<Record<string, unknown>[]>(cluesJson, []);
+    const clues = parseJsonOrFallback(cluesJson, [], decodeLenientScenarioClueArray);
     return clues
       .map((clue) => {
-        const title = this.readString(clue.title);
-        const text = this.readString(clue.handoutText) ?? this.readString(clue.playerText);
+        const title = clue.title?.trim() || null;
+        const text = clue.handoutText?.trim() || clue.playerText?.trim() || null;
         if (!title || !text) {
           return null;
         }
         return `${title}: ${text}`;
       })
-      .filter((entry): entry is string => Boolean(entry));
+      .flatMap((entry) => compactStrings([entry]));
   }
 
   async loadRecentLogLines(sessionId: string): Promise<string[]> {
@@ -104,25 +125,17 @@ export class MainCommandProgressEvidenceService {
       .slice()
       .reverse()
       .map((row) => {
-        const parts = [row.rawInput, row.narration].filter((value): value is string => Boolean(value));
+        const parts = compactStrings([row.rawInput, row.narration]);
         return parts.join(" => ").trim();
       })
-      .filter((line) => Boolean(line));
-  }
-
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+      .flatMap((line) => compactStrings([line]));
   }
 
   private readString(value: unknown): string | null {
     return typeof value === "string" && value.trim() ? value.trim() : null;
   }
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
 }

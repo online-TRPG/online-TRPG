@@ -2,8 +2,6 @@
 import type {
   ActionAcceptedResponseDto,
   ActionAcceptedEventDto,
-  ActionInputType,
-  ActionScope,
   DiceRollResponseDto,
   MainCommandResponseDto,
   ResolveMainCommandCheckDto,
@@ -17,6 +15,22 @@ import type {
   UpdatePreparedSpellsDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  ActionInputType,
+  ActionOutcome,
+  ActionScope,
+  DiceAdvantageState,
+} from '@trpg/shared-types';
+import {
+  CHAT_MESSAGE_MAX_LENGTH,
+  MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS,
+  getMainCommandCheckEffect,
+  getPrimaryMainCommandCheckOption,
+  isBlockingSessionStatus,
+  isMainCommandCheckRequired,
+  isRecord,
+  normalizeSessionStatus,
+} from '@trpg/shared-types/frontend';
 import type { Socket } from 'socket.io-client';
 import {
   cloneCharacter as apiCloneCharacter,
@@ -50,6 +64,7 @@ import {
 } from '../services/sessionApi';
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
 import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from '../services/storage';
+import { readVttMapFromSessionFlags } from '../features/sessionPlay/utils/sessionStateFlags';
 import type {
   AvailableSessionListItem,
   Character,
@@ -84,6 +99,10 @@ function getVttMapSocketSignature(map: VttMapStateDto | null | undefined) {
     map.objectCells?.length ?? 0,
     map.lightSources?.length ?? 0,
   ].join(';');
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
 }
 
 export interface CharacterPayload {
@@ -202,21 +221,13 @@ type PendingMainCommandCheckLog = {
   timeoutId?: number;
 };
 
-function isBlockingSessionStatus(status: string | undefined): boolean {
-  return status !== 'completed' && status !== 'disbanded';
-}
-
 function isDeclareRpActionIntent(value: unknown): boolean {
   return value === 'DECLARE_RP_ACTION';
 }
 
 function isRpMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
-  const structuredAction = turnLog.structuredAction;
-  return (
-    Boolean(structuredAction) &&
-    typeof structuredAction === 'object' &&
-    isDeclareRpActionIntent((structuredAction as { intent?: unknown }).intent)
-  );
+  const structuredAction = toRecord(turnLog.structuredAction);
+  return Boolean(structuredAction && isDeclareRpActionIntent(structuredAction.intent));
 }
 
 function isAutoHazardDetectionTurnLog(turnLog: TurnLogResponseDto): boolean {
@@ -294,28 +305,14 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
 }
 
 function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
-  const structuredAction = turnLog.structuredAction;
+  const command = toRecord(turnLog.structuredAction);
 
-  if (
-    !structuredAction ||
-    typeof structuredAction !== 'object' ||
-    (structuredAction as { type?: unknown }).type !== 'main_command'
-  ) {
+  if (!command || command.type !== 'main_command') {
     return undefined;
   }
 
-  const command = structuredAction as {
-    intent?: unknown;
-    targetId?: unknown;
-    targetType?: unknown;
-    data?: unknown;
-  };
-  const data = command.data && typeof command.data === 'object'
-    ? (command.data as Record<string, unknown>)
-    : null;
-  const npcDialogue = data?.npcDialogue && typeof data.npcDialogue === 'object'
-    ? (data.npcDialogue as Record<string, unknown>)
-    : null;
+  const data = toRecord(command.data);
+  const npcDialogue = toRecord(data?.npcDialogue);
   const npcDialogueId = typeof npcDialogue?.npcId === 'string' ? npcDialogue.npcId : null;
   const npcDialogueSpeakerName =
     typeof npcDialogue?.speakerName === 'string' ? npcDialogue.speakerName : null;
@@ -338,24 +335,18 @@ function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['m
 }
 
 function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
-  const structuredAction = turnLog.structuredAction;
+  const restAction = toRecord(turnLog.structuredAction);
 
   if (
-    !structuredAction ||
-    typeof structuredAction !== 'object' ||
-    (structuredAction as { type?: unknown }).type !== 'rest' ||
-    (structuredAction as { approvalStatus?: unknown }).approvalStatus !== 'gm_required' ||
+    !restAction ||
+    restAction.type !== 'rest' ||
+    restAction.approvalStatus !== 'gm_required' ||
     turnLog.actionQueueStatus !== 'REJECTED' ||
     !turnLog.playerActionId
   ) {
     return undefined;
   }
 
-  const restAction = structuredAction as {
-    restType?: unknown;
-    approvalStatus?: unknown;
-    approvalExpiresAt?: unknown;
-  };
   return {
     restApproval: {
       actionId: turnLog.playerActionId,
@@ -427,13 +418,6 @@ function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
   );
 }
 
-function getMainCommandCheckEffect(response: MainCommandResponseDto): Record<string, unknown> | null {
-  const data = response.data;
-  if (!data || typeof data !== 'object') return null;
-  const effect = (data as Record<string, unknown>).checkEffect;
-  return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
-}
-
 function getSenderNameByUserId(userId: string, snapshot: SessionSnapshot | null): string {
   const participant = snapshot?.participants.find((item) => item.userId === userId);
 
@@ -451,7 +435,11 @@ function formatDiceRollMessage(diceResult: DiceRollResponseDto): string {
     diceResult.modifier ? `수정치 ${diceResult.modifier}` : null,
   ];
 
-  return parts.filter((part): part is string => Boolean(part)).join(' / ');
+  return compactStrings(parts).join(' / ');
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === 'string' && value.length > 0 ? [value] : []);
 }
 
 function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
@@ -497,9 +485,13 @@ function resolveCheckSkillInline(
   return entry ? { titleKo: entry.ko, abilityKo: entry.abilityKo } : null;
 }
 
-function readDiceNumber(source: Record<string, unknown>, key: string): number | null {
+function readDiceInteger(source: Record<string, unknown>, key: string): number | null {
   const value = source[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
 }
 
 function normalizeDiceAdvantage(value: unknown): DiceAdvantage {
@@ -523,17 +515,20 @@ function buildDiceRollOverlayData(
     return null;
   }
 
-  const diceRecord = dice as Record<string, unknown>;
+  const diceRecord = toRecord(dice);
+  if (!diceRecord) {
+    return null;
+  }
   const rawRolls = diceRecord.rolls;
   const rolls = Array.isArray(rawRolls)
-    ? rawRolls.filter((roll): roll is number => typeof roll === "number")
+    ? rawRolls.filter(isPositiveInteger)
     : [];
   if (!rolls.length) {
     return null;
   }
 
-  const modifier = readDiceNumber(diceRecord, "modifier") ?? 0;
-  const total = readDiceNumber(diceRecord, "total") ?? 0;
+  const modifier = readDiceInteger(diceRecord, "modifier") ?? 0;
+  const total = readDiceInteger(diceRecord, "total") ?? 0;
   const expression =
     typeof diceRecord.expression === "string" ? diceRecord.expression : "";
   const advantage = normalizeDiceAdvantage(diceRecord.advantageState);
@@ -545,10 +540,7 @@ function buildDiceRollOverlayData(
         ? Math.min(...rolls)
         : rolls[0];
 
-  const structured =
-    turnLog.structuredAction && typeof turnLog.structuredAction === "object"
-      ? (turnLog.structuredAction as Record<string, unknown>)
-      : null;
+  const structured = toRecord(turnLog.structuredAction);
   const actionType = typeof structured?.type === "string" ? structured.type : "";
 
   let title = expression || "주사위";
@@ -564,31 +556,31 @@ function buildDiceRollOverlayData(
     title = skill?.titleKo || checkName || "능력 판정";
     subtitle = skill ? `${skill.abilityKo} 판정` : "능력 판정";
     targetLabel = "난이도";
-    targetValue = structured ? readDiceNumber(structured, "dc") : null;
+    targetValue = structured ? readDiceInteger(structured, "dc") : null;
   } else if (actionType === "attack") {
     title = "공격";
     subtitle = "공격 판정";
     targetLabel = "방어도";
     targetValue = structured
-      ? readDiceNumber(structured, "targetArmorClass") ??
-        readDiceNumber(structured, "dc")
+      ? readDiceInteger(structured, "targetArmorClass") ??
+        readDiceInteger(structured, "dc")
       : null;
   } else if (actionType === "combat_hide") {
     title = "숨기";
     subtitle = "민첩(은신) 판정";
     targetLabel = "난이도";
-    targetValue = structured ? readDiceNumber(structured, "dc") : null;
+    targetValue = structured ? readDiceInteger(structured, "dc") : null;
   } else if (actionType === "auto_hazard_detection") {
     title = "위험 탐지";
     subtitle = "지혜(감지) 판정";
     targetLabel = "난이도";
     targetValue =
-      structured ? readDiceNumber(structured, "detectionDc") : readDiceNumber(diceRecord, "dc");
+      structured ? readDiceInteger(structured, "detectionDc") : readDiceInteger(diceRecord, "dc");
   } else if (actionType === "vtt_hazard_trigger") {
     title = "함정 피해";
     subtitle = "피해 굴림";
     targetLabel = "피해";
-    targetValue = readDiceNumber(diceRecord, "total");
+    targetValue = readDiceInteger(diceRecord, "total");
     outcome = "NO_ROLL";
   }
 
@@ -639,7 +631,10 @@ function buildCheckRequiredOverlay(
       : '능력 판정';
 
   const dc =
-    Number.isInteger(checkOption.dc) && checkOption.dc !== undefined
+    typeof checkOption.dc === "number" &&
+    Number.isInteger(checkOption.dc) &&
+    checkOption.dc >= 5 &&
+    checkOption.dc <= 30
       ? Math.max(5, Math.min(30, checkOption.dc))
       : 15;
   const naturalRoll = Math.floor(Math.random() * 20) + 1;
@@ -672,10 +667,10 @@ function buildCheckRequiredDiceResult(
     rolls: overlay.rolls,
     modifier: overlay.modifier,
     total: overlay.total,
-    advantageState: overlay.advantage,
+    advantageState: DiceAdvantageState[overlay.advantage],
     naturalRoll: overlay.naturalRoll,
-    dc: overlay.targetValue,
-    outcome: overlay.outcome,
+    dc: overlay.targetValue ?? undefined,
+    outcome: ActionOutcome[overlay.outcome],
   };
 }
 
@@ -749,7 +744,7 @@ export function useSession(
       appendLog('action', '세션 로그', '[MAIN]...', pendingLogId);
       entry.timeoutId = window.setTimeout(() => {
         removePendingMainCommandCheckLog(entry);
-      }, 45_000);
+      }, MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS);
       pendingMainCommandCheckLogsRef.current = [
         ...pendingMainCommandCheckLogsRef.current,
         entry,
@@ -820,7 +815,7 @@ export function useSession(
         ...nextSnapshot,
         session: {
           ...nextSnapshot.session,
-          status: matchedSession.status as typeof nextSnapshot.session.status,
+          status: normalizeSessionStatus(matchedSession.status),
         },
       };
     },
@@ -1136,7 +1131,7 @@ export function useSession(
 
         window.setTimeout(() => {
           removeLog(`player-action:${action.playerActionId}:pending`);
-        }, 45_000);
+        }, MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS);
       },
       onTurnLogCreated: (turnLog: TurnLogResponseDto) => {
         // 라이브 turn.log.created 만 오버레이를 띄운다 (과거 로그 로딩은 별도 경로).
@@ -1174,7 +1169,7 @@ export function useSession(
       onVttMapUpdated: (map: VttMapStateDto) => {
         setSnapshot((current) => {
           if (!current) return current;
-          const currentMap = current.state.flags?.vttMap as VttMapStateDto | null | undefined;
+          const currentMap = readVttMapFromSessionFlags(current.state.flags);
           if (getVttMapSocketSignature(currentMap) === getVttMapSocketSignature(map)) {
             return current;
           }
@@ -1671,11 +1666,11 @@ export function useSession(
       // 전투가 아닐 때는 파티 공용 행동으로 보내며, 현재 백엔드 검증 규칙을 따릅니다.
       actionScope:
         snapshot.state.phase === 'combat'
-          ? ('INDIVIDUAL_TURN' as ActionScope)
-          : ('PARTY_SHARED' as ActionScope),
+          ? ActionScope.INDIVIDUAL_TURN
+          : ActionScope.PARTY_SHARED,
       inputType: trimmed.startsWith('/')
-        ? ('COMMAND' as ActionInputType)
-        : ('TEXT' as ActionInputType),
+        ? ActionInputType.COMMAND
+        : ActionInputType.TEXT,
     };
 
     setError(null);
@@ -1883,7 +1878,7 @@ export function useSession(
       removeLog(pendingLogId);
       pendingEntry.isPendingVisible = false;
       pendingEntry.timeoutId = undefined;
-    }, 45_000);
+    }, MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS);
     pendingMainCommandLogsRef.current = [...pendingMainCommandLogsRef.current, pendingEntry];
 
     try {
@@ -1895,9 +1890,10 @@ export function useSession(
       );
       // CHECK_REQUIRED 응답 시 로컬 d20 굴림으로 오버레이 띄움 (v1: 단일 클라이언트 가시).
       // 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
-      if (response?.status === 'CHECK_REQUIRED' && response.checkOptions?.[0]) {
+      const primaryCheckOption = getPrimaryMainCommandCheckOption(response);
+      if (isMainCommandCheckRequired(response) && primaryCheckOption) {
         const diceOverlay = buildCheckRequiredOverlay(
-          response.checkOptions[0],
+          primaryCheckOption,
           user.id,
           user.displayName,
         );
@@ -1914,8 +1910,8 @@ export function useSession(
                 actorId: payload.actorId,
                 outcome:
                   diceOverlay.outcome === 'SUCCESS'
-                    ? ('SUCCESS' as ResolveMainCommandCheckDto['outcome'])
-                    : ('FAILURE' as ResolveMainCommandCheckDto['outcome']),
+                    ? ActionOutcome.SUCCESS
+                    : ActionOutcome.FAILURE,
                 effect: checkEffect,
                 diceResult: buildCheckRequiredDiceResult(diceOverlay),
               },
@@ -1980,8 +1976,8 @@ export function useSession(
 
     setError(null);
 
-    if (trimmed.length > 1000) {
-      const message = '채팅 메시지는 1000자 이하로 입력해주세요.';
+    if (trimmed.length > CHAT_MESSAGE_MAX_LENGTH) {
+      const message = `채팅 메시지는 ${CHAT_MESSAGE_MAX_LENGTH}자 이하로 입력해주세요.`;
       setError(message);
       appendLog('socket', scope === 'MAIN' ? 'RP 대사 전송 실패' : '채팅 전송 실패', message);
       return;

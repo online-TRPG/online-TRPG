@@ -8,7 +8,12 @@ import type {
   InventoryItemDto,
   StartingEquipmentDto,
 } from "@trpg/shared-types";
+import { isRecord } from "@trpg/shared-types";
 import { normalizeSrdCharacterClassKey } from "@trpg/srd-data/rules";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 
@@ -50,7 +55,12 @@ export class CharacterEquipmentLoadoutService {
       return null;
     }
 
-    const startingEquipment = JSON.parse(klass.startingEquipmentJson) as StartingEquipmentDto;
+    const startingEquipment = parseJsonOrThrow(
+      klass.startingEquipmentJson,
+      { slots: [] },
+      decodeStartingEquipment,
+      "characterClass.startingEquipmentJson",
+    );
     const slots = startingEquipment.slots;
 
     if (!Array.isArray(params.selection) || params.selection.length !== slots.length) {
@@ -61,16 +71,21 @@ export class CharacterEquipmentLoadoutService {
 
     const inventory: InventoryItemDto[] = [];
     for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
-      const slot = slots[slotIndex]!;
-      const optionIndex = params.selection[slotIndex]!;
+      const slot = slots[slotIndex];
+      const optionIndex = params.selection[slotIndex];
+      if (!slot || optionIndex === undefined) {
+        throw new BadRequestException(`시작 장비: 슬롯 ${slotIndex} 정보를 찾을 수 없습니다.`);
+      }
       if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= slot.options.length) {
         throw new BadRequestException(
           `시작 장비: 슬롯 ${slotIndex} 의 옵션 인덱스 ${optionIndex} 가 유효 범위(0..${slot.options.length - 1})를 벗어났습니다.`,
         );
       }
-      const option = slot.options[optionIndex]!;
-      for (let itemIndex = 0; itemIndex < option.items.length; itemIndex++) {
-        const item = option.items[itemIndex]!;
+      const option = slot.options[optionIndex];
+      if (!option) {
+        throw new BadRequestException(`시작 장비: 슬롯 ${slotIndex} 의 옵션을 찾을 수 없습니다.`);
+      }
+      for (const [itemIndex, item] of option.items.entries()) {
         const baseCatalogItem = await this.prisma.item.findUnique({ where: { key: item.itemKey } });
         if (!baseCatalogItem) {
           throw new BadRequestException(
@@ -336,8 +351,10 @@ export class CharacterEquipmentLoadoutService {
       : 0;
     const armorCandidates = inventory
       .filter((item) => this.isArmorInventoryItem(item))
-      .map((item) => this.calculateArmorItemAc(item, dexMod))
-      .filter((value): value is number => value !== null);
+      .flatMap((item) => {
+        const armorClass = this.calculateArmorItemAc(item, dexMod);
+        return armorClass === null ? [] : [armorClass];
+      });
 
     const armorAc = armorCandidates.length ? Math.max(...armorCandidates) + shieldBonus : null;
     const unarmoredAc =
@@ -382,8 +399,7 @@ export class CharacterEquipmentLoadoutService {
     options?: { allowSessionInventoryForCharacterId?: string },
   ): Promise<void> {
     const definitionIds = inventory
-      .map((item) => item.itemDefinitionId)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
+      .flatMap((item) => (typeof item.itemDefinitionId === "string" && item.itemDefinitionId.length > 0 ? [item.itemDefinitionId] : []));
     if (definitionIds.length > 0) {
       const found = await this.prisma.item.findMany({
         where: { id: { in: definitionIds } },
@@ -460,8 +476,7 @@ export class CharacterEquipmentLoadoutService {
   }
 
   private getInventoryItemSearchKey(item: InventoryItemDto): string {
-    return [item.id, item.itemDefinitionId, item.name, item.itemType]
-      .filter((value): value is string => Boolean(value))
+    return compactPresentStrings([item.id, item.itemDefinitionId, item.name, item.itemType])
       .join(" ")
       .toLowerCase();
   }
@@ -486,7 +501,9 @@ export class CharacterEquipmentLoadoutService {
       warhammer: ["melee", "versatile"],
     };
     const matchedKey = Object.keys(profiles).find((profileKey) => key.includes(profileKey));
-    if (matchedKey) return profiles[matchedKey]!;
+    if (matchedKey) {
+      return profiles[matchedKey] ?? [];
+    }
 
     const koreanProfiles: Array<[string, string[]]> = [
       ["단검", profiles.dagger],
@@ -580,28 +597,134 @@ export class CharacterEquipmentLoadoutService {
   }
 
   private parseStringArrayJson(value: string | null | undefined): string[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed)
-        ? parsed.filter((entry): entry is string => typeof entry === "string")
-        : [];
-    } catch {
-      return [];
-    }
+    return parseJsonOrThrow(value, [], decodeStringArray, "itemDefinition.propertiesJson");
   }
 
   private parseInventoryItemsJson(value: string | null | undefined): InventoryItemDto[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as InventoryItemDto[]) : [];
-    } catch {
-      return [];
-    }
+    return parseJsonOrThrow(value, [], decodeInventoryItems, "sessionCharacter.inventorySnapshotJson");
   }
 
   private getAbilityModifier(score: number): number {
     return Math.floor((score - 10) / 2);
   }
+}
+
+function decodeStartingEquipment(value: unknown): StartingEquipmentDto {
+  if (!isRecord(value) || !Array.isArray(value.slots)) {
+    throw new Error("starting equipment must contain slots.");
+  }
+  return {
+    slots: value.slots.map((slot) => ({
+      options: isRecord(slot) && Array.isArray(slot.options)
+        ? slot.options.map((option) => ({
+            items: isRecord(option) && Array.isArray(option.items)
+              ? option.items.flatMap((item) => {
+                  if (!isRecord(item) || typeof item.itemKey !== "string") {
+                    return [];
+                  }
+                  const quantity = readPositiveIntegerProperty(item, "quantity");
+                  return quantity === null ? [] : [{ itemKey: item.itemKey, quantity }];
+                })
+              : [],
+          }))
+        : [],
+    })),
+  };
+}
+
+function decodeInventoryItems(value: unknown): InventoryItemDto[] {
+  if (!Array.isArray(value)) {
+    throw new Error("inventory must be an array.");
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
+      return [];
+    }
+    const quantity = readPositiveIntegerProperty(item, "quantity");
+    if (quantity === null) {
+      return [];
+    }
+    const weightLb = readNonNegativeNumberProperty(item, "weightLb");
+    const volumeCuFt = readNonNegativeNumberProperty(item, "volumeCuFt");
+    const rangeFt = readNonNegativeNumberProperty(item, "rangeFt");
+    const longRangeFt = readNonNegativeNumberProperty(item, "longRangeFt");
+    const armorClassBase = readNonNegativeNumberProperty(item, "armorClassBase");
+    const armorClassBonus = readFiniteNumberProperty(item, "armorClassBonus");
+    const armorStrengthRequirement = readNonNegativeNumberProperty(item, "armorStrengthRequirement");
+    return [{
+      id: item.id,
+      name: item.name,
+      quantity,
+      ...(typeof item.itemDefinitionId === "string" ? { itemDefinitionId: item.itemDefinitionId } : {}),
+      ...(typeof item.itemType === "string" ? { itemType: item.itemType } : {}),
+      ...(typeof item.description === "string" ? { description: item.description } : {}),
+      ...(weightLb !== undefined ? { weightLb } : {}),
+      ...(volumeCuFt !== undefined ? { volumeCuFt } : {}),
+      ...(typeof item.damageDice === "string" ? { damageDice: item.damageDice } : {}),
+      ...(typeof item.damageType === "string" ? { damageType: item.damageType } : {}),
+      ...(rangeFt !== undefined ? { rangeFt } : {}),
+      ...(longRangeFt !== undefined ? { longRangeFt } : {}),
+      ...(armorClassBase !== undefined ? { armorClassBase } : {}),
+      ...(armorClassBonus !== undefined ? { armorClassBonus } : {}),
+      ...(armorStrengthRequirement !== undefined ? { armorStrengthRequirement } : {}),
+      ...(typeof item.armorStealthDisadvantage === "boolean" ? { armorStealthDisadvantage: item.armorStealthDisadvantage } : {}),
+      ...(typeof item.useEffect === "string" ? { useEffect: item.useEffect } : {}),
+      ...(Array.isArray(item.packContents) ? { packContents: decodeInventoryPackContents(item.packContents) } : {}),
+      ...(Array.isArray(item.properties) ? { properties: decodeOptionalStringArray(item.properties) } : {}),
+      ...(typeof item.containerId === "string" ? { containerId: item.containerId } : {}),
+      ...(typeof item.displayName === "string" ? { displayName: item.displayName } : {}),
+      ...(typeof item.displayTypeLabel === "string" ? { displayTypeLabel: item.displayTypeLabel } : {}),
+      ...(typeof item.displayDescription === "string" ? { displayDescription: item.displayDescription } : {}),
+      ...(typeof item.displayUseEffect === "string" ? { displayUseEffect: item.displayUseEffect } : {}),
+      ...(Array.isArray(item.displayPropertyLabels) ? { displayPropertyLabels: decodeOptionalStringArray(item.displayPropertyLabels) } : {}),
+      ...(Array.isArray(item.displayPackContents) ? { displayPackContents: decodeInventoryPackContents(item.displayPackContents) } : {}),
+    }];
+  });
+}
+
+function decodeInventoryPackContents(value: unknown): NonNullable<InventoryItemDto["packContents"]> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.itemId !== "string" || typeof item.name !== "string") {
+      return [];
+    }
+    const quantity = readPositiveIntegerProperty(item, "quantity");
+    if (quantity === null) {
+      return [];
+    }
+    return [{
+      itemId: item.itemId,
+      name: item.name,
+      quantity,
+      ...(typeof item.displayName === "string" ? { displayName: item.displayName } : {}),
+    }];
+  });
+}
+
+function decodeOptionalStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => (typeof entry === "string" ? [entry] : []));
+}
+
+function compactPresentStrings(value: readonly unknown[]): string[] {
+  return value.flatMap((entry) => (typeof entry === "string" && entry ? [entry] : []));
+}
+
+function readPositiveIntegerProperty(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
+function readFiniteNumberProperty(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readNonNegativeNumberProperty(record: Record<string, unknown>, key: string): number | undefined {
+  const value = readFiniteNumberProperty(record, key);
+  return value !== undefined && value >= 0 ? value : undefined;
 }

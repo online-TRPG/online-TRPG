@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type {
-  AbilityScoresDto,
-  StartingSpellsDto,
+import {
+  type AbilityScoresDto,
+  type StartingSpellsDto,
+  isRecord,
 } from "@trpg/shared-types";
 import {
   getCantripsKnownLimit,
@@ -13,6 +14,7 @@ import {
   resolveMaximumCastableSpellLevel,
   resolvePreparedSpellLimit as resolveSrdPreparedSpellLimit,
 } from "@trpg/srd-data/rules";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { CatalogService } from "../catalog/catalog.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 
@@ -104,9 +106,7 @@ export class CharacterSpellSelectionService {
     const rawPreparedSpells = startingSpells.preparedSpells
       ? Array.from(
           new Set(
-            startingSpells.preparedSpells
-              .map((spell) => this.normalizeSpellId(spell))
-              .filter(Boolean),
+            this.normalizeSpellSelections(startingSpells.preparedSpells),
           ),
         )
       : undefined;
@@ -163,9 +163,7 @@ export class CharacterSpellSelectionService {
     }
 
     const knownSpellIds = new Set(spells.spells.map((spell) => this.normalizeSpellId(spell)));
-    const preparedSpells = Array.from(
-      new Set(requestedPreparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
-    );
+    const preparedSpells = Array.from(new Set(this.normalizeSpellSelections(requestedPreparedSpells)));
     const unknownPreparedSpell = preparedSpells.find((spell) => !knownSpellIds.has(spell));
     if (unknownPreparedSpell) {
       throw new BadRequestException({
@@ -208,15 +206,12 @@ export class CharacterSpellSelectionService {
     const knownSpellPool = this.getExecutableSlotSpellPool(params.className, params.level);
     const cantripPool = this.getExecutableCantripIds();
     const currentCantrips = spells.cantrips
-      .map((spell) => this.normalizeSpellId(spell))
-      .filter(Boolean);
+      .flatMap((spell) => this.normalizeSpellSelection(spell));
     const currentKnownSpells = spells.spells
-      .map((spell) => this.normalizeSpellId(spell))
-      .filter(Boolean);
+      .flatMap((spell) => this.normalizeSpellSelection(spell));
     const requestedCantrips = this.normalizeUniqueSpellSelection(params.cantrips);
     const requestedKnownSpells = (params.knownSpells ?? [])
-      .map((spell) => this.normalizeSpellId(spell))
-      .filter(Boolean);
+      .flatMap((spell) => this.normalizeSpellSelection(spell));
     const forgottenCantrips = this.normalizeUniqueSpellSelection(params.forgottenCantrips);
     const forgottenKnownSpells = this.normalizeUniqueSpellSelection(params.forgottenSpells);
     this.assertForgottenSpellsExist(currentCantrips, forgottenCantrips, "LEVEL_UP_CANTRIP_NOT_KNOWN");
@@ -300,7 +295,7 @@ export class CharacterSpellSelectionService {
         ? (spells.preparedSpells ?? [])
         : Array.from(
             new Set(
-              params.preparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean),
+              this.normalizeSpellSelections(params.preparedSpells),
             ),
           );
     const nextKnownSet = new Set(nextKnownSpells);
@@ -344,9 +339,16 @@ export class CharacterSpellSelectionService {
   }
 
   private normalizeUniqueSpellSelection(spells: string[] | undefined): string[] {
-    return Array.from(
-      new Set((spells ?? []).map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
-    );
+    return Array.from(new Set(this.normalizeSpellSelections(spells ?? [])));
+  }
+
+  private normalizeSpellSelections(spells: string[]): string[] {
+    return spells.flatMap((spell) => this.normalizeSpellSelection(spell));
+  }
+
+  private normalizeSpellSelection(spell: string): string[] {
+    const normalized = this.normalizeSpellId(spell);
+    return normalized ? [normalized] : [];
   }
 
   private assertForgottenSpellsExist(
@@ -560,22 +562,7 @@ export class CharacterSpellSelectionService {
   }
 
   private parseSpellsJson(value: string | null | undefined): StartingSpellsDto | null {
-    if (!value) return null;
-    try {
-      const parsed = JSON.parse(value) as Partial<StartingSpellsDto> | null;
-      if (!parsed || !Array.isArray(parsed.cantrips) || !Array.isArray(parsed.spells)) {
-        return null;
-      }
-      return {
-        cantrips: parsed.cantrips.filter((spell): spell is string => typeof spell === "string"),
-        spells: parsed.spells.filter((spell): spell is string => typeof spell === "string"),
-        preparedSpells: Array.isArray(parsed.preparedSpells)
-          ? parsed.preparedSpells.filter((spell): spell is string => typeof spell === "string")
-          : undefined,
-      };
-    } catch {
-      return null;
-    }
+    return parseJsonOrThrow(value, null, decodeStartingSpells, "character.spellsJson");
   }
 
   private normalizeSpellId(spellId: string): string {
@@ -628,10 +615,29 @@ export class CharacterSpellSelectionService {
       value.startsWith("spell_level:"),
     );
     const level = Number(tag?.slice("spell_level:".length));
-    return Number.isInteger(level) && level >= 0 ? level : -1;
+    return Number.isInteger(level) && level >= 0 && level <= 9 ? level : -1;
   }
 
   private getMaximumSlotSpellLevelForClassLevel(className: string, level: number): number {
     return resolveMaximumCastableSpellLevel(className, level);
   }
+}
+
+function decodeStartingSpells(value: unknown): StartingSpellsDto {
+  if (!isRecord(value)) {
+    throw new Error("spells must be an object.");
+  }
+  const record = value;
+  if (!Array.isArray(record.cantrips) || !Array.isArray(record.spells)) {
+    throw new Error("spells must contain cantrips and spells arrays.");
+  }
+  return {
+    cantrips: decodeSpellIdArray(record.cantrips),
+    spells: decodeSpellIdArray(record.spells),
+    preparedSpells: Array.isArray(record.preparedSpells) ? decodeSpellIdArray(record.preparedSpells) : undefined,
+  };
+}
+
+function decodeSpellIdArray(value: unknown[]): string[] {
+  return value.flatMap((spell) => (typeof spell === "string" ? [spell] : []));
 }

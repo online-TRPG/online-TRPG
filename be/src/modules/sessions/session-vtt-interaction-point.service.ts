@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { VttMapInteractionDto, VttMapStateDto } from "@trpg/shared-types";
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { isRecord, VttMapInteractionDto, VttMapStateDto } from "@trpg/shared-types";
 
 @Injectable()
 export class SessionVttInteractionPointService {
@@ -7,9 +7,10 @@ export class SessionVttInteractionPointService {
     if (!dto.mapPoint) {
       return null;
     }
+    const mapPoint = this.readMapPoint(dto.mapPoint);
     return {
-      x: Math.floor(dto.mapPoint.x),
-      y: Math.floor(dto.mapPoint.y),
+      x: Math.floor(mapPoint.x),
+      y: Math.floor(mapPoint.y),
     };
   }
 
@@ -35,5 +36,18 @@ export class SessionVttInteractionPointService {
       x: cell.x + cell.width / 2,
       y: cell.y + cell.height / 2,
     };
+  }
+
+  private readMapPoint(value: unknown): { x: number; y: number } {
+    if (!isRecord(value)) {
+      throw new BadRequestException("vttMapInteraction.mapPoint must be an object.");
+    }
+    if (typeof value.x !== "number" || !Number.isFinite(value.x)) {
+      throw new BadRequestException("vttMapInteraction.mapPoint.x must be a finite number.");
+    }
+    if (typeof value.y !== "number" || !Number.isFinite(value.y)) {
+      throw new BadRequestException("vttMapInteraction.mapPoint.y must be a finite number.");
+    }
+    return { x: value.x, y: value.y };
   }
 }

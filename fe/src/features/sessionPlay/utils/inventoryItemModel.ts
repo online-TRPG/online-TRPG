@@ -3,8 +3,7 @@ import type { GameIconName } from '../../../components/GameIcon';
 import { isDirectlyUsableP3Item } from './executableItems';
 
 export function getInventoryItemSearchKey(item: InventoryItemDto): string {
-  return [item.id, item.itemDefinitionId, item.name, item.itemType, ...(item.properties ?? [])]
-    .filter(Boolean)
+  return compactStrings([item.id, item.itemDefinitionId, item.name, item.itemType, ...(item.properties ?? [])])
     .join(' ')
     .toLowerCase();
 }
@@ -15,17 +14,19 @@ export function isShieldInventoryItem(item: InventoryItemDto): boolean {
 }
 
 export function getCatalogItemSearchKey(item: ItemResponseDto) {
-  return [item.id, item.key, item.koName, item.category]
-    .filter(Boolean)
+  return compactStrings([item.id, item.key, item.koName, item.category])
     .join(' ')
     .toLowerCase();
 }
 
 export function getExplorationInventoryItemKey(item: InventoryItemDto) {
-  return [item.itemType, item.itemDefinitionId, item.name, ...(item.properties ?? [])]
-    .filter(Boolean)
+  return compactStrings([item.itemType, item.itemDefinitionId, item.name, ...(item.properties ?? [])])
     .join(' ')
     .toLowerCase();
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === 'string' && value.length > 0 ? [value] : []);
 }
 
 export const getInventoryItemKey = getExplorationInventoryItemKey;

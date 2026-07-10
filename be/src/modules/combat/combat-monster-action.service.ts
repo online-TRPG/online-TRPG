@@ -1,13 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { CombatEntityType as PrismaCombatEntityType } from "@prisma/client";
+import { MONSTER_ACTION_UNAVAILABLE_REASONS } from "@trpg/shared-types";
 import type { CombatMonsterActionOptionDto, VttMapStateDto } from "@trpg/shared-types";
 import { unprocessable } from "../../common/exceptions/domain-error";
 import { MonsterAbilityService } from "../rules/monster-ability.service";
-import {
-  CombatMonsterResourceService,
-  MONSTER_LIMITED_USE_EXPENDED_FLAG,
-  MONSTER_RECHARGE_EXPENDED_FLAG,
-} from "./combat-monster-resource.service";
+import { CombatMonsterResourceService } from "./combat-monster-resource.service";
 import { CombatMovementService } from "./combat-movement.service";
 import { SrdEngineLoaderService } from "./srd-engine-loader.service";
 import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
@@ -218,23 +215,19 @@ export class CombatMonsterActionService {
     action: SrdEngineExecutableMonsterAction,
     flags: Record<string, unknown>,
   ): string | null {
-    const rechargeExpended = this.combatMonsterResources.parseMonsterRechargeExpended(
-      flags[MONSTER_RECHARGE_EXPENDED_FLAG],
-    );
+    const rechargeExpended = this.combatMonsterResources.readMonsterRechargeExpendedFromFlags(flags);
     if (this.combatMonsterResources.isRechargeMonsterAction(action) && rechargeExpended[participant.id]?.[action.actionId]) {
-      return "MONSTER_RECHARGE_ACTION_EXPENDED";
+      return MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED;
     }
 
     const limitedUseLimit = this.combatMonsterResources.resolveMonsterLimitedUseLimit(action);
     if (limitedUseLimit !== null) {
-      const limitedUseExpended = this.combatMonsterResources.parseMonsterLimitedUseExpended(
-        flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
-      );
+      const limitedUseExpended = this.combatMonsterResources.readMonsterLimitedUseExpendedFromFlags(flags);
       const used = this.combatMonsterResources.extractMonsterLimitedUseUsed(
         limitedUseExpended[participant.id]?.[action.actionId],
       );
       if (used >= limitedUseLimit) {
-        return "MONSTER_LIMITED_USE_ACTION_EXPENDED";
+        return MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED;
       }
     }
 

@@ -1,14 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import { CombatEntityType as PrismaCombatEntityType } from "@prisma/client";
+import { MONSTER_ACTION_UNAVAILABLE_REASONS } from "@trpg/shared-types";
 import type { CombatMonsterLifecycleEffectDto, DiceRollResponseDto } from "@trpg/shared-types";
 import { conflict } from "../../common/exceptions/domain-error";
+import { parseJsonRecordOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { DiceService } from "../rules/dice.service";
 import { SessionsService } from "../sessions/sessions.service";
+import {
+  MONSTER_LIMITED_USE_EXPENDED_FLAG,
+  MONSTER_RECHARGE_EXPENDED_FLAG,
+} from "./combat-runtime-flags.constants";
 import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
-
-export const MONSTER_RECHARGE_EXPENDED_FLAG = "monsterRechargeExpended";
-export const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
 type MonsterResourceActor = {
   id: string;
@@ -22,6 +25,61 @@ type MonsterResourceCombat = {
   roundNo: number;
   turnNo: number;
 };
+
+export type MonsterLimitedUseRecovery = {
+  value: Record<string, Record<string, unknown>>;
+  changed: boolean;
+  hasFlag: boolean;
+};
+
+export function clearRestBoundMonsterLimitedUses(
+  value: unknown,
+  restKind: "short" | "long",
+): MonsterLimitedUseRecovery {
+  if (!isRecordValue(value)) {
+    return { value: {}, changed: false, hasFlag: false };
+  }
+
+  let changed = false;
+  const remaining: Record<string, Record<string, unknown>> = {};
+  for (const [participantId, actions] of Object.entries(value)) {
+    if (!isRecordValue(actions)) {
+      changed = true;
+      continue;
+    }
+
+    const remainingActions: Record<string, unknown> = {};
+    for (const [actionId, entry] of Object.entries(actions)) {
+      if (!isMonsterLimitedUseEntryValue(entry)) {
+        changed = true;
+        continue;
+      }
+      if (isRestBoundMonsterLimitedUseEntry(entry, restKind)) {
+        changed = true;
+        continue;
+      }
+      remainingActions[actionId] = entry;
+    }
+
+    if (Object.keys(remainingActions).length > 0) {
+      remaining[participantId] = remainingActions;
+    } else {
+      changed = true;
+    }
+  }
+
+  return { value: remaining, changed, hasFlag: true };
+}
+
+export function clearRestBoundMonsterLimitedUsesFromFlags(
+  flags: unknown,
+  restKind: "short" | "long",
+): MonsterLimitedUseRecovery {
+  if (!isRecordValue(flags)) {
+    return { value: {}, changed: false, hasFlag: false };
+  }
+  return clearRestBoundMonsterLimitedUses(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG], restKind);
+}
 
 @Injectable()
 export class CombatMonsterResourceService {
@@ -40,8 +98,8 @@ export class CombatMonsterResourceService {
     }
 
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const expended = this.parseMonsterRechargeExpended(flags[MONSTER_RECHARGE_EXPENDED_FLAG]);
+    const flags = this.parseFlags(state.flagsJson);
+    const expended = this.readMonsterRechargeExpendedFromFlags(flags);
     const actorActions = expended[actor.id];
     if (!actorActions || Object.keys(actorActions).length === 0) {
       return { rechargedCount: 0, diceRolls: [] };
@@ -124,11 +182,11 @@ export class CombatMonsterResourceService {
     }
 
     const { state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const expended = this.parseMonsterRechargeExpended(flags[MONSTER_RECHARGE_EXPENDED_FLAG]);
+    const flags = this.parseFlags(state.flagsJson);
+    const expended = this.readMonsterRechargeExpendedFromFlags(flags);
     if (expended[actor.id]?.[action.actionId]) {
       throw conflict("COMBAT_409", "아직 재충전되지 않은 몬스터 행동입니다.", {
-        reason: "MONSTER_RECHARGE_ACTION_EXPENDED",
+        reason: MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED,
         actorParticipantId: actor.id,
         actionId: action.actionId,
         recharge: action.recharge ?? null,
@@ -147,8 +205,8 @@ export class CombatMonsterResourceService {
     }
 
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const expended = this.parseMonsterRechargeExpended(flags[MONSTER_RECHARGE_EXPENDED_FLAG]);
+    const flags = this.parseFlags(state.flagsJson);
+    const expended = this.readMonsterRechargeExpendedFromFlags(flags);
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
       data: {
@@ -181,12 +239,12 @@ export class CombatMonsterResourceService {
     }
 
     const { state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const expended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+    const flags = this.parseFlags(state.flagsJson);
+    const expended = this.readMonsterLimitedUseExpendedFromFlags(flags);
     const used = this.extractMonsterLimitedUseUsed(expended[actor.id]?.[action.actionId]);
     if (used >= limit) {
       throw conflict("COMBAT_409", "사용 횟수가 남지 않은 몬스터 행동입니다.", {
-        reason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+        reason: MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED,
         actorParticipantId: actor.id,
         actionId: action.actionId,
         usage: action.usage ?? null,
@@ -208,8 +266,8 @@ export class CombatMonsterResourceService {
     }
 
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const expended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+    const flags = this.parseFlags(state.flagsJson);
+    const expended = this.readMonsterLimitedUseExpendedFromFlags(flags);
     const used = this.extractMonsterLimitedUseUsed(expended[actor.id]?.[action.actionId]) + 1;
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -236,8 +294,8 @@ export class CombatMonsterResourceService {
 
   async clearCombatBoundMonsterLimitedUses(sessionId: string): Promise<void> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const expended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+    const flags = this.parseFlags(state.flagsJson);
+    const expended = this.readMonsterLimitedUseExpendedFromFlags(flags);
     let changed = false;
     const remaining: Record<string, Record<string, unknown>> = {};
 
@@ -273,33 +331,63 @@ export class CombatMonsterResourceService {
   }
 
   parseMonsterRechargeExpended(value: unknown): Record<string, Record<string, unknown>> {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (!this.isRecord(value)) {
       return {};
     }
 
     const result: Record<string, Record<string, unknown>> = {};
     for (const [participantId, actions] of Object.entries(value)) {
-      if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
+      if (!this.isRecord(actions)) {
         continue;
       }
-      result[participantId] = { ...(actions as Record<string, unknown>) };
+      const validActions: Record<string, unknown> = {};
+      for (const [actionId, entry] of Object.entries(actions)) {
+        if (this.isMonsterRechargeEntry(entry)) {
+          validActions[actionId] = entry;
+        }
+      }
+      if (Object.keys(validActions).length > 0) {
+        result[participantId] = validActions;
+      }
     }
     return result;
   }
 
+  readMonsterRechargeExpendedFromFlags(flags: unknown): Record<string, Record<string, unknown>> {
+    if (!this.isRecord(flags)) {
+      return {};
+    }
+    return this.parseMonsterRechargeExpended(flags[MONSTER_RECHARGE_EXPENDED_FLAG]);
+  }
+
   parseMonsterLimitedUseExpended(value: unknown): Record<string, Record<string, unknown>> {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (!this.isRecord(value)) {
       return {};
     }
 
     const result: Record<string, Record<string, unknown>> = {};
     for (const [participantId, actions] of Object.entries(value)) {
-      if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
+      if (!this.isRecord(actions)) {
         continue;
       }
-      result[participantId] = { ...(actions as Record<string, unknown>) };
+      const validActions: Record<string, unknown> = {};
+      for (const [actionId, entry] of Object.entries(actions)) {
+        if (this.isMonsterLimitedUseEntry(entry)) {
+          validActions[actionId] = entry;
+        }
+      }
+      if (Object.keys(validActions).length > 0) {
+        result[participantId] = validActions;
+      }
     }
     return result;
+  }
+
+  readMonsterLimitedUseExpendedFromFlags(flags: unknown): Record<string, Record<string, unknown>> {
+    if (!this.isRecord(flags)) {
+      return {};
+    }
+    return this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
   }
 
   isRechargeMonsterAction(action: SrdEngineExecutableMonsterAction): boolean {
@@ -334,19 +422,47 @@ export class CombatMonsterResourceService {
   }
 
   extractMonsterLimitedUseUsed(entry: unknown): number {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    if (!this.isMonsterLimitedUseEntry(entry)) {
       return 0;
     }
-    const used = (entry as { used?: unknown }).used;
-    return typeof used === "number" && Number.isInteger(used) && used > 0 ? used : 0;
+    const used = entry.used;
+    return used;
+  }
+
+  private isMonsterLimitedUseEntry(value: unknown): value is {
+    usage: string;
+    used: number;
+    limit: number;
+    roundNo: number;
+    turnNo: number;
+  } {
+    return isMonsterLimitedUseEntryValue(value);
   }
 
   private extractMonsterRechargeValue(entry: unknown): string | null {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    if (!this.isMonsterRechargeEntry(entry)) {
       return null;
     }
-    const recharge = (entry as { recharge?: unknown }).recharge;
-    return typeof recharge === "string" && recharge.trim() ? recharge.trim() : null;
+    const recharge = entry.recharge;
+    return recharge.trim();
+  }
+
+  private isMonsterRechargeEntry(value: unknown): value is {
+    recharge: string;
+    roundNo: number;
+    turnNo: number;
+  } {
+    if (!this.isRecord(value)) {
+      return false;
+    }
+    return (
+      typeof value.recharge === "string" &&
+      value.recharge.trim().length > 0 &&
+      typeof value.roundNo === "number" &&
+      Number.isFinite(value.roundNo) &&
+      typeof value.turnNo === "number" &&
+      Number.isFinite(value.turnNo)
+    );
   }
 
   private isMonsterRechargeRollSuccessful(recharge: string, rollTotal: number): boolean {
@@ -360,19 +476,64 @@ export class CombatMonsterResourceService {
   }
 
   private isCombatBoundMonsterLimitedUse(entry: unknown): boolean {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    if (!this.isRecord(entry)) {
       return false;
     }
-    const usage = (entry as { usage?: unknown }).usage;
+    const usage = entry.usage;
     return typeof usage === "string" && /^\d+\s*\/\s*combat$/i.test(usage.trim());
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) return fallback;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+  private parseFlags(value: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrThrow(value, {}, "gameState.flagsJson");
   }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return isRecordValue(value);
+  }
+}
+
+function isMonsterLimitedUseEntryValue(value: unknown): value is {
+  usage: string;
+  used: number;
+  limit: number;
+  roundNo: number;
+  turnNo: number;
+} {
+  if (!isRecordValue(value)) {
+    return false;
+  }
+  return (
+    typeof value.usage === "string" &&
+    /^\d+\s*\/\s*(day|combat|rest)$/i.test(value.usage.trim()) &&
+    typeof value.used === "number" &&
+    Number.isInteger(value.used) &&
+    value.used > 0 &&
+    typeof value.limit === "number" &&
+    Number.isInteger(value.limit) &&
+    value.limit > 0 &&
+    typeof value.roundNo === "number" &&
+    Number.isFinite(value.roundNo) &&
+    typeof value.turnNo === "number" &&
+    Number.isFinite(value.turnNo)
+  );
+}
+
+function isRestBoundMonsterLimitedUseEntry(entry: unknown, restKind: "short" | "long"): boolean {
+  if (!isRecordValue(entry)) {
+    return false;
+  }
+  const usage = entry.usage;
+  if (typeof usage !== "string") {
+    return false;
+  }
+  const match = usage.trim().match(/^\d+\s*\/\s*(day|rest)$/i);
+  if (!match) {
+    return false;
+  }
+  const scope = match[1]?.toLowerCase();
+  return scope === "rest" || (restKind === "long" && scope === "day");
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

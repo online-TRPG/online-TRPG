@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { SubmitMainCommandDto } from "@trpg/shared-types";
+import type { InterpreterRequestPayload } from "../ai/ai.client";
 import type { LoadedContext } from "./main-commands.service";
 import { MainCommandSceneEntityService } from "./main-command-scene-entity.service";
 import type { VisibleSceneEntity } from "./main-command-scene-entity.service";
@@ -8,7 +9,12 @@ import type { VisibleSceneEntity } from "./main-command-scene-entity.service";
 export class MainCommandInterpreterPayloadService {
   constructor(private readonly mainCommandSceneEntity: MainCommandSceneEntityService) {}
 
-  buildInterpreterPayload(context: LoadedContext, dto: SubmitMainCommandDto, visibleEntities: VisibleSceneEntity[], recentLogs?: string[]) {
+  buildInterpreterPayload(
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs?: string[],
+  ): InterpreterRequestPayload {
     const resolvedTarget = dto.targetId ? this.mainCommandSceneEntity.resolveEntity(dto, visibleEntities, dto.targetType) : null;
 
     return {

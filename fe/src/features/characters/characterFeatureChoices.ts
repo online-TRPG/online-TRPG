@@ -149,13 +149,15 @@ export function buildLevelUpAsiFeatChoiceState(params: {
   );
   const selectedFeatIds = getFeatSelectionsFromAsiFeatChoices(asiFeatChoices);
   const abilityScoreIncreases = buildAbilityScoreIncreasesFromAsiFeatChoices(asiFeatChoices);
-  const abilities = params.currentAbilities
-    ? (Object.fromEntries(
-        abilityKeys.map((ability) => [
-          ability,
-          params.currentAbilities![ability] + abilityScoreIncreases[ability],
-        ])
-      ) as Record<AbilityKey, number>)
+  const currentAbilities = params.currentAbilities;
+  const abilities = currentAbilities
+    ? abilityKeys.reduce<Record<AbilityKey, number>>(
+        (nextAbilities, ability) => ({
+          ...nextAbilities,
+          [ability]: currentAbilities[ability] + abilityScoreIncreases[ability],
+        }),
+        { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
+      )
     : null;
 
   return {
@@ -428,8 +430,12 @@ export function getAsiChoiceId(ability: AbilityKey) {
 export function getAbilityFromAsiChoiceId(choiceId: string): AbilityKey | null {
   if (!choiceId.startsWith(ASI_CHOICE_PREFIX)) return null;
   const ability = choiceId.slice(ASI_CHOICE_PREFIX.length);
-  return abilityKeys.includes(ability as AbilityKey)
-    ? (ability as AbilityKey)
+  return toAbilityKey(ability);
+}
+
+function toAbilityKey(value: string): AbilityKey | null {
+  return value === 'str' || value === 'dex' || value === 'con' || value === 'int' || value === 'wis' || value === 'cha'
+    ? value
     : null;
 }
 
@@ -474,7 +480,7 @@ export function updateSelectedAsiFeatChoiceId(
 ) {
   const nextChoiceIds = getSelectedAsiFeatChoiceIds(features);
   nextChoiceIds[choiceIndex] = choiceId;
-  return replaceSelectedAsiFeatChoiceIds(features, nextChoiceIds.filter(Boolean));
+  return replaceSelectedAsiFeatChoiceIds(features, nextChoiceIds.filter((nextChoiceId) => nextChoiceId.length > 0));
 }
 
 export function isAsiFeatChoiceSelectedElsewhere(
@@ -604,7 +610,7 @@ export function getFeatureChoiceSelectedValues(
   features: string[] | undefined
 ) {
   return definition.mode === 'single'
-    ? [getFeatureValue(features, definition.featurePrefix)].filter(Boolean)
+    ? [getFeatureValue(features, definition.featurePrefix)].filter((value) => value.length > 0)
     : getFeatureValues(features, definition.featurePrefix);
 }
 
@@ -707,7 +713,7 @@ export function replaceFeatureTags(
   const next = (features ?? []).filter(
     (feature) => !removedPrefixes.some((prefix) => feature.startsWith(prefix))
   );
-  return Array.from(new Set([...next, ...addedFeatures.filter(Boolean)]));
+  return Array.from(new Set([...next, ...addedFeatures.filter((feature) => feature.length > 0)]));
 }
 
 export function buildClassFeaturesForSubmit(className: string, features: string[] | undefined) {

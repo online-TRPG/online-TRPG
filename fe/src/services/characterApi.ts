@@ -7,6 +7,13 @@ import type {
   UpdatePreparedSpellsDto,
   UploadCharacterAvatarDto,
 } from '@trpg/shared-types';
+import {
+  decodeCharacterAvatarAssetResponse,
+  decodeCharacterAvatarAssetResponseArray,
+  decodeCharacterResponse,
+  decodeCharacterResponseArray,
+  decodeSessionParticipant,
+} from '@trpg/shared-types/frontend';
 import type { Character, SessionSnapshot, StoredUser } from '../types/session';
 import { requestJson } from './httpClient';
 import { getSession } from './sessionApi';
@@ -83,17 +90,20 @@ export function createCharacter(
       equippedWeaponId: payload.equippedWeaponId,
       offhandWeaponId: payload.offhandWeaponId,
     },
+    decode: decodeCharacterResponse,
   }).then((character) => {
-    if (!payload.sessionId || payload.assignToSession !== true) {
+    const sessionId = payload.sessionId;
+    if (!sessionId || payload.assignToSession !== true) {
       return null;
     }
 
-    return requestJson(`/sessions/${payload.sessionId}/character-selection`, {
+    return requestJson<SessionParticipantResponseDto>(`/sessions/${sessionId}/character-selection`, {
       method: 'POST',
       user,
       accessToken,
       body: { characterId: character.id },
-    }).then(() => getSession(user, payload.sessionId!, accessToken));
+      decode: decodeSessionParticipant,
+    }).then(() => getSession(user, sessionId, accessToken));
   });
 }
 
@@ -104,6 +114,7 @@ export function listMyCharacters(
   return requestJson<CharacterResponseDto[]>('/users/me/characters', {
     user,
     accessToken,
+    decode: decodeCharacterResponseArray,
   });
 }
 
@@ -114,6 +125,7 @@ export function listCharacterAvatarAssets(
   return requestJson<CharacterAvatarAssetResponseDto[]>('/characters/avatar-assets', {
     user,
     accessToken,
+    decode: decodeCharacterAvatarAssetResponseArray,
   });
 }
 
@@ -127,6 +139,7 @@ export function uploadCharacterAvatarAsset(
     user,
     accessToken,
     body: payload,
+    decode: decodeCharacterAvatarAssetResponse,
   });
 }
 
@@ -151,6 +164,7 @@ export function cloneCharacter(
     method: 'POST',
     user,
     accessToken,
+    decode: decodeCharacterResponse,
   });
 }
 
@@ -184,6 +198,7 @@ export function updateCharacter(
       equippedWeaponId: payload.equippedWeaponId,
       offhandWeaponId: payload.offhandWeaponId,
     },
+    decode: decodeCharacterResponse,
   });
 }
 
@@ -198,6 +213,7 @@ export function levelUpCharacter(
     user,
     accessToken,
     body: payload,
+    decode: decodeCharacterResponse,
   });
 }
 
@@ -212,6 +228,7 @@ export function updateCharacterEquipment(
     user,
     accessToken,
     body: payload,
+    decode: decodeCharacterResponse,
   });
 }
 
@@ -226,6 +243,7 @@ export function updatePreparedSpells(
     user,
     accessToken,
     body: payload,
+    decode: decodeCharacterResponse,
   });
 }
 
@@ -252,5 +270,6 @@ export async function selectSessionCharacter(
     user,
     accessToken,
     body: { characterId },
+    decode: decodeSessionParticipant,
   });
 }

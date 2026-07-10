@@ -174,8 +174,10 @@ export class ConcentrationRuntimeService {
   private readTaggedValues(condition: ConditionInstance, prefix: string): string[] {
     return condition.tags
       .filter((tag) => tag.startsWith(prefix))
-      .map((tag) => tag.slice(prefix.length))
-      .filter(Boolean);
+      .flatMap((tag) => {
+        const value = tag.slice(prefix.length);
+        return value ? [value] : [];
+      });
   }
 
   private conditionKey(condition: ConditionInstance): string {

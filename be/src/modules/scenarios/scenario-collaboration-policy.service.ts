@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { isRecord } from "@trpg/shared-types";
 
 export type ScenarioCollaboratorRole = "owner" | "editor" | "reviewer" | "viewer";
 export type ScenarioReviewStatus = "none" | "requested" | "approved" | "rejected" | "changes_requested";
@@ -252,11 +253,11 @@ export class ScenarioCollaborationPolicyService {
   }
 
   private findPrivatePaths(value: unknown, path: string): string[] {
-    if (!value || typeof value !== "object") return [];
     if (Array.isArray(value)) {
       return value.flatMap((entry, index) => this.findPrivatePaths(entry, `${path}[${index}]`));
     }
-    const record = value as Record<string, unknown>;
+    if (!isRecord(value)) return [];
+    const record = value;
     return Object.entries(record).flatMap(([key, child]) => {
       const childPath = `${path}.${key}`;
       const normalizedKey = key.toLowerCase();
@@ -281,7 +282,8 @@ export class ScenarioCollaborationPolicyService {
     if (value === null || value === undefined) return "null";
     if (typeof value !== "object") return JSON.stringify(value);
     if (Array.isArray(value)) return `[${value.map((entry) => this.stableStringify(entry)).join(",")}]`;
-    const record = value as Record<string, unknown>;
+    if (!isRecord(value)) return JSON.stringify(value);
+    const record = value;
     return `{${Object.keys(record)
       .sort()
       .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)

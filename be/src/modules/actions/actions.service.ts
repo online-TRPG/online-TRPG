@@ -16,6 +16,7 @@ import {
   UseInventoryItemResponseDto,
 } from "@trpg/shared-types";
 import { forbidden } from "../../common/exceptions/domain-error";
+import { parseJsonRecordOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -39,9 +40,7 @@ import { RestApprovalGuardService } from "./rest-approval-guard.service";
 import { RestApprovalRequestRecorderService } from "./rest-approval-request-recorder.service";
 import { RestApprovalResolutionService } from "./rest-approval-resolution.service";
 import {
-  P3_ITEM_RUNTIME_FLAGS_KEY,
-  parseJson,
-  parseP3ItemRuntimeFlags,
+  parseP3ItemRuntimeFlagsFromFlags,
 } from "./inventory-item-policy";
 import {
   buildRestActionRawText,
@@ -289,13 +288,8 @@ export class ActionsService {
 
     const { sessionScenario, state } =
       await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    const flags = parseJson<Record<string, unknown>>(
-      state.flagsJson,
-      {},
-    );
-    let itemRuntime = parseP3ItemRuntimeFlags(
-      flags[P3_ITEM_RUNTIME_FLAGS_KEY],
-    );
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
+    let itemRuntime = parseP3ItemRuntimeFlagsFromFlags(flags);
     const attunement = this.inventoryItemRuntimeState.resolveAttunement({
       executableItem,
       itemRuntime,

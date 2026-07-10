@@ -1,3 +1,4 @@
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { VttMapStateDto } from '@trpg/shared-types';
 
 function rectsOverlap(
@@ -34,7 +35,9 @@ function getMovementBlockers(map: VttMapStateDto) {
   return [
     ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
-    ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
+    ...(map.doorCells ?? []).filter(
+      (door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN
+    ),
   ];
 }
 
@@ -108,7 +111,10 @@ export function findReachableTokenMove(
   ];
 
   while (queue.length) {
-    const current = queue.shift()!;
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
     if (current.column === destination.column && current.row === destination.row) {
       return {
         x: Math.min(Math.max(destination.column * map.gridSize, 0), map.width - token.size),

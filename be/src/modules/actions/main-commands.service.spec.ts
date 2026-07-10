@@ -6,8 +6,10 @@ import {
 } from "@prisma/client";
 import {
   ActionOutcome,
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
   MainCommandCategory,
   MainCommandIntent,
+  MainCommandNarrativeCheckEffectDto,
   MainCommandStatus,
   MainCommandScreenType,
   MainCommandTargetType,
@@ -113,10 +115,12 @@ function createMainCommandsService(
   const sceneEntity = new MainCommandSceneEntityService();
   const validator = new MainCommandValidatorService(sceneEntity);
   const transitionEvaluator = new MainCommandTransitionEvaluatorService();
+  const progressEvidence = new MainCommandProgressEvidenceService(prisma, transitionEvaluator);
   const hintContext = new MainCommandHintContextService(
     prisma,
     sessionsService,
     transitionEvaluator,
+    progressEvidence,
   );
   const aiQuery = new MainCommandAiQueryService(aiService, hintContext);
   const interpreterPayload = new MainCommandInterpreterPayloadService(sceneEntity);
@@ -140,7 +144,6 @@ function createMainCommandsService(
   );
   const ruleFragments = new MainCommandRuleFragmentService();
   const ruleQuery = new MainCommandRuleQueryService(aiService, interpreterPayload, ruleFragments);
-  const progressEvidence = new MainCommandProgressEvidenceService(prisma, transitionEvaluator);
   const sceneInfo = new MainCommandSceneInfoService(sceneEntity);
   const transitionCandidates = new MainCommandTransitionCandidateService(
     prisma,
@@ -1677,11 +1680,12 @@ describe("MainCommandsService check result narration", () => {
   const createService = () =>
     new MainCommandCheckResultNarrationService({} as never);
 
-  const baseEffect = {
-    type: "mainCommandCheck",
+  const baseEffect: MainCommandNarrativeCheckEffectDto = {
+    type: MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK,
     requestId: "request-1",
     nodeId: "node-1",
     sessionCharacterId: "session-character-1",
+    intent: MainCommandIntent.GENERAL_GM_REQUEST,
     screenType: MainCommandScreenType.STORY,
     playerText: "뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
     actionSummary: "밀라 보스턴에 대한 뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
@@ -1761,8 +1765,8 @@ describe("MainCommandsService check result narration", () => {
 
   it("does not expose internal action type labels in fallback narration", () => {
     const service = createService();
-    const effect = {
-      type: "mainCommandCheck",
+    const effect: MainCommandNarrativeCheckEffectDto = {
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK,
       requestId: "request-1",
       nodeId: "node-1",
       sessionCharacterId: "session-character-1",

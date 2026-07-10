@@ -7,6 +7,10 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import type { StoredUser } from '../types/session';
+import {
+  decodeVttMapInteractionResponse,
+  decodeVttMapState,
+} from '@trpg/shared-types/frontend';
 import { requestJson } from './httpClient';
 
 export function getVttMap(
@@ -17,6 +21,7 @@ export function getVttMap(
   return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map`, {
     user,
     accessToken,
+    decode: decodeVttMapState,
   });
 }
 
@@ -32,6 +37,7 @@ export function updateVttMap(
     user,
     accessToken,
     body: payload,
+    decode: decodeVttMapState,
   });
 }
 
@@ -47,6 +53,7 @@ export function updateGmVttMap(
     user,
     accessToken,
     body: payload,
+    decode: decodeVttMapState,
   });
 }
 
@@ -61,6 +68,7 @@ export function moveSessionToken(
     user,
     accessToken,
     body: payload,
+    decode: decodeVttMapState,
   });
 }
 
@@ -75,6 +83,7 @@ export function createVttMapPing(
     user,
     accessToken,
     body: payload,
+    decode: decodeVttMapState,
   });
 }
 
@@ -89,5 +98,6 @@ export function runVttMapInteraction(
     user,
     accessToken,
     body: payload,
+    decode: decodeVttMapInteractionResponse,
   });
 }

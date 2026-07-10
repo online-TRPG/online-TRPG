@@ -131,9 +131,10 @@ export class ForcedMovementService {
     const enteredHazards = path
       .slice(1)
       .flatMap((point) => hazardsByPoint.get(this.pointKey(point)) ?? []);
-    const enteredTerrainEffects = enteredHazards
-      .map((hazard) => this.resolveEnteredTerrainEffect(hazard))
-      .filter((effect): effect is ForcedMovementEnteredTerrainEffect => effect !== null);
+    const enteredTerrainEffects = enteredHazards.flatMap((hazard) => {
+      const effect = this.resolveEnteredTerrainEffect(hazard);
+      return effect ? [effect] : [];
+    });
 
     return {
       mode: input.mode,
@@ -192,12 +193,18 @@ export class ForcedMovementService {
   }
 
   private normalizeVector(vector: { x: number; y: number }): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-    const x = Math.sign(vector.x) as -1 | 0 | 1;
-    const y = Math.sign(vector.y) as -1 | 0 | 1;
+    const x = this.normalizeAxis(vector.x);
+    const y = this.normalizeAxis(vector.y);
     if (x === 0 && y === 0) {
       throw new Error("origin and target must not be the same point.");
     }
     return { x, y };
+  }
+
+  private normalizeAxis(value: number): -1 | 0 | 1 {
+    if (value < 0) return -1;
+    if (value > 0) return 1;
+    return 0;
   }
 
   private normalizePoint(

@@ -14,6 +14,13 @@ const HIT_DIE_AVERAGE_BY_KEY: Readonly<Record<string, number>> = {
   d12: 7,
 };
 
+const HIT_DIE_MAX_BY_KEY: Readonly<Record<string, number>> = {
+  d6: 6,
+  d8: 8,
+  d10: 10,
+  d12: 12,
+};
+
 const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   Record<string, { armorClass: number; speed: number }>
 > = {
@@ -37,7 +44,7 @@ export function getExpectedMaxHp(
   constitution: number
 ): number {
   const normalizedHitDie = hitDie?.toLowerCase() ?? 'd6';
-  const hitDieMax = Number(normalizedHitDie.replace('d', '')) || 6;
+  const hitDieMax = HIT_DIE_MAX_BY_KEY[normalizedHitDie] ?? HIT_DIE_MAX_BY_KEY.d6;
   const hitDieAverage = HIT_DIE_AVERAGE_BY_KEY[normalizedHitDie] ?? Math.ceil(hitDieMax / 2);
   const constitutionModifier = Math.floor((constitution - 10) / 2);
 

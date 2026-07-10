@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { InventoryItemDto } from "@trpg/shared-types";
+import { parseJsonStringArrayOrFallback } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 
 @Injectable()
@@ -14,9 +15,9 @@ export class SessionInventoryService {
     await this.prisma.$transaction(async (tx) => {
       await tx.inventoryEntry.deleteMany({ where: { sessionCharacterId } });
 
-      const itemDefinitionIds = inventory
-        .map((item) => item.itemDefinitionId)
-        .filter((value): value is string => Boolean(value));
+      const itemDefinitionIds = inventory.flatMap((item) =>
+        item.itemDefinitionId ? [item.itemDefinitionId] : [],
+      );
       if (!itemDefinitionIds.length) {
         return;
       }
@@ -26,13 +27,17 @@ export class SessionInventoryService {
         select: { id: true },
       });
       const existingDefinitionIds = new Set(existingDefinitions.map((item) => item.id));
-      const entries = inventory
-        .filter((item) => item.itemDefinitionId && existingDefinitionIds.has(item.itemDefinitionId))
-        .map((item) => ({
+      const entries = inventory.flatMap((item) => {
+        const itemDefinitionId = item.itemDefinitionId;
+        if (!itemDefinitionId || !existingDefinitionIds.has(itemDefinitionId)) {
+          return [];
+        }
+        return [{
           sessionCharacterId,
-          itemDefinitionId: item.itemDefinitionId!,
+          itemDefinitionId,
           quantity: Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1,
-        }));
+        }];
+      });
 
       if (entries.length) {
         await tx.inventoryEntry.createMany({ data: entries });
@@ -146,31 +151,36 @@ export class SessionInventoryService {
       where: { id: sessionCharacterId },
       data: {
         inventorySnapshotJson: JSON.stringify(
-          entries.map((entry) => ({
-            id: entry.id,
-            name: entry.itemDefinition.name,
-            quantity: entry.quantity,
-            itemDefinitionId: entry.itemDefinitionId,
-            itemType: entry.itemDefinition.itemType,
-            weightLb: entry.itemDefinition.weightLb ?? undefined,
-            volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
-            damageDice: entry.itemDefinition.damageDice ?? undefined,
-            damageType: entry.itemDefinition.damageType ?? undefined,
-            properties: this.parseJson<string[] | undefined>(
+          entries.map((entry) => {
+            const properties = parseJsonStringArrayOrFallback(
               entry.itemDefinition.propertiesJson,
               undefined,
-            ),
-            containerId: entry.containerEntryId ?? undefined,
-          })),
+            );
+            return {
+              id: entry.id,
+              name: entry.itemDefinition.name,
+              quantity: entry.quantity,
+              itemDefinitionId: entry.itemDefinitionId,
+              itemType: entry.itemDefinition.itemType,
+              weightLb: entry.itemDefinition.weightLb ?? undefined,
+              volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+              damageDice: entry.itemDefinition.damageDice ?? undefined,
+              damageType: entry.itemDefinition.damageType ?? undefined,
+              rangeFt: this.readRangeProperty(properties, "range:") ?? undefined,
+              longRangeFt: this.readRangeProperty(properties, "range_long:") ?? undefined,
+              properties,
+              containerId: entry.containerEntryId ?? undefined,
+            };
+          }),
         ),
       },
     });
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    return JSON.parse(value) as T;
+  private readRangeProperty(properties: string[] | undefined, prefix: "range:" | "range_long:"): number | null {
+    const value = properties?.find((property) => property.toLowerCase().startsWith(prefix))?.slice(prefix.length);
+    const rangeFt = Number(value);
+    return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
   }
+
 }

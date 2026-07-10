@@ -57,7 +57,7 @@ export function splitClassFeatureSummary(summary: string): string[] {
   return summary
     .split(',')
     .map((part) => part.trim())
-    .filter(Boolean);
+    .filter((part) => part.length > 0);
 }
 
 function normalizeFeatureLookupLabel(label: string) {
@@ -232,19 +232,21 @@ export function groupFeaturePreviewItemsByLevel(
 }
 
 export function countFeaturePreviewStatuses(items: CharacterFeaturePreviewItem[]) {
+  const initialCounts: Record<CharacterFeaturePreviewItem['status'] | 'total', number> = {
+    total: 0,
+    automatic: 0,
+    required: 0,
+    selected: 0,
+    pending: 0,
+  };
+
   return items.reduce(
     (acc, item) => {
       acc.total += 1;
       acc[item.status] += 1;
       return acc;
     },
-    {
-      total: 0,
-      automatic: 0,
-      required: 0,
-      selected: 0,
-      pending: 0,
-    } as Record<CharacterFeaturePreviewItem['status'] | 'total', number>
+    initialCounts
   );
 }
 

@@ -11,7 +11,6 @@ export class MainCommandInventoryLabelService {
     const normalized = itemId.trim().toLowerCase();
     const matched = context.inventoryItems.find((item) =>
       [item.id, item.itemDefinitionId, item.name]
-        .filter((value): value is string => Boolean(value))
         .map((value) => value.trim().toLowerCase())
         .includes(normalized),
     );

@@ -3,32 +3,76 @@ import { ActionOutcome as PrismaActionOutcome, Prisma, SessionCharacterStatus as
 import {
   ActionOutcome,
   DiceAdvantageState,
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
+  MainCommandCheckEffectDto,
   MainCommandCheckOptionDto,
   MainCommandStatus,
+  ScenarioClueDto,
+  SessionSnapshotDto,
   TurnLogResponseDto,
+  VTT_CHECK_DC_MAX,
+  VTT_CHECK_DC_MIN,
+  VttDoorCheckEffectDto,
+  VttHazardCheckEffectDto,
   VttMapStateDto,
+  VttObjectCheckEffectDto,
   VttObjectHazardDto,
+  VTT_CHECK_EFFECT_ACTIONS,
+  VTT_DOOR_STATES,
+  decodeLenientScenarioClueArray,
+  decodeTurnLogDiceResult,
+  decodeTurnLogStateDiff,
+  decodeTurnLogStructuredAction,
+  isRecord,
 } from "@trpg/shared-types";
+import {
+  decodeStringArray,
+  parseJsonOrFallback,
+  parseJsonOrThrow,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
-import { SessionRevealService } from "./session-reveal.service";
+import {
+  SessionRevealService,
+  type RecordSessionRevealParams,
+  type RevealClueSnapshot,
+  type RevealEventSnapshot,
+  type RevealItemSnapshot,
+} from "./session-reveal.service";
+
+type Rect = { x: number; y: number; width: number; height: number };
+type SessionRevealRuntimeValue = Parameters<SessionRevealService["toRevealClueSummary"]>[0];
+type VttObjectRevealInput =
+  | { contentId: string; contentKind: "clue"; snapshot: RevealClueSnapshot }
+  | { contentId: string; contentKind: "item"; snapshot: RevealItemSnapshot }
+  | { contentId: string; contentKind: "event"; snapshot: RevealEventSnapshot };
 
 export type SessionVttObjectRuntime = {
   prisma: PrismaService;
   realtimeEvents: RealtimeEventsService;
   sessionReveal: SessionRevealService;
-  buildSnapshot: (...args: any[]) => any;
-  clampNumber: (...args: any[]) => any;
-  createSessionRevealRuntime: (...args: any[]) => any;
-  getSessionEntityOrThrow: (...args: any[]) => any;
-  getStringProperty: (...args: any[]) => any;
-  getVttMapBaseline: (...args: any[]) => any;
-  getVttMapForSessionScenario: (...args: any[]) => any;
-  normalizeVttMap: (...args: any[]) => any;
-  parseJson: (...args: any[]) => any;
-  recordSessionReveal: (...args: any[]) => any;
-  rectsOverlap: (...args: any[]) => any;
-  refreshSessionInventorySnapshot: (...args: any[]) => any;
+  buildSnapshot: (sessionId: string) => Promise<SessionSnapshotDto>;
+  clampNumber: (value: number, min: number, max: number) => number;
+  createSessionRevealRuntime: () => SessionRevealRuntimeValue;
+  getSessionEntityOrThrow: (sessionId: string) => Promise<{ id: string; hostUserId: string }>;
+  getStringProperty: (value: Record<string, unknown>, key: string) => string | null;
+  getVttMapBaseline: (
+    sessionId: string,
+    sessionScenarioId: string,
+    state: { currentNodeId: string | null; flagsJson: string | null },
+  ) => Promise<VttMapStateDto>;
+  getVttMapForSessionScenario: (sessionId: string, sessionScenarioId: string) => Promise<VttMapStateDto>;
+  normalizeVttMap: (map: VttMapStateDto, scenarioNodeId: string | null) => VttMapStateDto;
+  recordSessionReveal: (
+    tx: Prisma.TransactionClient,
+    params: RecordSessionRevealParams,
+  ) => Promise<unknown>;
+  rectsOverlap: (a: Rect, b: Rect) => boolean;
+  refreshSessionInventorySnapshot: (
+    sessionCharacterId: string,
+    client?: Prisma.TransactionClient | PrismaService,
+  ) => Promise<void>;
 };
 
 @Injectable()
@@ -53,52 +97,91 @@ export class SessionVttObjectRuntimeRunner {
     return this.runtime.sessionReveal;
   }
 
-  private buildSnapshot(...args: any[]): any {
-    return this.runtime.buildSnapshot(...args);
+  private buildSnapshot(sessionId: string): Promise<SessionSnapshotDto> {
+    return this.runtime.buildSnapshot(sessionId);
   }
 
-  private clampNumber(...args: any[]): any {
-    return this.runtime.clampNumber(...args);
+  private clampNumber(value: number, min: number, max: number): number {
+    return this.runtime.clampNumber(value, min, max);
   }
 
-  private createSessionRevealRuntime(...args: any[]): any {
-    return this.runtime.createSessionRevealRuntime(...args);
+  private createSessionRevealRuntime(): SessionRevealRuntimeValue {
+    return this.runtime.createSessionRevealRuntime();
   }
 
-  private getSessionEntityOrThrow(...args: any[]): any {
-    return this.runtime.getSessionEntityOrThrow(...args);
+  private getSessionEntityOrThrow(sessionId: string): Promise<{ id: string; hostUserId: string }> {
+    return this.runtime.getSessionEntityOrThrow(sessionId);
   }
 
-  private getStringProperty(...args: any[]): string | null {
-    return this.runtime.getStringProperty(...args) as string | null;
+  private getStringProperty(value: Record<string, unknown>, key: string): string | null {
+    return this.runtime.getStringProperty(value, key);
   }
 
-  private getVttMapBaseline(...args: any[]): Promise<VttMapStateDto> {
-    return this.runtime.getVttMapBaseline(...args) as Promise<VttMapStateDto>;
+  private getVttMapBaseline(
+    sessionId: string,
+    sessionScenarioId: string,
+    state: { currentNodeId: string | null; flagsJson: string | null },
+  ): Promise<VttMapStateDto> {
+    return this.runtime.getVttMapBaseline(sessionId, sessionScenarioId, state);
   }
 
-  private getVttMapForSessionScenario(...args: any[]): Promise<VttMapStateDto> {
-    return this.runtime.getVttMapForSessionScenario(...args) as Promise<VttMapStateDto>;
+  private getVttMapForSessionScenario(sessionId: string, sessionScenarioId: string): Promise<VttMapStateDto> {
+    return this.runtime.getVttMapForSessionScenario(sessionId, sessionScenarioId);
   }
 
-  private normalizeVttMap(...args: any[]): VttMapStateDto {
-    return this.runtime.normalizeVttMap(...args) as VttMapStateDto;
+  private normalizeVttMap(map: VttMapStateDto, scenarioNodeId: string | null): VttMapStateDto {
+    return this.runtime.normalizeVttMap(map, scenarioNodeId);
   }
 
-  private parseJson<T>(...args: any[]): T {
-    return this.runtime.parseJson(...args) as T;
+  private async publishVttMapUpdate(sessionId: string, map: VttMapStateDto, publishSnapshot = false): Promise<void> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.realtimeEvents.emitVttMapUpdated(session.id, {
+      hostUserId: session.hostUserId,
+      hostMap: map,
+      playerMap: this.redactVttMapForPlayer(map),
+    });
+    if (publishSnapshot) {
+      this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
+    }
   }
 
-  private recordSessionReveal(...args: any[]): any {
-    return this.runtime.recordSessionReveal(...args);
+  private async persistAndPublishVttMap(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    flags: Record<string, unknown>;
+    map: VttMapStateDto;
+    publishSnapshot?: boolean;
+  }): Promise<void> {
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...params.flags,
+          vttMap: params.map,
+        }),
+      },
+    });
+
+    await this.publishVttMapUpdate(params.sessionId, params.map, params.publishSnapshot);
   }
 
-  private rectsOverlap(...args: any[]): boolean {
-    return this.runtime.rectsOverlap(...args) as boolean;
+  private recordSessionReveal(
+    tx: Prisma.TransactionClient,
+    params: Parameters<SessionVttObjectRuntime["recordSessionReveal"]>[1],
+  ): Promise<unknown> {
+    return this.runtime.recordSessionReveal(tx, params);
   }
 
-  private refreshSessionInventorySnapshot(...args: any[]): any {
-    return this.runtime.refreshSessionInventorySnapshot(...args);
+  private rectsOverlap(a: Rect, b: Rect): boolean {
+    return this.runtime.rectsOverlap(a, b);
+  }
+
+  private refreshSessionInventorySnapshot(
+    sessionCharacterId: string,
+    client?: Prisma.TransactionClient | PrismaService,
+  ): Promise<void> {
+    return this.runtime.refreshSessionInventorySnapshot(sessionCharacterId, client);
   }
 
   async describeVttObjectAtPoint(params: {
@@ -175,22 +258,20 @@ export class SessionVttObjectRuntimeRunner {
         itemDefinitionByLookup.set(itemDefinition.id, itemDefinition);
         itemDefinitionByLookup.set(itemDefinition.name, itemDefinition);
       });
-      const revealInputs: Array<{
-        contentId: string;
-        contentKind: "clue" | "item" | "event";
-        snapshot: Record<string, unknown>;
-      }> = this.getVttObjectHiddenContentKeys(objectCell)
-        .map((item) => {
+      const revealInputs: VttObjectRevealInput[] = this.getVttObjectHiddenContentKeys(objectCell)
+        .map((item): VttObjectRevealInput => {
           if (item.contentKind === "clue") {
             return {
-              ...item,
-              snapshot: clueSnapshots.get(item.contentId) ?? { id: item.contentId },
+              contentId: item.contentId,
+              contentKind: "clue",
+              snapshot: this.toRecordSnapshot(clueSnapshots.get(item.contentId), item.contentId),
             };
           }
           if (item.contentKind === "item") {
             const itemDefinition = itemDefinitionByLookup.get(item.contentId);
             return {
-              ...item,
+              contentId: item.contentId,
+              contentKind: "item",
               snapshot: {
                 id: itemDefinition?.id ?? item.contentId,
                 name: itemDefinition?.name ?? item.contentId,
@@ -199,7 +280,8 @@ export class SessionVttObjectRuntimeRunner {
             };
           }
           return {
-            ...item,
+            contentId: item.contentId,
+            contentKind: "event",
             snapshot: { id: item.contentId, sourceObjectId: objectCell.id },
           };
         })
@@ -225,20 +307,13 @@ export class SessionVttObjectRuntimeRunner {
         : [];
       const existingRevealKeys = new Set(existingReveals.map((reveal) => `${reveal.contentKind}:${reveal.contentId}`));
       const newRevealInputs = filteredRevealInputs.filter((item) => !existingRevealKeys.has(`${item.contentKind}:${item.contentId}`));
-      const revealedItemCandidates = filteredRevealInputs
-        .filter((item) => item.contentKind === "item")
-        .map((item) => {
-          const itemDefinition = itemDefinitionByLookup.get(item.contentId);
-          return itemDefinition ? { contentId: item.contentId, itemDefinition } : null;
-        })
-        .filter(
-          (
-            item,
-          ): item is {
-            contentId: string;
-            itemDefinition: { id: string; name: string; description: string | null };
-          } => Boolean(item),
-        );
+      const revealedItemCandidates = filteredRevealInputs.flatMap((item) => {
+        if (item.contentKind !== "item") {
+          return [];
+        }
+        const itemDefinition = itemDefinitionByLookup.get(item.contentId);
+        return itemDefinition ? [{ contentId: item.contentId, itemDefinition }] : [];
+      });
       const partyOwnedItemDefinitionIds =
         params.sessionCharacterId && revealedItemCandidates.length
           ? await this.getPartyInventoryItemDefinitionIds(
@@ -254,22 +329,20 @@ export class SessionVttObjectRuntimeRunner {
 
       await Promise.all(
         newRevealInputs.map((item) =>
-          this.recordSessionReveal(tx, {
+          this.recordVttObjectReveal(tx, {
             sessionScenarioId: params.sessionScenarioId,
-            contentId: item.contentId,
-            contentKind: item.contentKind,
-            scope: "party",
             revealedBy: params.revealedBy ?? "system",
             reason: "vtt_object_investigation",
             turnLogId: params.turnLogId,
-            snapshot: item.snapshot,
+            item,
           }),
         ),
       );
-      if (params.sessionCharacterId && grantItemCandidates.length) {
+      const sessionCharacterId = params.sessionCharacterId;
+      if (sessionCharacterId && grantItemCandidates.length) {
         await tx.inventoryEntry.createMany({
           data: grantItemCandidates.map(({ itemDefinition }) => ({
-            sessionCharacterId: params.sessionCharacterId!,
+            sessionCharacterId,
             itemDefinitionId: itemDefinition.id,
             quantity: 1,
           })),
@@ -279,9 +352,17 @@ export class SessionVttObjectRuntimeRunner {
 
       return {
         count: newRevealInputs.length + recoveredItemCount,
-        revealedClues: newRevealInputs
-          .filter((item) => item.contentKind === "clue")
-          .map((item) => this.sessionReveal.toRevealClueSummary(this.createSessionRevealRuntime(), item.contentId, item.snapshot)),
+        revealedClues: newRevealInputs.flatMap((item) =>
+          item.contentKind === "clue"
+            ? [
+                this.sessionReveal.toRevealClueSummary(
+                  this.createSessionRevealRuntime(),
+                  item.contentId,
+                  item.snapshot,
+                ),
+              ]
+            : [],
+        ),
         revealedItems: grantItemCandidates.map(({ itemDefinition }) => ({
           id: itemDefinition.id,
           name: itemDefinition.name,
@@ -313,7 +394,7 @@ export class SessionVttObjectRuntimeRunner {
       return { count: 0, objectNames: [] };
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const objectCells = map.objectCells ?? [];
     const partyTokens = map.tokens.filter((token) => token.sessionCharacterId && token.hidden !== true && token.isHostile !== true);
@@ -358,22 +439,11 @@ export class SessionVttObjectRuntimeRunner {
       },
       state.currentNodeId ?? null,
     );
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: params.sessionScenarioId },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...flags,
-          vttMap: nextMap,
-        }),
-      },
-    });
-
-    const session = await this.getSessionEntityOrThrow(params.sessionId);
-    this.realtimeEvents.emitVttMapUpdated(session.id, {
-      hostUserId: session.hostUserId,
-      hostMap: nextMap,
-      playerMap: this.redactVttMapForPlayer(nextMap),
+    await this.persistAndPublishVttMap({
+      sessionId: params.sessionId,
+      sessionScenarioId: params.sessionScenarioId,
+      flags,
+      map: nextMap,
     });
 
     return { count: observableObjectIds.size, objectNames };
@@ -389,18 +459,18 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const result = await this.updateVttDoorAtPoint(params, (door) => {
       const doorName = door.name?.trim() || "문";
 
-      if (door.state === "open") {
+      if (door.state === VTT_DOOR_STATES.OPEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 지나갈 수 있습니다.` };
       }
-      if (door.state === "locked") {
+      if (door.state === VTT_DOOR_STATES.LOCKED) {
         const requiredKeyId = door.keyItemId?.trim() || null;
         const providedItemId = params.itemId?.trim() || null;
         if (requiredKeyId && providedItemId !== requiredKeyId) {
@@ -416,13 +486,13 @@ export class SessionVttObjectRuntimeRunner {
             status: MainCommandStatus.CHECK_REQUIRED,
             message: `${doorName}은 잠겨 있습니다. 자물쇠를 열려면 판정이 필요합니다.`,
             checkOptions: [{ skill: "sleight_of_hand", dc: 15, reason: "잠긴 문 해제" }],
-            checkEffect: this.buildVttDoorCheckEffect(door, params, "open"),
+            checkEffect: this.buildVttDoorCheckEffect(door, params, VTT_CHECK_EFFECT_ACTIONS.OPEN),
           };
         }
       }
 
       return {
-        door: { ...door, state: "open" as const },
+        door: { ...door, state: VTT_DOOR_STATES.OPEN },
         status: MainCommandStatus.RESOLVED,
         message: `${doorName}을 열었습니다.`,
       };
@@ -445,18 +515,18 @@ export class SessionVttObjectRuntimeRunner {
     return this.updateVttDoorAtPoint(params, (door) => {
       const doorName = door.name?.trim() || "문";
 
-      if (door.state === "closed") {
+      if (door.state === VTT_DOOR_STATES.CLOSED) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 닫혀 있습니다.` };
       }
-      if (door.state === "locked") {
+      if (door.state === VTT_DOOR_STATES.LOCKED) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 잠겨 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.IMPOSSIBLE, message: `${doorName}은 파괴되어 닫을 수 없습니다.` };
       }
 
       return {
-        door: { ...door, state: "closed" as const },
+        door: { ...door, state: VTT_DOOR_STATES.CLOSED },
         status: MainCommandStatus.RESOLVED,
         message: `${doorName}을 닫았습니다.`,
       };
@@ -487,7 +557,7 @@ export class SessionVttObjectRuntimeRunner {
       };
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
     if (!objectCell || (!params.includeHiddenObject && objectCell.visibleToPlayers === false)) {
@@ -506,7 +576,7 @@ export class SessionVttObjectRuntimeRunner {
     }
 
     const revealEvent = events[0];
-    const revealRadiusFeet = this.clampNumber(Number(revealEvent.effect?.revealRadiusFeet), 5, 500);
+    const revealRadiusFeet = this.readIntegerInRange(revealEvent.effect?.revealRadiusFeet, 5, 500, 5);
     const revealBox = this.buildFogRevealBoxForObject(map, objectCell, revealRadiusFeet);
     const nextFogRects = map.fogRects.flatMap((rect) => this.subtractFogBox(rect, revealBox)).slice(0, 200);
     if (JSON.stringify(nextFogRects) === JSON.stringify(map.fogRects)) {
@@ -555,13 +625,7 @@ export class SessionVttObjectRuntimeRunner {
       });
     });
 
-    const session = await this.getSessionEntityOrThrow(params.sessionId);
-    this.realtimeEvents.emitVttMapUpdated(session.id, {
-      hostUserId: session.hostUserId,
-      hostMap: nextMap,
-      playerMap: this.redactVttMapForPlayer(nextMap),
-    });
-    this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
+    await this.publishVttMapUpdate(params.sessionId, nextMap, true);
 
     return {
       status: MainCommandStatus.RESOLVED,
@@ -573,15 +637,15 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.updateVttDoorAtPoint(params, (door) => {
       const doorName = door.name?.trim() || "문";
 
-      if (door.state === "open") {
+      if (door.state === VTT_DOOR_STATES.OPEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 있습니다.` };
       }
       if (!door.canBreak) {
@@ -597,12 +661,12 @@ export class SessionVttObjectRuntimeRunner {
           status: MainCommandStatus.CHECK_REQUIRED,
           message: `${doorName}을 부수려면 DC ${door.breakCheckDc} 판정이 필요합니다.`,
           checkOptions: [{ ability: "str", dc: door.breakCheckDc, reason: "문 파괴" }],
-          checkEffect: this.buildVttDoorCheckEffect(door, params, "broken"),
+          checkEffect: this.buildVttDoorCheckEffect(door, params, VTT_CHECK_EFFECT_ACTIONS.BROKEN),
         };
       }
 
       return {
-        door: { ...door, state: "broken" as const },
+        door: { ...door, state: VTT_DOOR_STATES.BROKEN },
         status: MainCommandStatus.RESOLVED,
         message: `${doorName}을 부쉈습니다.`,
       };
@@ -613,7 +677,7 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.updateVttObjectAtPoint(params, (cell) => {
       const objectName = cell.name?.trim() || "오브젝트";
@@ -655,25 +719,25 @@ export class SessionVttObjectRuntimeRunner {
   }): Promise<{ status: MainCommandStatus; message: string }> {
     const result = await this.updateVttDoorById(params, (door) => {
       const doorName = door.name?.trim() || "문";
-      if (params.effect === "open") {
-        if (door.state === "open") {
+      if (params.effect === VTT_CHECK_EFFECT_ACTIONS.OPEN) {
+        if (door.state === VTT_DOOR_STATES.OPEN) {
           return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
         }
         return {
-          door: { ...door, state: "open" as const },
+          door: { ...door, state: VTT_DOOR_STATES.OPEN },
           status: MainCommandStatus.RESOLVED,
           message: `판정에 성공해 ${doorName}을 열었습니다.`,
         };
       }
 
-      if (door.state === "open") {
+      if (door.state === VTT_DOOR_STATES.OPEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
       }
-      if (door.state === "broken") {
+      if (door.state === VTT_DOOR_STATES.BROKEN) {
         return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 있습니다.` };
       }
       return {
-        door: { ...door, state: "broken" as const },
+        door: { ...door, state: VTT_DOOR_STATES.BROKEN },
         status: MainCommandStatus.RESOLVED,
         message: `판정에 성공해 ${doorName}을 부쉈습니다.`,
       };
@@ -717,7 +781,7 @@ export class SessionVttObjectRuntimeRunner {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
@@ -754,12 +818,12 @@ export class SessionVttObjectRuntimeRunner {
       };
     }
 
-    const dc = this.clampNumber(Number(hazard.detectionDc) || 15, 5, 30);
+    const dc = this.readIntegerInRange(hazard.detectionDc, 5, 30, 15);
     return {
       status: MainCommandStatus.CHECK_REQUIRED,
       message: `${hazardName}을 해제하려면 판정이 필요합니다.`,
       checkOptions: [{ skill: "sleight_of_hand", dc, reason: "함정 해제" }],
-      checkEffect: this.buildVttHazardCheckEffect(hazardCell, params, "disarm"),
+      checkEffect: this.buildVttHazardCheckEffect(hazardCell, params, VTT_CHECK_EFFECT_ACTIONS.DISARM),
     };
   }
 
@@ -849,7 +913,7 @@ export class SessionVttObjectRuntimeRunner {
         continue;
       }
 
-      const triggerDistanceFeet = this.clampNumber(Number(event.trigger?.distanceFeet), 0, 500);
+      const triggerDistanceFeet = this.readIntegerInRange(event.trigger?.distanceFeet, 0, 500, 0);
       const isNear = partyTokens.some(
         (token) => this.calculatePointToRectDistanceFeet(params.map, this.getTokenCenter(token), objectCell) <= triggerDistanceFeet,
       );
@@ -857,7 +921,7 @@ export class SessionVttObjectRuntimeRunner {
         continue;
       }
 
-      const revealRadiusFeet = this.clampNumber(Number(event.effect?.revealRadiusFeet), 5, 500);
+      const revealRadiusFeet = this.readIntegerInRange(event.effect?.revealRadiusFeet, 5, 500, 5);
       const revealBox = this.buildFogRevealBoxForObject(params.map, objectCell, revealRadiusFeet);
       const nextFogRects = fogRects.flatMap((rect) => this.subtractFogBox(rect, revealBox)).slice(0, 200);
       if (JSON.stringify(nextFogRects) === JSON.stringify(fogRects)) {
@@ -936,7 +1000,11 @@ export class SessionVttObjectRuntimeRunner {
       return params.map;
     }
 
-    const partyTokens = params.map.tokens.filter((token) => movedTokenIds.has(token.id));
+    const partyTokens = params.map.tokens.flatMap((token) =>
+      movedTokenIds.has(token.id) && typeof token.sessionCharacterId === "string"
+        ? [{ ...token, sessionCharacterId: token.sessionCharacterId }]
+        : [],
+    );
     if (!partyTokens.length) {
       return params.map;
     }
@@ -944,7 +1012,7 @@ export class SessionVttObjectRuntimeRunner {
     const sessionCharacters = await this.prisma.sessionCharacter.findMany({
       where: {
         sessionId: params.sessionId,
-        id: { in: partyTokens.map((token) => token.sessionCharacterId as string) },
+        id: { in: partyTokens.map((token) => token.sessionCharacterId) },
         status: PrismaSessionCharacterStatus.ACTIVE,
       },
       include: { character: true },
@@ -961,7 +1029,7 @@ export class SessionVttObjectRuntimeRunner {
         continue;
       }
 
-      const detectionRadiusFeet = this.clampNumber(Number(hazard.detectionRadiusCells) || 3, 1, 20) * 5;
+      const detectionRadiusFeet = this.readIntegerInRange(hazard.detectionRadiusCells, 1, 20, 3) * 5;
       const attempted = new Set(hazard.attemptedBySessionCharacterIds ?? []);
       const detected = new Set(hazard.detectedBySessionCharacterIds ?? []);
       const alreadyDetected = hazard.triggerOnce !== false && detected.size > 0;
@@ -992,7 +1060,7 @@ export class SessionVttObjectRuntimeRunner {
         }
 
         const check = this.rollHazardDetection(sessionCharacter.character);
-        const detectionDc = this.clampNumber(Number(hazard.detectionDc) || 12, 1, 40);
+        const detectionDc = this.readIntegerInRange(hazard.detectionDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX, 12);
         const success = check.total >= detectionDc;
         attempted.add(sessionCharacterId);
         if (success) {
@@ -1049,10 +1117,15 @@ export class SessionVttObjectRuntimeRunner {
     skill: string;
     ability: string;
   } {
-    const abilities = this.parseJson<Record<string, number>>(character.abilitiesJson, {});
-    const wis = Number(abilities.wis) || 10;
+    const abilities = this.parseNumberRecordJson(character.abilitiesJson);
+    const wis = this.readAbilityScore(abilities.wis, 10);
     const abilityModifier = Math.floor((wis - 10) / 2);
-    const proficientSkills = this.parseJson<string[]>(character.proficientSkillsJson, []);
+    const proficientSkills = parseJsonOrThrow(
+      character.proficientSkillsJson,
+      [],
+      decodeStringArray,
+      "character.proficientSkillsJson",
+    );
     const hasPerception = proficientSkills.some((skill) => {
       const normalized = skill.toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
       return normalized === "perception" || normalized === "감지";
@@ -1067,6 +1140,32 @@ export class SessionVttObjectRuntimeRunner {
       skill: "perception",
       ability: "wis",
     };
+  }
+
+  private parseNumberRecordJson(value: string | null | undefined): Record<string, number> {
+    return parseJsonOrThrow(value, {}, (parsed) => this.decodeNumberRecord(parsed), "character.abilitiesJson");
+  }
+
+  private readIntegerInRange(value: unknown, min: number, max: number, fallback: number): number {
+    return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+      ? value
+      : fallback;
+  }
+
+  private readAbilityScore(value: unknown, fallback: number): number {
+    return this.readIntegerInRange(value, 1, 30, fallback);
+  }
+
+  private decodeNumberRecord(value: unknown): Record<string, number> {
+    if (!isRecord(value)) {
+      throw new Error("number record must be an object.");
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, numericValue]) => {
+      if (typeof numericValue !== "number" || !Number.isFinite(numericValue)) {
+        throw new Error(`${key} must be a finite number.`);
+      }
+      return [key, numericValue];
+    }));
   }
 
   private async createAutoHazardTurnLog(params: {
@@ -1115,6 +1214,8 @@ export class SessionVttObjectRuntimeRunner {
       skill: params.check.skill,
       outcome: params.success ? "SUCCESS" : "FAILURE",
     };
+    const diceResultForLog = decodeTurnLogDiceResult(diceResult);
+    const structuredActionForLog = decodeTurnLogStructuredAction(structuredAction);
     const created = await this.prisma.turnLog.create({
       data: {
         sessionId: params.sessionId,
@@ -1124,8 +1225,8 @@ export class SessionVttObjectRuntimeRunner {
         sessionCharacterId: params.sessionCharacterId,
         turnNumber,
         rawInput: "[자동 위험탐지]",
-        structuredActionJson: JSON.stringify(structuredAction),
-        diceResultJson: JSON.stringify(diceResult),
+        structuredActionJson: JSON.stringify(structuredActionForLog),
+        diceResultJson: JSON.stringify(diceResultForLog),
         stateDiffJson: null,
         outcome: params.success ? PrismaActionOutcome.SUCCESS : PrismaActionOutcome.FAILURE,
         narration,
@@ -1142,8 +1243,8 @@ export class SessionVttObjectRuntimeRunner {
       actionCreatedAt: null,
       actionQueueStatus: null,
       rawInput: created.rawInput,
-      structuredAction,
-      diceResult,
+      structuredAction: structuredActionForLog,
+      diceResult: diceResultForLog,
       stateDiff: null,
       outcome: params.success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: created.narration,
@@ -1163,18 +1264,16 @@ export class SessionVttObjectRuntimeRunner {
       return { map: params.map, triggered: false };
     }
 
-    const movedTokens = params.map.tokens
-      .map((token) => {
-        const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
-        if (!previousToken || !token.sessionCharacterId || token.hidden === true) {
-          return null;
-        }
-        if (previousToken.x === token.x && previousToken.y === token.y) {
-          return null;
-        }
-        return { token, previousToken };
-      })
-      .filter((entry): entry is { token: VttMapStateDto["tokens"][number]; previousToken: VttMapStateDto["tokens"][number] } => Boolean(entry));
+    const movedTokens = params.map.tokens.flatMap((token) => {
+      const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
+      if (!previousToken || !token.sessionCharacterId || token.hidden === true) {
+        return [];
+      }
+      if (previousToken.x === token.x && previousToken.y === token.y) {
+        return [];
+      }
+      return [{ token, previousToken }];
+    });
 
     if (!movedTokens.length) {
       return { map: params.map, triggered: false };
@@ -1316,6 +1415,7 @@ export class SessionVttObjectRuntimeRunner {
       damageType: params.damage.damageType,
       outcome: "SUCCESS",
     };
+    const diceResultForLog = decodeTurnLogDiceResult(diceResult);
     const stateDiff = {
       reason: "vtt_hazard_trigger",
       diff: {
@@ -1328,6 +1428,8 @@ export class SessionVttObjectRuntimeRunner {
         ],
       },
     };
+    const structuredActionForLog = decodeTurnLogStructuredAction(structuredAction);
+    const stateDiffForLog = decodeTurnLogStateDiff(stateDiff);
     const created = await this.prisma.turnLog.create({
       data: {
         sessionId: params.sessionId,
@@ -1337,9 +1439,9 @@ export class SessionVttObjectRuntimeRunner {
         sessionCharacterId: params.sessionCharacterId,
         turnNumber,
         rawInput: "[함정 발동]",
-        structuredActionJson: JSON.stringify(structuredAction),
-        diceResultJson: JSON.stringify(diceResult),
-        stateDiffJson: JSON.stringify(stateDiff),
+        structuredActionJson: JSON.stringify(structuredActionForLog),
+        diceResultJson: JSON.stringify(diceResultForLog),
+        stateDiffJson: JSON.stringify(stateDiffForLog),
         outcome: PrismaActionOutcome.SUCCESS,
         narration,
       },
@@ -1355,9 +1457,9 @@ export class SessionVttObjectRuntimeRunner {
       actionCreatedAt: null,
       actionQueueStatus: null,
       rawInput: created.rawInput,
-      structuredAction,
-      diceResult,
-      stateDiff,
+      structuredAction: structuredActionForLog,
+      diceResult: diceResultForLog,
+      stateDiff: stateDiffForLog,
       outcome: ActionOutcome.SUCCESS,
       narration: created.narration,
       createdAt: created.createdAt.toISOString(),
@@ -1419,7 +1521,7 @@ export class SessionVttObjectRuntimeRunner {
             reason: "auto_hazard_detection",
             turnLogId: params.turnLogId,
             snapshot: {
-              ...(clueSnapshots.get(contentId) ?? { id: contentId }),
+              ...this.toRecordSnapshot(clueSnapshots.get(contentId), contentId),
               sourceHazardId: params.hazardId,
               sourceHazardName: params.hazardName,
             },
@@ -1457,13 +1559,13 @@ export class SessionVttObjectRuntimeRunner {
       status: MainCommandStatus;
       message: string;
       checkOptions?: MainCommandCheckOptionDto[];
-      checkEffect?: Record<string, unknown>;
+      checkEffect?: MainCommandCheckEffectDto;
     },
   ): Promise<{
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
@@ -1473,7 +1575,7 @@ export class SessionVttObjectRuntimeRunner {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const doorCells = map.doorCells ?? [];
     const doorIndex = doorCells.findIndex((door) => this.isPointInVttCell(params.mapPoint, door));
@@ -1490,22 +1592,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1541,7 +1632,7 @@ export class SessionVttObjectRuntimeRunner {
       return null;
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const doorCells = map.doorCells ?? [];
     const doorIndex = doorCells.findIndex((door) => door.id === params.doorId);
@@ -1558,22 +1649,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1592,13 +1672,13 @@ export class SessionVttObjectRuntimeRunner {
       status: MainCommandStatus;
       message: string;
       checkOptions?: MainCommandCheckOptionDto[];
-      checkEffect?: Record<string, unknown>;
+      checkEffect?: MainCommandCheckEffectDto;
     },
   ): Promise<{
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
@@ -1611,7 +1691,7 @@ export class SessionVttObjectRuntimeRunner {
       return null;
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const objectCells = map.objectCells ?? [];
     const objectIndex = objectCells.findIndex((cell) => this.isPointInVttCell(params.mapPoint, cell));
@@ -1628,22 +1708,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1679,7 +1748,7 @@ export class SessionVttObjectRuntimeRunner {
       return null;
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const objectCells = map.objectCells ?? [];
     const objectIndex = objectCells.findIndex((cell) => cell.id === params.objectId);
@@ -1696,22 +1765,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1742,7 +1800,7 @@ export class SessionVttObjectRuntimeRunner {
       return null;
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const objectCells = map.objectCells ?? [];
     const objectIndex = objectCells.findIndex((cell) => cell.id === params.hazardId);
@@ -1759,22 +1817,11 @@ export class SessionVttObjectRuntimeRunner {
         },
         state.currentNodeId ?? null,
       );
-      await this.prisma.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
-      });
-
-      const session = await this.getSessionEntityOrThrow(params.sessionId);
-      this.realtimeEvents.emitVttMapUpdated(session.id, {
-        hostUserId: session.hostUserId,
-        hostMap: nextMap,
-        playerMap: this.redactVttMapForPlayer(nextMap),
+      await this.persistAndPublishVttMap({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        flags,
+        map: nextMap,
       });
     }
 
@@ -1784,10 +1831,10 @@ export class SessionVttObjectRuntimeRunner {
   private buildVttDoorCheckEffect(
     door: NonNullable<VttMapStateDto["doorCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
-    effect: "open" | "broken",
-  ): Record<string, unknown> {
+    effect: typeof VTT_CHECK_EFFECT_ACTIONS.OPEN | typeof VTT_CHECK_EFFECT_ACTIONS.BROKEN,
+  ): VttDoorCheckEffectDto {
     return {
-      type: "vttDoor",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR,
       doorId: door.id,
       effect,
       nodeId: params.nodeId,
@@ -1798,10 +1845,10 @@ export class SessionVttObjectRuntimeRunner {
   private buildVttHazardCheckEffect(
     cell: NonNullable<VttMapStateDto["objectCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
-    effect: "disarm",
-  ): Record<string, unknown> {
+    effect: typeof VTT_CHECK_EFFECT_ACTIONS.DISARM,
+  ): VttHazardCheckEffectDto {
     return {
-      type: "vttHazard",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD,
       hazardId: cell.id,
       effect,
       nodeId: params.nodeId,
@@ -1812,11 +1859,11 @@ export class SessionVttObjectRuntimeRunner {
   private buildVttObjectCheckEffect(
     cell: NonNullable<VttMapStateDto["objectCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
-  ): Record<string, unknown> {
+  ): VttObjectCheckEffectDto {
     return {
-      type: "vttObject",
+      type: MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT,
       objectId: cell.id,
-      effect: "broken",
+      effect: VTT_CHECK_EFFECT_ACTIONS.BROKEN,
       nodeId: params.nodeId,
       mapPoint: params.mapPoint,
     };
@@ -1935,7 +1982,7 @@ export class SessionVttObjectRuntimeRunner {
           requiresCheck: check.requiresCheck !== false,
           ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
           skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
-          dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
+          dc: this.readIntegerInRange(check.dc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX, 15),
         };
       })
       .filter(
@@ -2024,7 +2071,7 @@ export class SessionVttObjectRuntimeRunner {
     const blockers = [
       ...(map.terrainCells ?? []).filter((cell) => !cell.terrainEffectId),
       ...(map.wallCells ?? []),
-      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+      ...(map.doorCells ?? []).filter((door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN),
     ];
     if (!blockers.length) {
       return false;
@@ -2130,7 +2177,7 @@ export class SessionVttObjectRuntimeRunner {
   private async getCurrentNodeClueSnapshots(
     tx: Prisma.TransactionClient,
     params: { sessionScenarioId: string; nodeId: string },
-  ): Promise<Map<string, Record<string, unknown>>> {
+  ): Promise<Map<string, ScenarioClueDto>> {
     const node = await tx.sessionScenarioNode.findUnique({
       where: {
         sessionScenarioId_nodeId: {
@@ -2141,15 +2188,47 @@ export class SessionVttObjectRuntimeRunner {
       select: { cluesJson: true },
     });
 
-    const clues = this.parseJson<Record<string, unknown>[]>(node?.cluesJson, []);
-    const entries: Array<[string, Record<string, unknown>]> = [];
+    const clues = parseJsonOrFallback(node?.cluesJson, [], decodeLenientScenarioClueArray);
+    const entries: Array<[string, ScenarioClueDto]> = [];
     clues.forEach((clue) => {
-      const contentId = this.getStringProperty(clue, "id");
+      const contentId = clue.id;
       if (contentId) {
         entries.push([contentId, clue]);
       }
     });
     return new Map(entries);
+  }
+
+  private toRecordSnapshot(snapshot: ScenarioClueDto | null | undefined, fallbackId: string): RevealClueSnapshot {
+    return snapshot ? { ...snapshot } : { id: fallbackId };
+  }
+
+  private recordVttObjectReveal(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      revealedBy: string;
+      reason: string;
+      turnLogId?: string | null;
+      item: VttObjectRevealInput;
+    },
+  ): Promise<unknown> {
+    const base = {
+      sessionScenarioId: params.sessionScenarioId,
+      contentId: params.item.contentId,
+      scope: "party" as const,
+      revealedBy: params.revealedBy,
+      reason: params.reason,
+      turnLogId: params.turnLogId,
+    };
+    switch (params.item.contentKind) {
+      case "clue":
+        return this.recordSessionReveal(tx, { ...base, contentKind: "clue", snapshot: params.item.snapshot });
+      case "item":
+        return this.recordSessionReveal(tx, { ...base, contentKind: "item", snapshot: params.item.snapshot });
+      case "event":
+        return this.recordSessionReveal(tx, { ...base, contentKind: "event", snapshot: params.item.snapshot });
+    }
   }
 
   redactVttMapForPlayer(map: VttMapStateDto): VttMapStateDto {
@@ -2178,9 +2257,9 @@ export class SessionVttObjectRuntimeRunner {
                 kind: this.normalizeHazardKind(cell.hazard?.kind),
                 armed: cell.hazard?.armed !== false,
                 triggerOnce: cell.hazard?.triggerOnce !== false,
-                // GM 전용 수치는 숨기되, normalizeVttMap 의 `Number(x) || default`
-                // 보정으로 0 이 기본값으로 되살아나면 ensurePlayerMapShellUnchanged
-                // 비교가 깨지므로 클램프 최소값(1)을 내보낸다.
+                // GM 전용 수치는 숨기되, normalizeVttMap 보정으로 0이 기본값으로
+                // 되살아나면 ensurePlayerMapShellUnchanged 비교가 깨지므로 클램프
+                // 최소값(1)을 내보낸다.
                 detectionRadiusCells: 1,
                 detectionDc: 1,
                 linkedClueIds: [],

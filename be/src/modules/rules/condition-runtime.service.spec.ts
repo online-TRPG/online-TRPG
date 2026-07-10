@@ -56,6 +56,26 @@ describe("ConditionRuntimeService", () => {
     });
   });
 
+  it("rejects malformed or invalid condition state in rule paths", () => {
+    expect(() => service.parseConditionsJson("{bad")).toThrow(
+      "sessionCharacter.conditionsJson is not valid JSON.",
+    );
+    expect(() => service.parseConditionsJson(JSON.stringify([{ conditionId: 1 }]))).toThrow(
+      "conditions[0] is invalid.",
+    );
+  });
+
+  it("keeps lenient condition recovery explicit for mappers", () => {
+    expect(
+      service.parseConditionsJsonOrFallback(
+        JSON.stringify(["prone", { conditionId: 1 }]),
+      ),
+    ).toEqual([
+      expect.objectContaining({ conditionId: "condition.prone" }),
+    ]);
+    expect(service.parseConditionsJsonOrFallback("{bad")).toEqual([]);
+  });
+
   it("projects structured and legacy conditions into runtime tags", () => {
     expect(
       service.toConditionTags(

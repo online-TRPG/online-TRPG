@@ -1,4 +1,5 @@
 import { VttMapStateDto } from "@trpg/shared-types";
+import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
 import { ActionProcessorService } from "./action-processor.service";
 
 describe("ActionProcessorService session action queue", () => {
@@ -39,6 +40,7 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       realtimeEvents as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -93,6 +95,7 @@ describe("ActionProcessorService session action queue", () => {
     };
     const service = new ActionProcessorService(
       prisma as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -168,6 +171,7 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     ) as unknown as {
       processNext: (sessionId: string) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -227,6 +231,7 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     ) as unknown as {
       processClaimedAction: (claimedAction: typeof action) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -277,6 +282,7 @@ const createBaseMap = (): VttMapStateDto => ({
 describe("ActionProcessorService map-only runtime effects", () => {
   it("rejects direct VTT object mutations before a success turn log can be created", async () => {
     const service = new ActionProcessorService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -444,6 +450,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       realtimeEvents as never,
       {} as never,
       actionEconomy as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1081,6 +1088,7 @@ describe("ActionProcessorService rule targets", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     ) as unknown as {
       createRuleTargets: (sessionCharacters: unknown[], combatParticipants: unknown[]) => Array<{
         id: string;
@@ -1186,6 +1194,7 @@ describe("ActionProcessorService rest runtime effects", () => {
     };
     const service = new ActionProcessorService(
       prisma as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1362,7 +1371,7 @@ describe("ActionProcessorService rest runtime effects", () => {
   it("clears rest-bound monster limited-use flags on long rest", async () => {
     const { service, prisma } = createService(
       JSON.stringify({
-        monsterLimitedUseExpended: {
+        [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
           "participant-dragon": {
             "monster.dragon.frightful_presence": {
               usage: "1/day",
@@ -1394,7 +1403,7 @@ describe("ActionProcessorService rest runtime effects", () => {
       where: { sessionScenarioId: "session-scenario-1" },
       data: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             "participant-dragon": {
               "monster.dragon.combat_surge": {
                 usage: "1/combat",
@@ -1413,7 +1422,7 @@ describe("ActionProcessorService rest runtime effects", () => {
   it("clears rest-only monster limited-use flags on short rest", async () => {
     const { service, prisma } = createService(
       JSON.stringify({
-        monsterLimitedUseExpended: {
+        [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
           "participant-dragon": {
             "monster.dragon.frightful_presence": {
               usage: "1/day",
@@ -1442,7 +1451,7 @@ describe("ActionProcessorService rest runtime effects", () => {
       where: { sessionScenarioId: "session-scenario-1" },
       data: {
         flagsJson: JSON.stringify({
-          monsterLimitedUseExpended: {
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
             "participant-dragon": {
               "monster.dragon.frightful_presence": {
                 usage: "1/day",

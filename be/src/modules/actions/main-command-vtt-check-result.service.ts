@@ -1,14 +1,23 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandResponseDto, MainCommandStatus, ResolveMainCommandCheckDto } from "@trpg/shared-types";
+import {
+  ActionOutcome,
+  MAIN_COMMAND_CHECK_EFFECT_TYPES,
+  MainCommandResponseDto,
+  MainCommandStatus,
+  ResolveMainCommandCheckDto,
+  VttDoorCheckEffectDto,
+  VttHazardCheckEffectDto,
+  VttObjectCheckEffectDto,
+  VTT_CHECK_EFFECT_ACTIONS,
+} from "@trpg/shared-types";
 import { randomUUID } from "node:crypto";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { MainCommandCheckEffectParserService } from "./main-command-check-effect-parser.service";
-import type { VttDoorCheckEffect, VttHazardCheckEffect, VttObjectCheckEffect } from "./main-command-check-effect-parser.service";
 import { MainCommandCheckResultNarrationService } from "./main-command-check-result-narration.service";
 
-type VttCheckEffect = VttDoorCheckEffect | VttHazardCheckEffect | VttObjectCheckEffect;
+type VttCheckEffect = VttDoorCheckEffectDto | VttHazardCheckEffectDto | VttObjectCheckEffectDto;
 
 @Injectable()
 export class MainCommandVttCheckResultService {
@@ -76,11 +85,11 @@ export class MainCommandVttCheckResultService {
 
   private buildNodeMismatchMessage(effect: VttCheckEffect): string {
     switch (effect.type) {
-      case "vttDoor":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR:
         return "현재 노드와 다른 문 판정 결과는 반영할 수 없습니다.";
-      case "vttHazard":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD:
         return "현재 노드와 다른 함정 판정 결과는 반영할 수 없습니다.";
-      case "vttObject":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT:
         return "현재 노드와 다른 오브젝트 판정 결과는 반영할 수 없습니다.";
     }
   }
@@ -96,7 +105,7 @@ export class MainCommandVttCheckResultService {
     }
 
     switch (effect.type) {
-      case "vttDoor":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR:
         return this.sessionsService.applyVttDoorCheckSuccess({
           sessionId,
           sessionScenarioId,
@@ -104,14 +113,14 @@ export class MainCommandVttCheckResultService {
           nodeId: effect.nodeId,
           effect: effect.effect,
         });
-      case "vttHazard":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD:
         return this.sessionsService.applyVttHazardDisarmSuccess({
           sessionId,
           sessionScenarioId,
           nodeId: effect.nodeId,
           hazardId: effect.hazardId,
         });
-      case "vttObject":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT:
         return this.sessionsService.applyVttObjectBreakSuccess({
           sessionId,
           sessionScenarioId,
@@ -123,17 +132,20 @@ export class MainCommandVttCheckResultService {
 
   private buildFailureResult(effect: VttCheckEffect): { status: MainCommandStatus; message: string } {
     switch (effect.type) {
-      case "vttDoor":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR:
         return {
           status: MainCommandStatus.MESSAGE,
-          message: effect.effect === "open" ? "판정에 실패해 문은 아직 잠겨 있습니다." : "판정에 실패해 문은 부서지지 않았습니다.",
+          message:
+            effect.effect === VTT_CHECK_EFFECT_ACTIONS.OPEN
+              ? "판정에 실패해 문은 아직 잠겨 있습니다."
+              : "판정에 실패해 문은 부서지지 않았습니다.",
         };
-      case "vttHazard":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD:
         return {
           status: MainCommandStatus.MESSAGE,
           message: "판정에 실패해 함정은 아직 작동 가능한 상태입니다.",
         };
-      case "vttObject":
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT:
         return {
           status: MainCommandStatus.MESSAGE,
           message: "판정에 실패해 오브젝트는 부서지지 않았습니다.",

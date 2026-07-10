@@ -1,3 +1,8 @@
+import {
+  isCompletedSessionStatus,
+  isHumanGmMode,
+  isRecruitingSessionStatus,
+} from '@trpg/shared-types/frontend';
 import type { SessionSnapshot } from '../../../types/session';
 
 type SessionLike = SessionSnapshot['session'] | null;
@@ -12,12 +17,12 @@ export function useSessionPermissionProjection(
 ) {
   const { session, userId } = params;
 
-  const isHumanGmSession = session?.gmMode === 'HUMAN';
+  const isHumanGmSession = isHumanGmMode(session?.gmMode);
   const gmUserId = isHumanGmSession ? (session?.gmUserId ?? session?.hostUserId ?? null) : null;
   const isGmUser = Boolean(gmUserId && gmUserId === userId);
   const isHost = session?.hostUserId === userId;
-  const isRecruiting = session?.status === 'recruiting';
-  const isSessionCompleted = session?.status === 'completed';
+  const isRecruiting = isRecruitingSessionStatus(session?.status);
+  const isSessionCompleted = isCompletedSessionStatus(session?.status);
   const canControlSession = isHumanGmSession ? isGmUser : isHost;
   const canUseHumanGmView = Boolean(!isRecruiting && isHumanGmSession && isGmUser);
   const canManageStartedSession = Boolean(!isRecruiting && canControlSession);

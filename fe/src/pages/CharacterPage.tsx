@@ -41,7 +41,6 @@ import {
   formatStat,
   getPointBuyAdjustment,
   getRecommendedAbilities,
-  normalizeIntegerValue,
   normalizeLevel,
   type AbilityKey,
 } from '../features/characters/characterBuildRules';
@@ -141,6 +140,27 @@ interface CharacterPageProps {
   autoOpenCreate?: boolean;
   sessionReturnTitle?: string | null;
   onReturnToSession?: () => void;
+}
+
+function readClampedInteger(
+  value: string,
+  fallback: number,
+  min: number,
+  max = Number.MAX_SAFE_INTEGER
+) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function readOptionIndex(value: string, optionCount: number, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed >= optionCount) {
+    return fallback;
+  }
+  return parsed;
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -1780,15 +1800,16 @@ export function CharacterPage({
                         selectedOptionIndex,
                         concreteItemSelections,
                       }) => {
+                        const fixedOption = slot.options.length === 1 ? slot.options[0] : null;
                         return (
                           <div key={slotIndex} style={{ marginBottom: 12 }}>
                             <label htmlFor={`starting-equipment-${slotIndex}`}>
                               슬롯 {slotIndex + 1}
                             </label>
-                            {slot.options.length === 1 ? (
+                            {fixedOption ? (
                               <div style={{ padding: '6px 10px', opacity: 0.85 }}>
                                 {formatStartingEquipmentOption(
-                                  slot.options[0]!,
+                                  fixedOption,
                                   itemKoNameByKey
                                 )}{' '}
                                 (고정)
@@ -1798,10 +1819,14 @@ export function CharacterPage({
                                 id={`starting-equipment-${slotIndex}`}
                                 value={selectedOptionIndex}
                                 onChange={(event) => {
-                                  const idx = Number(event.target.value);
+                                  const optionIndex = readOptionIndex(
+                                    event.target.value,
+                                    slot.options.length,
+                                    selectedOptionIndex
+                                  );
                                   selectStartingEquipmentSlot({
                                     slotIndex,
-                                    optionIndex: idx,
+                                    optionIndex,
                                     slotCount: startingEquipmentSlotViewModels.length,
                                   });
                                 }}
@@ -2235,7 +2260,7 @@ export function CharacterPage({
                                 onChange={(event) =>
                                   updateAbilityScore(
                                     ability,
-                                    normalizeIntegerValue(Number(event.target.value), 1)
+                                    readClampedInteger(event.target.value, finalScore, 1)
                                   )
                                 }
                               />
@@ -2353,7 +2378,14 @@ export function CharacterPage({
                       value={levelUpDraft.targetLevel}
                       disabled={busy || selectedCharacter.level >= 20}
                       onChange={(event) =>
-                        levelUpDraftState.resetForTargetLevel(Number(event.target.value))
+                        levelUpDraftState.resetForTargetLevel(
+                          readClampedInteger(
+                            event.target.value,
+                            levelUpDraft.targetLevel,
+                            selectedCharacter.level + 1,
+                            20
+                          )
+                        )
                       }
                     />
                     <button

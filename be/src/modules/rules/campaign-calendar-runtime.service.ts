@@ -1,10 +1,34 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { ActionOutcome, ApplyCampaignCalendarActionDto, StateDiffResponseDto, TurnLogResponseDto } from "@trpg/shared-types";
+import {
+  ActionOutcome,
+  ApplyCampaignCalendarActionDto,
+  StateDiffResponseDto,
+  TurnLogResponseDto,
+  decodeJsonObject,
+  decodeStateDiffResponse,
+  decodeTurnLogDiceResult,
+  decodeTurnLogStateDiff,
+  decodeTurnLogStructuredAction,
+  type JsonObject,
+  isRecord,
+} from "@trpg/shared-types";
 import { ActionOutcome as PrismaActionOutcome } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { notFound } from "../../common/exceptions/domain-error";
+import {
+  parseJsonOrFallback,
+  parseJsonRecordOrFallback,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { ECONOMY_FLAGS_KEY } from "./economy-state-runtime.service";
-import { EconomyState } from "./economy-runtime.service";
+import {
+  type CraftingProgress,
+  type CurrencyWallet,
+  type EconomyInventoryItem,
+  type EconomyState,
+  type ShopInventoryItem,
+  type ShopState,
+} from "./economy-runtime.service";
 
 export const CAMPAIGN_CALENDAR_FLAGS_KEY = "campaignCalendar";
 
@@ -204,7 +228,7 @@ export class CampaignCalendarRuntimeService {
 
       const baseVersion = gameState.version;
       const nextVersion = baseVersion + 1;
-      const flags = this.parseFlags(gameState.flagsJson);
+      const flags = this.parseFlagsForMutation(gameState.flagsJson);
       const nextFlags: Record<string, unknown> = {
         ...flags,
         [CAMPAIGN_CALENDAR_FLAGS_KEY]: params.resolution.state,
@@ -216,7 +240,7 @@ export class CampaignCalendarRuntimeService {
       if (downtimeEconomyState) {
         nextFlags[ECONOMY_FLAGS_KEY] = downtimeEconomyState;
       }
-      const stateDiff: StateDiffResponseDto = {
+      const stateDiff: StateDiffResponseDto = decodeStateDiffResponse({
         baseVersion,
         nextVersion,
         reason: params.reason ?? `campaign_calendar:${params.resolution.auditEvent.type}`,
@@ -238,7 +262,7 @@ export class CampaignCalendarRuntimeService {
               }
             : {}),
         },
-      };
+      });
 
       const created = await tx.turnLog.create({
         data: {
@@ -248,12 +272,12 @@ export class CampaignCalendarRuntimeService {
           sessionCharacterId: params.resolution.auditEvent.sessionCharacterId ?? null,
           turnNumber: (latest?.turnNumber ?? 0) + 1,
           rawInput: params.rawInput ?? `/campaign ${params.resolution.auditEvent.type}`,
-          structuredActionJson: JSON.stringify({
+          structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction({
             type: "campaign_calendar",
             campaignAction: params.resolution.auditEvent.type,
             auditEvent: params.resolution.auditEvent,
-          }),
-          stateDiffJson: JSON.stringify(stateDiff),
+          })),
+          stateDiffJson: JSON.stringify(decodeTurnLogStateDiff(stateDiff)),
           outcome: PrismaActionOutcome.SUCCESS,
           narration: this.createNarration(params.resolution),
         },
@@ -287,7 +311,7 @@ export class CampaignCalendarRuntimeService {
   }
 
   readCalendarStateFromFlags(flagsJson: string | null | undefined): CampaignCalendarState | null {
-    const flags = this.parseFlags(flagsJson);
+    const flags = this.parseFlagsForRead(flagsJson);
     return this.isCalendarState(flags[CAMPAIGN_CALENDAR_FLAGS_KEY])
       ? flags[CAMPAIGN_CALENDAR_FLAGS_KEY]
       : null;
@@ -516,12 +540,12 @@ export class CampaignCalendarRuntimeService {
         title: task.title,
         costGp: task.costGp,
         completedAt: task.completedAt ?? new Date().toISOString(),
-        economyEffects: [
+        economyEffects: this.cloneJsonObjectArray([
           ...(task.costGp > 0
             ? [{ type: "currency_spent", currency: "gp", amount: task.costGp }]
             : []),
           ...(task.type === "shop_restock" ? [{ type: "shop_restock_ready" }] : []),
-        ],
+        ]),
         inventoryEffects: this.getDowntimeInventoryEffects(task),
         characterResourceEffects: this.getDowntimeCharacterResourceEffects(task),
       },
@@ -530,90 +554,264 @@ export class CampaignCalendarRuntimeService {
   }
 
   private cloneEconomyState(value: unknown): EconomyState {
-    const candidate = value && typeof value === "object" ? (value as Partial<EconomyState>) : {};
+    const candidate = isRecord(value) ? value : {};
     const downtimeCompletions =
-      candidate.downtimeCompletionsById && typeof candidate.downtimeCompletionsById === "object"
+      isRecord(candidate.downtimeCompletionsById)
         ? candidate.downtimeCompletionsById
         : {};
     return {
       partyStash: Array.isArray(candidate.partyStash)
-        ? candidate.partyStash.map((item) => ({ ...item }))
+        ? this.compactMap(candidate.partyStash, (item) => this.cloneEconomyInventoryItem(item))
         : [],
       walletsBySessionCharacterId:
-        candidate.walletsBySessionCharacterId && typeof candidate.walletsBySessionCharacterId === "object"
+        isRecord(candidate.walletsBySessionCharacterId)
           ? Object.fromEntries(
               Object.entries(candidate.walletsBySessionCharacterId).map(([key, wallet]) => [
                 key,
-                { ...(wallet ?? {}) },
+                this.cloneCurrencyWallet(wallet),
               ]),
             )
           : {},
       shopStatesById:
-        candidate.shopStatesById && typeof candidate.shopStatesById === "object"
-          ? Object.fromEntries(
-              Object.entries(candidate.shopStatesById).map(([key, shop]) => [
-                key,
-                {
-                  ...(shop ?? {}),
-                  inventory: Array.isArray(shop?.inventory)
-                    ? shop.inventory.map((item) => ({ ...item }))
-                    : [],
-                },
-              ]),
-            )
+        isRecord(candidate.shopStatesById)
+          ? this.compactRecord(candidate.shopStatesById, (key, shop) => this.cloneShopState(key, shop))
           : {},
       craftingProgressById:
-        candidate.craftingProgressById && typeof candidate.craftingProgressById === "object"
-          ? Object.fromEntries(
-              Object.entries(candidate.craftingProgressById).map(([key, progress]) => [
-                key,
-                { ...(progress ?? {}) },
-              ]),
-            )
+        isRecord(candidate.craftingProgressById)
+          ? this.compactRecord(candidate.craftingProgressById, (_key, progress) => this.cloneCraftingProgress(progress))
           : {},
-      downtimeCompletionsById: Object.fromEntries(
-        Object.entries(downtimeCompletions).map(([key, completion]) => [
-          key,
-          {
-            ...completion,
-            economyEffects: completion.economyEffects?.map((effect) => ({ ...effect })) ?? [],
-            inventoryEffects: completion.inventoryEffects?.map((effect) => ({ ...effect })) ?? [],
-            characterResourceEffects:
-              completion.characterResourceEffects?.map((effect) => ({ ...effect })) ?? [],
-          },
-        ]),
+      downtimeCompletionsById: this.compactRecord(downtimeCompletions, (_key, completion) =>
+        this.cloneDowntimeCompletion(completion),
       ),
     };
   }
 
-  private getDowntimeInventoryEffects(task: CampaignDowntimeTask): Array<Record<string, unknown>> {
+  private cloneCurrencyWallet(value: unknown): CurrencyWallet {
+    const record = isRecord(value) ? value : {};
+    return {
+      cp: this.optionalFiniteNumber(record.cp),
+      sp: this.optionalFiniteNumber(record.sp),
+      ep: this.optionalFiniteNumber(record.ep),
+      gp: this.optionalFiniteNumber(record.gp),
+      pp: this.optionalFiniteNumber(record.pp),
+    };
+  }
+
+  private cloneEconomyInventoryItem(value: unknown): EconomyInventoryItem | null {
+    if (!isRecord(value) || typeof value.itemDefinitionId !== "string") {
+      return null;
+    }
+    const quantity = this.optionalPositiveInteger(value.quantity);
+    if (quantity === undefined) {
+      return null;
+    }
+    return {
+      itemDefinitionId: value.itemDefinitionId,
+      quantity,
+      identified: typeof value.identified === "boolean" ? value.identified : undefined,
+      damaged: typeof value.damaged === "boolean" ? value.damaged : undefined,
+      attunedBySessionCharacterId:
+        value.attunedBySessionCharacterId === null || typeof value.attunedBySessionCharacterId === "string"
+          ? value.attunedBySessionCharacterId
+          : undefined,
+      chargesRemaining:
+        value.chargesRemaining === null
+          ? value.chargesRemaining
+          : this.optionalNonNegativeInteger(value.chargesRemaining),
+    };
+  }
+
+  private cloneShopInventoryItem(value: unknown): ShopInventoryItem | null {
+    if (
+      !isRecord(value) ||
+      typeof value.itemDefinitionId !== "string"
+    ) {
+      return null;
+    }
+    const quantity = this.optionalPositiveInteger(value.quantity);
+    const priceGp = this.optionalNonNegativeNumber(value.priceGp);
+    if (quantity === undefined || priceGp === undefined) {
+      return null;
+    }
+    return {
+      itemDefinitionId: value.itemDefinitionId,
+      quantity,
+      priceGp,
+      buyLimit:
+        value.buyLimit === null
+          ? value.buyLimit
+          : this.optionalNonNegativeInteger(value.buyLimit),
+      requiresApproval: typeof value.requiresApproval === "boolean" ? value.requiresApproval : undefined,
+    };
+  }
+
+  private cloneShopState(key: string, value: unknown): ShopState | null {
+    if (!isRecord(value)) {
+      return null;
+    }
+    return {
+      shopId: typeof value.shopId === "string" ? value.shopId : key,
+      inventory: Array.isArray(value.inventory)
+        ? this.compactMap(value.inventory, (item) => this.cloneShopInventoryItem(item))
+        : [],
+      sellPriceMultiplier: this.optionalPositiveNumber(value.sellPriceMultiplier),
+    };
+  }
+
+  private cloneCraftingProgress(value: unknown): CraftingProgress | null {
+    if (
+      !isRecord(value) ||
+      typeof value.craftingId !== "string" ||
+      typeof value.recipeId !== "string" ||
+      typeof value.sessionCharacterId !== "string" ||
+      typeof value.outputItemDefinitionId !== "string" ||
+      (value.status !== "in_progress" && value.status !== "completed")
+    ) {
+      return null;
+    }
+    const outputQuantity = this.optionalPositiveInteger(value.outputQuantity);
+    const completedHours = this.optionalNonNegativeNumber(value.completedHours);
+    const requiredHours = this.optionalPositiveNumber(value.requiredHours);
+    if (outputQuantity === undefined || completedHours === undefined || requiredHours === undefined) {
+      return null;
+    }
+    return {
+      craftingId: value.craftingId,
+      recipeId: value.recipeId,
+      sessionCharacterId: value.sessionCharacterId,
+      outputItemDefinitionId: value.outputItemDefinitionId,
+      outputQuantity,
+      completedHours,
+      requiredHours,
+      status: value.status,
+    };
+  }
+
+  private cloneDowntimeCompletion(value: unknown): NonNullable<EconomyState["downtimeCompletionsById"]>[string] | null {
+    if (
+      !isRecord(value) ||
+      typeof value.downtimeTaskId !== "string" ||
+      typeof value.downtimeType !== "string" ||
+      typeof value.sessionCharacterId !== "string" ||
+      typeof value.title !== "string" ||
+      typeof value.completedAt !== "string"
+    ) {
+      return null;
+    }
+    const costGp = this.optionalNonNegativeNumber(value.costGp);
+    if (costGp === undefined) {
+      return null;
+    }
+    return {
+      downtimeTaskId: value.downtimeTaskId,
+      downtimeType: value.downtimeType,
+      sessionCharacterId: value.sessionCharacterId,
+      title: value.title,
+      costGp,
+      completedAt: value.completedAt,
+      economyEffects: this.cloneJsonObjectArray(value.economyEffects),
+      inventoryEffects: this.cloneJsonObjectArray(value.inventoryEffects),
+      characterResourceEffects: this.cloneJsonObjectArray(value.characterResourceEffects),
+    };
+  }
+
+  private cloneJsonObjectArray(value: unknown): JsonObject[] {
+    return Array.isArray(value)
+      ? this.compactMap(value, (entry, index) => {
+          try {
+            return decodeJsonObject(entry, `economy.downtimeEffect[${index}]`);
+          } catch {
+            return null;
+          }
+        })
+      : [];
+  }
+
+  private compactMap<TInput, TOutput>(
+    values: TInput[],
+    map: (value: TInput, index: number) => TOutput | null,
+  ): TOutput[] {
+    return values.flatMap((value, index) => {
+      const mapped = map(value, index);
+      return mapped === null ? [] : [mapped];
+    });
+  }
+
+  private compactRecord<TOutput>(
+    record: Record<string, unknown>,
+    map: (key: string, value: unknown) => TOutput | null,
+  ): Record<string, TOutput> {
+    return Object.fromEntries(
+      Object.entries(record).flatMap(([key, value]) => {
+        const mapped = map(key, value);
+        return mapped === null ? [] : [[key, mapped] as const];
+      }),
+    );
+  }
+
+  private optionalFiniteNumber(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+
+  private optionalNonNegativeNumber(value: unknown): number | undefined {
+    const parsed = this.optionalFiniteNumber(value);
+    return parsed !== undefined && parsed >= 0 ? parsed : undefined;
+  }
+
+  private optionalPositiveNumber(value: unknown): number | undefined {
+    const parsed = this.optionalFiniteNumber(value);
+    return parsed !== undefined && parsed > 0 ? parsed : undefined;
+  }
+
+  private optionalNonNegativeInteger(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+  }
+
+  private optionalPositiveInteger(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : undefined;
+  }
+
+  private getDowntimeInventoryEffects(task: CampaignDowntimeTask): JsonObject[] {
     if (task.type === "crafting") {
-      return [{ type: "crafted_output_pending_gm_claim", title: task.title }];
+      return this.cloneJsonObjectArray([{ type: "crafted_output_pending_gm_claim", title: task.title }]);
     }
     if (task.type === "identify") {
-      return [{ type: "item_identified_pending_gm_selection", title: task.title }];
+      return this.cloneJsonObjectArray([{ type: "item_identified_pending_gm_selection", title: task.title }]);
     }
     if (task.type === "repair") {
-      return [{ type: "item_repaired_pending_gm_selection", title: task.title }];
+      return this.cloneJsonObjectArray([{ type: "item_repaired_pending_gm_selection", title: task.title }]);
     }
     return [];
   }
 
-  private getDowntimeCharacterResourceEffects(task: CampaignDowntimeTask): Array<Record<string, unknown>> {
+  private getDowntimeCharacterResourceEffects(task: CampaignDowntimeTask): JsonObject[] {
     if (task.type === "training") {
-      return [{ type: "training_progress_recorded", workDays: task.workDaysCompleted }];
+      return this.cloneJsonObjectArray([{ type: "training_progress_recorded", workDays: task.workDaysCompleted }]);
     }
     if (task.type === "research") {
-      return [{ type: "research_progress_recorded", workDays: task.workDaysCompleted }];
+      return this.cloneJsonObjectArray([{ type: "research_progress_recorded", workDays: task.workDaysCompleted }]);
     }
     if (task.type === "recovery") {
-      return [{ type: "recovery_completed", workDays: task.workDaysCompleted }];
+      return this.cloneJsonObjectArray([{ type: "recovery_completed", workDays: task.workDaysCompleted }]);
     }
     return [];
   }
 
   private cloneState(state: CampaignCalendarState): CampaignCalendarState {
-    return JSON.parse(JSON.stringify(state)) as CampaignCalendarState;
+    return {
+      inGameDate: state.inGameDate,
+      elapsedDays: state.elapsedDays,
+      scheduleProposals: state.scheduleProposals.map((proposal) => ({
+        ...proposal,
+        responses: proposal.responses.map((response) => ({ ...response })),
+      })),
+      timeline: state.timeline.map((event) => ({ ...event })),
+      downtimeTasks: state.downtimeTasks.map((task) => ({
+        ...task,
+        requiredTools: [...task.requiredTools],
+      })),
+      processedIdempotencyKeys: [...state.processedIdempotencyKeys],
+    };
   }
 
   private requireIsoDate(value: string | null | undefined, field: string): string {
@@ -624,17 +822,17 @@ export class CampaignCalendarRuntimeService {
   }
 
   private requirePositiveInteger(value: number | undefined, field: string): number {
-    if (!Number.isInteger(value) || (value ?? 0) < 1) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
       throw new BadRequestException(`${field} must be a positive integer.`);
     }
-    return value as number;
+    return value;
   }
 
   private requireNonNegativeInteger(value: number | undefined, field: string): number {
-    if (!Number.isInteger(value) || (value ?? -1) < 0) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
       throw new BadRequestException(`${field} must be a non-negative integer.`);
     }
-    return value as number;
+    return value;
   }
 
   private mapTurnLog(row: {
@@ -661,38 +859,140 @@ export class CampaignCalendarRuntimeService {
       actionCreatedAt: null,
       actionQueueStatus: null,
       rawInput: row.rawInput,
-      structuredAction: this.parseJson<Record<string, unknown> | null>(row.structuredActionJson, null),
-      diceResult: this.parseJson<Record<string, unknown> | null>(row.diceResultJson, null),
-      stateDiff: this.parseJson<Record<string, unknown> | null>(row.stateDiffJson, null),
-      outcome: row.outcome as ActionOutcome,
+      structuredAction: parseJsonOrFallback(row.structuredActionJson, null, decodeTurnLogStructuredAction),
+      diceResult: parseJsonOrFallback(row.diceResultJson, null, decodeTurnLogDiceResult),
+      stateDiff: parseJsonOrFallback(row.stateDiffJson, null, decodeTurnLogStateDiff),
+      outcome: this.toSharedOutcome(row.outcome),
       narration: row.narration,
       createdAt: row.createdAt.toISOString(),
     };
   }
 
-  private parseFlags(flagsJson: string | null | undefined): Record<string, unknown> {
-    return this.parseJson<Record<string, unknown>>(flagsJson, {});
+  private parseFlagsForRead(flagsJson: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrFallback(flagsJson);
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) return fallback;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
+  private parseFlagsForMutation(flagsJson: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrThrow(flagsJson, {}, "gameState.flagsJson");
+  }
+
+  private toSharedOutcome(value: PrismaActionOutcome): ActionOutcome {
+    switch (value) {
+      case PrismaActionOutcome.SUCCESS:
+        return ActionOutcome.SUCCESS;
+      case PrismaActionOutcome.FAILURE:
+        return ActionOutcome.FAILURE;
+      case PrismaActionOutcome.IMPOSSIBLE:
+        return ActionOutcome.IMPOSSIBLE;
+      case PrismaActionOutcome.NO_ROLL:
+        return ActionOutcome.NO_ROLL;
     }
   }
 
   private isCalendarState(value: unknown): value is CampaignCalendarState {
-    if (!value || typeof value !== "object") return false;
-    const candidate = value as Partial<CampaignCalendarState>;
+    if (!isRecord(value)) return false;
+    const candidate = value;
     return (
       (candidate.inGameDate === null || typeof candidate.inGameDate === "string") &&
-      typeof candidate.elapsedDays === "number" &&
+      this.isFiniteNumber(candidate.elapsedDays) &&
       Array.isArray(candidate.scheduleProposals) &&
+      candidate.scheduleProposals.every((schedule) => this.isScheduleProposal(schedule)) &&
       Array.isArray(candidate.timeline) &&
+      candidate.timeline.every((event) => this.isTimelineEvent(event)) &&
       Array.isArray(candidate.downtimeTasks) &&
-      Array.isArray(candidate.processedIdempotencyKeys)
+      candidate.downtimeTasks.every((task) => this.isDowntimeTask(task)) &&
+      Array.isArray(candidate.processedIdempotencyKeys) &&
+      candidate.processedIdempotencyKeys.every((key) => typeof key === "string")
     );
+  }
+
+  private isScheduleProposal(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.id === "string" &&
+      typeof value.title === "string" &&
+      typeof value.startsAt === "string" &&
+      this.isFiniteNumber(value.durationMinutes) &&
+      typeof value.timeZone === "string" &&
+      typeof value.proposedByUserId === "string" &&
+      this.isScheduleStatus(value.status) &&
+      (value.confirmedAt === null || typeof value.confirmedAt === "string") &&
+      (value.confirmedByUserId === null || typeof value.confirmedByUserId === "string") &&
+      Array.isArray(value.responses) &&
+      value.responses.every((response) => this.isScheduleResponse(response))
+    );
+  }
+
+  private isScheduleResponse(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.id === "string" &&
+      typeof value.userId === "string" &&
+      this.isScheduleAvailability(value.availability) &&
+      (value.note === null || typeof value.note === "string") &&
+      typeof value.respondedAt === "string"
+    );
+  }
+
+  private isTimelineEvent(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.id === "string" &&
+      typeof value.type === "string" &&
+      (value.inGameDate === null || typeof value.inGameDate === "string") &&
+      this.isFiniteNumber(value.elapsedDays) &&
+      typeof value.createdByUserId === "string" &&
+      typeof value.createdAt === "string" &&
+      (value.note === null || typeof value.note === "string")
+    );
+  }
+
+  private isDowntimeTask(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.id === "string" &&
+      this.isDowntimeType(value.type) &&
+      typeof value.sessionCharacterId === "string" &&
+      typeof value.title === "string" &&
+      this.isDowntimeStatus(value.status) &&
+      this.isFiniteNumber(value.costGp) &&
+      this.isFiniteNumber(value.workDaysRequired) &&
+      this.isFiniteNumber(value.workDaysCompleted) &&
+      Array.isArray(value.requiredTools) &&
+      value.requiredTools.every((tool) => typeof tool === "string") &&
+      typeof value.startedByUserId === "string" &&
+      typeof value.startedAt === "string" &&
+      typeof value.updatedAt === "string" &&
+      (value.completedAt === null || typeof value.completedAt === "string") &&
+      (value.note === null || typeof value.note === "string")
+    );
+  }
+
+  private isScheduleStatus(value: unknown): value is CampaignScheduleStatus {
+    return value === "proposed" || value === "confirmed" || value === "cancelled";
+  }
+
+  private isScheduleAvailability(value: unknown): value is CampaignScheduleAvailability {
+    return value === "available" || value === "unavailable" || value === "tentative";
+  }
+
+  private isDowntimeStatus(value: unknown): value is CampaignDowntimeStatus {
+    return value === "active" || value === "paused" || value === "completed";
+  }
+
+  private isDowntimeType(value: unknown): value is CampaignDowntimeType {
+    return (
+      value === "crafting" ||
+      value === "training" ||
+      value === "research" ||
+      value === "recovery" ||
+      value === "identify" ||
+      value === "repair" ||
+      value === "shop_restock"
+    );
+  }
+
+  private isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
   }
 }

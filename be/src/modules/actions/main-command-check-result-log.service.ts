@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, ResolveMainCommandCheckDto } from "@trpg/shared-types";
+import { ActionOutcome, MainCommandNarrativeCheckEffectDto, ResolveMainCommandCheckDto } from "@trpg/shared-types";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
+import type { SanitizedMainCommandDiceResult } from "./main-command-check-result-narration.service";
 
 @Injectable()
 export class MainCommandCheckResultLogService {
@@ -16,8 +16,8 @@ export class MainCommandCheckResultLogService {
     sessionScenarioId: string;
     actorUserId: string;
     dto: ResolveMainCommandCheckDto;
-    effect: MainCommandCheckEffect;
-    diceResult: unknown;
+    effect: MainCommandNarrativeCheckEffectDto;
+    diceResult: SanitizedMainCommandDiceResult | null;
     outcome: ActionOutcome;
     narration: string;
   }): Promise<{ turnLogId: string }> {

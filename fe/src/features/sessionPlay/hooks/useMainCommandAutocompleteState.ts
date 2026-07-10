@@ -10,14 +10,14 @@ type UseMainCommandAutocompleteStateParams = {
 };
 
 type UseMainCommandAutocompleteStateResult = {
-  mainCommandAutocompleteRef: RefObject<HTMLDivElement | null>;
+  mainCommandAutocompleteRef: RefObject<HTMLDivElement>;
 };
 
 export function useMainCommandAutocompleteState(
   params: UseMainCommandAutocompleteStateParams,
 ): UseMainCommandAutocompleteStateResult {
   const { activeIndex, setActiveIndex, commandEntryCount, slashToken } = params;
-  const mainCommandAutocompleteRef = useRef<HTMLDivElement | null>(null);
+  const mainCommandAutocompleteRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setActiveIndex((current) =>

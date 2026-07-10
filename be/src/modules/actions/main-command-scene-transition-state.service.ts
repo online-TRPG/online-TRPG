@@ -1,7 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import { GamePhase as PrismaGamePhase } from "@prisma/client";
-import { ScenarioNodeType } from "@trpg/shared-types";
+import {
+  decodeScenarioNodeCheckOptionsConfig,
+  ScenarioNodeType,
+  type VttMapStateDto,
+} from "@trpg/shared-types";
 import { badRequest } from "../../common/exceptions/domain-error";
+import {
+  parseJsonOrThrow,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import type { LoadedContext } from "./main-commands.service";
 
@@ -35,7 +43,7 @@ export class MainCommandSceneTransitionStateService {
       where: { sessionScenarioId: context.sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(currentState?.flagsJson, {}, "gameState.flagsJson");
     const targetDefaultMap = this.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
 
     await this.prisma.$transaction(async (tx) => {
@@ -72,18 +80,13 @@ export class MainCommandSceneTransitionStateService {
     });
   }
 
-  private extractVttMapFromCheckOptions(value: string): Record<string, unknown> | null {
-    const parsed = this.parseJson<unknown>(value, []);
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-      return null;
-    }
-
-    const vttMap = (parsed as Record<string, unknown>).vttMap;
-    if (!vttMap || typeof vttMap !== "object" || Array.isArray(vttMap)) {
-      return null;
-    }
-
-    return vttMap as Record<string, unknown>;
+  private extractVttMapFromCheckOptions(value: string): VttMapStateDto | null {
+    return parseJsonOrThrow(
+      value,
+      { checks: [], vttMap: null },
+      decodeScenarioNodeCheckOptionsConfig,
+      "scenarioNode.checkOptionsJson",
+    ).vttMap;
   }
 
   private toScenarioNodeType(nodeType: string): ScenarioNodeType {
@@ -110,15 +113,4 @@ export class MainCommandSceneTransitionStateService {
     }
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
 }

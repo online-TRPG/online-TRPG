@@ -7,6 +7,19 @@ type EditorTool = 'pan' | 'measure' | 'ping' | 'fog' | MapStructureKind;
 type FogAction = 'reveal' | 'hide';
 type MapSizeField = 'width' | 'height' | 'gridSize';
 
+function readClampedInteger(value: string, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function readAllowedNumber(value: string, allowedValues: number[], fallback: number) {
+  const parsed = Number(value);
+  return allowedValues.includes(parsed) ? parsed : fallback;
+}
+
 interface BattleMapEditorToolbarControlsProps {
   showPartyTools: boolean;
   monsterSearch: string;
@@ -49,7 +62,6 @@ interface BattleMapEditorToolbarControlsProps {
   onHideFullMap: () => void;
   onToggleFullscreen: () => void;
   getMonsterDisplayName: (monster: SrdMonsterReferenceDto) => string;
-  clamp: (value: number, min: number, max: number) => number;
 }
 
 interface BattleMapEditorSubtoolbarControlsProps {
@@ -116,7 +128,6 @@ export function BattleMapEditorToolbarControls({
   onHideFullMap,
   onToggleFullscreen,
   getMonsterDisplayName,
-  clamp,
 }: BattleMapEditorToolbarControlsProps) {
   return (
     <div className="vtt-controls">
@@ -168,7 +179,12 @@ export function BattleMapEditorToolbarControls({
           value={encounterScaling?.basePartySize ?? 4}
           onChange={(event) =>
             onUpdateEncounterScaling({
-              basePartySize: clamp(Number(event.target.value), 1, 12),
+              basePartySize: readClampedInteger(
+                event.target.value,
+                encounterScaling?.basePartySize ?? 4,
+                1,
+                12
+              ),
             })
           }
         />
@@ -259,7 +275,12 @@ export function buildBattleMapEditorSubtoolbarControls({
         <button type="button" onClick={() => onZoomChange((value) => Math.max(0.5, value - 0.25))}>
           -
         </button>
-        <select value={zoom} onChange={(event) => onZoomSelect(Number(event.target.value))}>
+        <select
+          value={zoom}
+          onChange={(event) =>
+            onZoomSelect(readAllowedNumber(event.target.value, zoomSteps, zoom))
+          }
+        >
           {zoomSteps.map((step) => (
             <option key={step} value={step}>
               {Math.round(step * 100)}%

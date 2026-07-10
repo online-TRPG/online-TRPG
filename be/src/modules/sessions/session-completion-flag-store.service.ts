@@ -1,5 +1,14 @@
 import { Injectable } from "@nestjs/common";
 
+const COMPLETED_COMBAT_NODE_IDS_FLAG = "completedCombatNodeIds";
+
+export function readCompletedCombatNodeIds(flags: unknown): string[] {
+  if (!isRecord(flags)) {
+    return [];
+  }
+  return decodeCompletedCombatNodeIds(flags[COMPLETED_COMBAT_NODE_IDS_FLAG]);
+}
+
 @Injectable()
 export class SessionCompletionFlagStoreService {
   buildCombatCompletionFlags(
@@ -9,9 +18,7 @@ export class SessionCompletionFlagStoreService {
     flags: Record<string, unknown>;
     completedCombatNodeIds: string[];
   } {
-    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
-      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
-      : [];
+    const completedCombatNodeIds = readCompletedCombatNodeIds(flags);
     const nextCompletedCombatNodeIds =
       currentNodeId && !completedCombatNodeIds.includes(currentNodeId)
         ? [...completedCombatNodeIds, currentNodeId]
@@ -20,7 +27,7 @@ export class SessionCompletionFlagStoreService {
     return {
       flags: {
         ...flags,
-        completedCombatNodeIds: nextCompletedCombatNodeIds,
+        [COMPLETED_COMBAT_NODE_IDS_FLAG]: nextCompletedCombatNodeIds,
       },
       completedCombatNodeIds: nextCompletedCombatNodeIds,
     };
@@ -56,4 +63,15 @@ export class SessionCompletionFlagStoreService {
       defeatedCombatNodeId: params.nodeId,
     };
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeCompletedCombatNodeIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => (typeof entry === "string" ? [entry] : []));
 }

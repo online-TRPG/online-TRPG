@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandIntent, MainCommandStatus } from "@trpg/shared-types";
+import { ActionOutcome, MainCommandIntent, MainCommandNarrativeCheckEffectDto, MainCommandStatus } from "@trpg/shared-types";
 import { SessionsService } from "../sessions/sessions.service";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
 
 type CheckResultDraft = {
   status: MainCommandStatus;
@@ -14,7 +13,7 @@ export class MainCommandCheckMovementService {
 
   async applySpecialMoveCheck(params: {
     sessionId: string;
-    effect: MainCommandCheckEffect;
+    effect: MainCommandNarrativeCheckEffectDto;
     outcome: ActionOutcome;
     result: CheckResultDraft;
   }): Promise<{ result: CheckResultDraft; turnLogOutcome: ActionOutcome }> {

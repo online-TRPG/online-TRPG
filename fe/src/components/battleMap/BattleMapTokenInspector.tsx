@@ -1,4 +1,12 @@
-import type { ScenarioAssetResponseDto, SrdMonsterReferenceDto, VttMapStateDto } from '@trpg/shared-types';
+import {
+  VTT_ENCOUNTER_PRIORITY_MAX,
+  VTT_ENCOUNTER_PRIORITY_MIN,
+} from '@trpg/shared-types/frontend';
+import type {
+  ScenarioAssetResponseDto,
+  SrdMonsterReferenceDto,
+  VttMapStateDto,
+} from '@trpg/shared-types';
 
 type MapToken = VttMapStateDto['tokens'][number];
 
@@ -42,6 +50,11 @@ interface BattleMapTokenInspectorProps {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function readFiniteNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function getMonsterDisplayName(monster: SrdMonsterReferenceDto) {
@@ -143,11 +156,11 @@ export function BattleMapTokenInspector({
       <div className="vtt-field-row">
         <label>
           X
-          <input type="number" value={token.x} onChange={(event) => onUpdate(token.id, { x: Number(event.target.value) })} />
+          <input type="number" value={token.x} onChange={(event) => onUpdate(token.id, { x: readFiniteNumber(event.target.value, token.x) })} />
         </label>
         <label>
           Y
-          <input type="number" value={token.y} onChange={(event) => onUpdate(token.id, { y: Number(event.target.value) })} />
+          <input type="number" value={token.y} onChange={(event) => onUpdate(token.id, { y: readFiniteNumber(event.target.value, token.y) })} />
         </label>
         <label>
           {labels.size}
@@ -156,7 +169,7 @@ export function BattleMapTokenInspector({
             min={24}
             max={160}
             value={token.size}
-            onChange={(event) => onUpdate(token.id, { size: Number(event.target.value) })}
+            onChange={(event) => onUpdate(token.id, { size: clamp(readFiniteNumber(event.target.value, token.size), 24, 160) })}
           />
         </label>
       </div>
@@ -198,12 +211,16 @@ export function BattleMapTokenInspector({
             {labels.scalingPriority}
             <input
               type="number"
-              min={0}
-              max={99}
+              min={VTT_ENCOUNTER_PRIORITY_MIN}
+              max={VTT_ENCOUNTER_PRIORITY_MAX}
               value={token.encounterPriority ?? 0}
               onChange={(event) =>
                 onUpdate(token.id, {
-                  encounterPriority: clamp(Number(event.target.value), 0, 99),
+                  encounterPriority: clamp(
+                    readFiniteNumber(event.target.value, token.encounterPriority ?? 0),
+                    VTT_ENCOUNTER_PRIORITY_MIN,
+                    VTT_ENCOUNTER_PRIORITY_MAX,
+                  ),
                 })
               }
             />

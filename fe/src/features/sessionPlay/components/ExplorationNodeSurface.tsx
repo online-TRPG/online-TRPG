@@ -1,17 +1,25 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import type {
-  AiHumanGmAssistSuggestionRequestDto,
-  InventoryItemDto,
-  ItemResponseDto,
-  CreateHumanGmAiAssistSuggestionDto,
-  HumanGmAiAssistSuggestionDto,
-  PlayerScenarioNodeDto,
-  RestActionDto,
-  SessionCharacterResponseDto,
-  VttMapInteractionDto,
-  VttMapInteractionResponseDto,
-  VttMapStateDto,
+import {
+  type AiHumanGmAssistSuggestionRequestDto,
+  type InventoryItemDto,
+  type ItemResponseDto,
+  type CreateHumanGmAiAssistSuggestionDto,
+  type HumanGmAiAssistSuggestionDto,
+  type PlayerScenarioNodeDto,
+  type RestActionDto,
+  type SessionCharacterResponseDto,
+  type VttMapInteractionDto,
+  type VttMapInteractionResponseDto,
+  type VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  HUMAN_GM_INVENTORY_QUANTITY_MAX,
+  HUMAN_GM_INVENTORY_QUANTITY_MIN,
+  HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH,
+  HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH,
+  VTT_DOOR_STATES,
+  VTT_MAP_INTERACTION_KINDS,
+} from '@trpg/shared-types/frontend';
 import type { CSSProperties } from 'react';
 import { SessionBattleMap } from './SessionBattleMap';
 import type { BattleMapSelection } from './SessionBattleMap';
@@ -26,6 +34,7 @@ import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { useExplorationNodeSurfacePresentation } from '../hooks/useExplorationNodeSurfacePresentation';
+import type { InventoryItemWithEquipmentDisplayState } from '../hooks/useInventoryItemActions';
 import {
   getContextActions,
   hasObjectEvents,
@@ -85,7 +94,15 @@ type ExplorationGmMapAction =
   | 'toggle_object_visible'
   | 'reveal_fog_at_selection'
   | 'reveal_all_fog'
-  | 'trigger_object';
+  | typeof VTT_MAP_INTERACTION_KINDS.TRIGGER_OBJECT;
+
+function readClampedInteger(value: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
 
 interface ExplorationNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
@@ -112,7 +129,7 @@ interface ExplorationNodeSurfaceProps {
     interaction: VttMapInteractionDto
   ) => Promise<VttMapInteractionResponseDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
-  onEquipInventoryItem?: (item: InventoryItemDto) => void;
+  onEquipInventoryItem?: (item: InventoryItemWithEquipmentDisplayState) => void;
   onDropInventoryItem?: (item: InventoryItemDto, point: { x: number; y: number }) => void | Promise<void>;
   onPickupMapObject?: (
     objectId: string,
@@ -319,7 +336,10 @@ export function ExplorationNodeSurface({
       return;
     }
 
-    const quantity = Math.min(99, Math.max(1, Math.trunc(gmItemQuantity || 1)));
+    const quantity = Math.min(
+      HUMAN_GM_INVENTORY_QUANTITY_MAX,
+      Math.max(HUMAN_GM_INVENTORY_QUANTITY_MIN, Math.trunc(gmItemQuantity || HUMAN_GM_INVENTORY_QUANTITY_MIN))
+    );
     await onGmGrantInventoryItem(displayedCharacter.id, selectedGmCatalogItem, quantity);
     setGmItemPickerOpen(false);
     setGmItemQuery('');
@@ -369,7 +389,7 @@ export function ExplorationNodeSurface({
     }
 
     if (isGmView && mapSelection.kind === 'door' && action === 'unlock_door') {
-      onMapChange(updateSelectedDoorState(map, mapSelection, 'closed'));
+      onMapChange(updateSelectedDoorState(map, mapSelection, VTT_DOOR_STATES.CLOSED));
       setMapActionFeedback(explorationPresentation.localDoorUnlockedFeedback);
       return;
     }
@@ -377,10 +397,16 @@ export function ExplorationNodeSurface({
     if (
       isGmView &&
       mapSelection.kind === 'door' &&
-      (action === 'open_door' || action === 'close_door' || action === 'break_door')
+      (action === VTT_MAP_INTERACTION_KINDS.OPEN_DOOR ||
+        action === VTT_MAP_INTERACTION_KINDS.CLOSE_DOOR ||
+        action === VTT_MAP_INTERACTION_KINDS.BREAK_DOOR)
     ) {
       const nextState =
-        action === 'open_door' ? 'open' : action === 'break_door' ? 'broken' : 'closed';
+        action === VTT_MAP_INTERACTION_KINDS.OPEN_DOOR
+          ? VTT_DOOR_STATES.OPEN
+          : action === VTT_MAP_INTERACTION_KINDS.BREAK_DOOR
+            ? VTT_DOOR_STATES.BROKEN
+            : VTT_DOOR_STATES.CLOSED;
       onMapChange(updateSelectedDoorState(map, mapSelection, nextState));
       setMapActionFeedback(
         explorationPresentation.localDoorStateChangedFeedback(getDoorStateLabel(nextState))
@@ -388,13 +414,13 @@ export function ExplorationNodeSurface({
       return;
     }
 
-    if (isGmView && mapSelection.kind === 'object' && action === 'disarm_hazard') {
+    if (isGmView && mapSelection.kind === 'object' && action === VTT_MAP_INTERACTION_KINDS.DISARM_HAZARD) {
       onMapChange(disarmSelectedObjectHazard(map, mapSelection));
       setMapActionFeedback(explorationPresentation.localHazardDisarmedFeedback);
       return;
     }
 
-    if (isGmView && mapSelection.kind === 'object' && action === 'break_object') {
+    if (isGmView && mapSelection.kind === 'object' && action === VTT_MAP_INTERACTION_KINDS.BREAK_OBJECT) {
       onMapChange(markSelectedObjectBroken(map, mapSelection));
       setMapActionFeedback(explorationPresentation.localObjectBrokenFeedback);
       return;
@@ -403,19 +429,19 @@ export function ExplorationNodeSurface({
     if (
       isGmView &&
       (mapSelection.kind === 'door' || mapSelection.kind === 'object') &&
-      action === 'investigate_object'
+      action === VTT_MAP_INTERACTION_KINDS.INVESTIGATE_OBJECT
     ) {
       setMapActionFeedback(explorationPresentation.localGmInspectWithoutCheckFeedback);
       return;
     }
 
     if (
-      action === 'open_door' ||
-      action === 'close_door' ||
-      action === 'break_door' ||
-      action === 'break_object' ||
-      action === 'investigate_object' ||
-      action === 'disarm_hazard'
+      action === VTT_MAP_INTERACTION_KINDS.OPEN_DOOR ||
+      action === VTT_MAP_INTERACTION_KINDS.CLOSE_DOOR ||
+      action === VTT_MAP_INTERACTION_KINDS.BREAK_DOOR ||
+      action === VTT_MAP_INTERACTION_KINDS.BREAK_OBJECT ||
+      action === VTT_MAP_INTERACTION_KINDS.INVESTIGATE_OBJECT ||
+      action === VTT_MAP_INTERACTION_KINDS.DISARM_HAZARD
     ) {
       if (!onMapInteractionRequest) {
         setMapActionFeedback(explorationPresentation.gmMapInteractionUnavailableFeedback);
@@ -513,7 +539,7 @@ export function ExplorationNodeSurface({
       return;
     }
 
-    if (mapSelection.kind === 'object' && action === 'trigger_object') {
+    if (mapSelection.kind === 'object' && action === VTT_MAP_INTERACTION_KINDS.TRIGGER_OBJECT) {
       if (!hasObjectEvents(mapSelection)) {
         setMapActionFeedback(explorationPresentation.gmObjectEventMissingFeedback);
         return;
@@ -523,7 +549,7 @@ export function ExplorationNodeSurface({
         return;
       }
       const response = await onMapInteractionRequest({
-        kind: 'trigger_object',
+        kind: VTT_MAP_INTERACTION_KINDS.TRIGGER_OBJECT,
         targetId: mapSelection.cell.id,
         mapPoint: {
           x: Math.round(mapSelection.point.x),
@@ -714,14 +740,14 @@ export function ExplorationNodeSurface({
                   value={gmMessageContent}
                   placeholder={explorationPresentation.gmMessagePlaceholder}
                   rows={3}
-                  maxLength={2000}
+                  maxLength={HUMAN_GM_MESSAGE_CONTENT_MAX_LENGTH}
                   onChange={(event) => setGmMessageContent(event.target.value)}
                 />
                 <input
                   className="exploration-gm-input"
                   value={gmMessagePrivateNote}
                   placeholder={explorationPresentation.gmPrivateNotePlaceholder}
-                  maxLength={1000}
+                  maxLength={HUMAN_GM_PRIVATE_NOTE_MAX_LENGTH}
                   onChange={(event) => setGmMessagePrivateNote(event.target.value)}
                 />
                 <button
@@ -755,7 +781,7 @@ export function ExplorationNodeSurface({
                   <button
                     type="button"
                     disabled={isBusy || !hasObjectEvents(mapSelection)}
-                    onClick={() => void handleGmMapAction('trigger_object')}
+                    onClick={() => void handleGmMapAction(VTT_MAP_INTERACTION_KINDS.TRIGGER_OBJECT)}
                   >
                     {explorationPresentation.gmTriggerObjectLabel}
                   </button>
@@ -975,14 +1001,11 @@ export function ExplorationNodeSurface({
                     value={clampedShortRestHitDiceToSpend}
                     disabled={isBusy || !restTargetCharacterId}
                     aria-label={explorationPresentation.shortRestHitDiceAriaLabel}
-                    onChange={(event) => {
-                      const nextValue = Number(event.target.value);
-                      setShortRestHitDiceToSpend(
-                        Number.isInteger(nextValue)
-                          ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
-                          : 0,
-                      );
-                    }}
+                    onChange={(event) =>
+                      setShortRestHitDiceToSpend((current) =>
+                        readClampedInteger(event.target.value, current, 0, restHitDiceMaximum),
+                      )
+                    }
                   />
                 </label>
                 <button
@@ -1166,10 +1189,10 @@ export function ExplorationNodeSurface({
                     : isShield
                       ? equipmentDisplayState === 'equipped'
                       : isArmor;
-                  const equipmentActionItem = {
+                  const equipmentActionItem: InventoryItemWithEquipmentDisplayState = {
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
-                  } as InventoryItemDto;
+                  };
                   const itemDisplayName = getUserFacingItemName(item);
                   return (
                     <article
@@ -1370,12 +1393,17 @@ export function ExplorationNodeSurface({
                 <span>{explorationPresentation.gmItemQuantityLabel}</span>
                 <input
                   type="number"
-                  min={1}
-                  max={99}
+                  min={HUMAN_GM_INVENTORY_QUANTITY_MIN}
+                  max={HUMAN_GM_INVENTORY_QUANTITY_MAX}
                   value={gmItemQuantity}
                   onChange={(event) =>
-                    setGmItemQuantity(
-                      Math.min(99, Math.max(1, Number.parseInt(event.target.value, 10) || 1))
+                    setGmItemQuantity((current) =>
+                      readClampedInteger(
+                        event.target.value,
+                        current,
+                        HUMAN_GM_INVENTORY_QUANTITY_MIN,
+                        HUMAN_GM_INVENTORY_QUANTITY_MAX,
+                      )
                     )
                   }
                 />

@@ -1,5 +1,12 @@
 ﻿import type { SubmitMainCommandDto } from '@trpg/shared-types';
 
+import {
+  MainCommandCategory,
+  MainCommandIntent,
+  MainCommandScreenType,
+  MainCommandTargetType,
+} from '@trpg/shared-types';
+
 export type MainCommandHelperGroup =
   | 'NPC_INTERACTION'
   | 'OBJECT_AREA_TARGET'
@@ -156,62 +163,21 @@ export type MainCommandDraftInputModel = {
   pointY: string;
 };
 
-export const MainCommandScreenTypeValues = {
-  STORY: 'STORY' as SubmitMainCommandDto['screenType'],
-  EXPLORATION: 'EXPLORATION' as SubmitMainCommandDto['screenType'],
-  COMBAT: 'COMBAT' as SubmitMainCommandDto['screenType'],
-} as const;
+export const MainCommandScreenTypeValues = MainCommandScreenType;
 
-const MainCommandCategoryValues = {
-  TALK: 'TALK' as SubmitMainCommandDto['category'],
-  SOCIAL: 'SOCIAL' as SubmitMainCommandDto['category'],
-  QUESTION: 'QUESTION' as SubmitMainCommandDto['category'],
-  INSPECTION: 'INSPECTION' as SubmitMainCommandDto['category'],
-  RP_ACTION: 'RP_ACTION' as SubmitMainCommandDto['category'],
-  SUPPORT: 'SUPPORT' as SubmitMainCommandDto['category'],
-  OBSERVATION: 'OBSERVATION' as SubmitMainCommandDto['category'],
-  SENSE: 'SENSE' as SubmitMainCommandDto['category'],
-  MOVEMENT: 'MOVEMENT' as SubmitMainCommandDto['category'],
-  INTERACTION: 'INTERACTION' as SubmitMainCommandDto['category'],
-  TOOL_ITEM: 'TOOL_ITEM' as SubmitMainCommandDto['category'],
-  TACTIC: 'TACTIC' as SubmitMainCommandDto['category'],
-} as const;
+const MainCommandCategoryValues = MainCommandCategory;
 
-export const MainCommandIntentValues = {
-  GENERAL_GM_REQUEST: 'GENERAL_GM_REQUEST' as SubmitMainCommandDto['intent'],
-  TALK_TO_NPC: 'TALK_TO_NPC' as SubmitMainCommandDto['intent'],
-  SOCIAL_PERSUADE: 'SOCIAL_PERSUADE' as SubmitMainCommandDto['intent'],
-  SOCIAL_INTIMIDATE: 'SOCIAL_INTIMIDATE' as SubmitMainCommandDto['intent'],
-  SOCIAL_DECEIVE: 'SOCIAL_DECEIVE' as SubmitMainCommandDto['intent'],
-  READ_EMOTION: 'READ_EMOTION' as SubmitMainCommandDto['intent'],
-  ASK_SCENE_INFO: 'ASK_SCENE_INFO' as SubmitMainCommandDto['intent'],
-  INSPECT_STORY_OBJECT: 'INSPECT_STORY_OBJECT' as SubmitMainCommandDto['intent'],
-  DECLARE_RP_ACTION: 'DECLARE_RP_ACTION' as SubmitMainCommandDto['intent'],
-  ASK_HINT: 'ASK_HINT' as SubmitMainCommandDto['intent'],
-  ASK_SUMMARY: 'ASK_SUMMARY' as SubmitMainCommandDto['intent'],
-  REQUEST_SCENE_TRANSITION: 'REQUEST_SCENE_TRANSITION' as SubmitMainCommandDto['intent'],
-  OBSERVE_AREA: 'OBSERVE_AREA' as SubmitMainCommandDto['intent'],
-  INVESTIGATE_OBJECT: 'INVESTIGATE_OBJECT' as SubmitMainCommandDto['intent'],
-  LISTEN: 'LISTEN' as SubmitMainCommandDto['intent'],
-  DETECT_DANGER: 'DETECT_DANGER' as SubmitMainCommandDto['intent'],
-  SPECIAL_MOVE: 'SPECIAL_MOVE' as SubmitMainCommandDto['intent'],
-  INTERACT_OBJECT: 'INTERACT_OBJECT' as SubmitMainCommandDto['intent'],
-  USE_ITEM_EXPLORE: 'USE_ITEM_EXPLORE' as SubmitMainCommandDto['intent'],
-  SPLIT_PARTY_TASK: 'SPLIT_PARTY_TASK' as SubmitMainCommandDto['intent'],
-  COMBAT_TALK: 'COMBAT_TALK' as SubmitMainCommandDto['intent'],
-  TACTIC_QUERY: 'TACTIC_QUERY' as SubmitMainCommandDto['intent'],
-  ASK_RULE: 'ASK_RULE' as SubmitMainCommandDto['intent'],
-  ENVIRONMENT_USE: 'ENVIRONMENT_USE' as SubmitMainCommandDto['intent'],
-} as const;
+export const MainCommandIntentValues = MainCommandIntent;
 
-const MainCommandTargetTypeValues = {
-  NPC: 'NPC' as SubmitMainCommandDto['targetType'],
-  OBJECT: 'OBJECT' as SubmitMainCommandDto['targetType'],
-  ACTOR: 'ACTOR' as SubmitMainCommandDto['targetType'],
-  AREA: 'AREA' as SubmitMainCommandDto['targetType'],
-  POINT: 'POINT' as SubmitMainCommandDto['targetType'],
-  SELF: 'SELF' as SubmitMainCommandDto['targetType'],
-} as const;
+function isMainCommandIntent(value: string): value is SubmitMainCommandDto['intent'] {
+  return Object.values(MainCommandIntentValues).some((intent) => intent === value);
+}
+
+export function toMainCommandIntent(value: string): SubmitMainCommandDto['intent'] | null {
+  return isMainCommandIntent(value) ? value : null;
+}
+
+const MainCommandTargetTypeValues = MainCommandTargetType;
 
 const mainCommandTargetRequiredIntents = new Set<SubmitMainCommandDto['intent']>([
   MainCommandIntentValues.TALK_TO_NPC,
@@ -978,9 +944,11 @@ export function parseMainCommandMapPointInput(
   const pointY = rawPointY.trim();
   const hasAnyMapPointInput = pointX !== '' || pointY !== '';
   const hasMapPoint = pointX !== '' && pointY !== '';
+  const parsedX = parseFiniteMapPointCoordinate(pointX);
+  const parsedY = parseFiniteMapPointCoordinate(pointY);
   const mapPoint =
-    hasMapPoint && Number.isFinite(Number(pointX)) && Number.isFinite(Number(pointY))
-      ? { x: Number(pointX), y: Number(pointY) }
+    hasMapPoint && parsedX !== null && parsedY !== null
+      ? { x: parsedX, y: parsedY }
       : null;
 
   return {
@@ -990,6 +958,14 @@ export function parseMainCommandMapPointInput(
     mapPoint,
     hasInvalidMapPointInput: hasAnyMapPointInput && !mapPoint,
   };
+}
+
+function parseFiniteMapPointCoordinate(value: string): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function buildMainCommandSubmitPolicy(params: {

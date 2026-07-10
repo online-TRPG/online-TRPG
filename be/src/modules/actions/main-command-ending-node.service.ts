@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandResponseDto, MainCommandStatus } from "@trpg/shared-types";
+import { MainCommandResponseDto, MainCommandStatus, decodeScenarioNodeMeta } from "@trpg/shared-types";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { SessionsService } from "../sessions/sessions.service";
 import type { LoadedContext } from "./main-commands.service";
 
@@ -31,7 +32,7 @@ export class MainCommandEndingNodeService {
   }
 
   private isEndingNode(nodeMetaJson: string | null): boolean {
-    const nodeMeta = this.parseJson<Record<string, unknown> | null>(nodeMetaJson, null);
+    const nodeMeta = parseJsonOrThrow(nodeMetaJson, null, decodeScenarioNodeMeta, "scenarioNode.nodeMetaJson");
     if (!nodeMeta) {
       return false;
     }
@@ -39,15 +40,4 @@ export class MainCommandEndingNodeService {
     return nodeMeta.isEndingNode === true || nodeMeta.endBehavior === "SESSION_COMPLETE";
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
 }

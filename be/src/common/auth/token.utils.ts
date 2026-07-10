@@ -1,4 +1,5 @@
 import { UnauthorizedException } from "@nestjs/common";
+import { isNumber, isRecord, isString, parseJsonWithDecoder } from "@trpg/shared-types";
 import { createHmac, randomBytes } from "crypto";
 
 type TokenPayload = {
@@ -63,7 +64,11 @@ export function verifyToken(token: string, expectedType: "access" | "refresh"): 
 
   let payload: TokenPayload;
   try {
-    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as TokenPayload;
+    payload = parseJsonWithDecoder(
+      Buffer.from(body, "base64url").toString("utf8"),
+      decodeTokenPayload,
+      "jwt payload",
+    );
   } catch {
     throw new UnauthorizedException("토큰이 유효하지 않습니다.");
   }
@@ -91,4 +96,28 @@ export function getRefreshTokenExpiresInMs(): number {
 
 export function generateOpaqueState(): string {
   return randomBytes(16).toString("hex");
+}
+
+function decodeTokenPayload(value: unknown): TokenPayload {
+  if (!isRecord(value)) {
+    throw new UnauthorizedException("토큰이 유효하지 않습니다.");
+  }
+  if (!isString(value.sub) || !value.sub.trim()) {
+    throw new UnauthorizedException("토큰 subject가 올바르지 않습니다.");
+  }
+  if (value.email !== undefined && value.email !== null && !isString(value.email)) {
+    throw new UnauthorizedException("토큰 email이 올바르지 않습니다.");
+  }
+  if (value.type !== "access" && value.type !== "refresh") {
+    throw new UnauthorizedException("토큰 타입이 올바르지 않습니다.");
+  }
+  if (!isNumber(value.exp) || !Number.isInteger(value.exp)) {
+    throw new UnauthorizedException("토큰 만료 시간이 올바르지 않습니다.");
+  }
+  return {
+    sub: value.sub,
+    email: value.email,
+    type: value.type,
+    exp: value.exp,
+  };
 }

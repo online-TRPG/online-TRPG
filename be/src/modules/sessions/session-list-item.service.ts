@@ -58,8 +58,10 @@ export class SessionListItemService {
     requesterUserId?: string,
   ): SessionListItemResponseDto[] {
     return sessions
-      .map((session) => this.build(session, requesterUserId))
-      .filter((item): item is SessionListItemResponseDto => item !== null);
+      .flatMap((session) => {
+        const item = this.build(session, requesterUserId);
+        return item ? [item] : [];
+      });
   }
 
   private getActiveSessionScenario<T extends { status: PrismaSessionScenarioStatus }>(

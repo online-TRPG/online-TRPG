@@ -652,11 +652,11 @@ export function prepareCharacterCreateSubmit(params: {
     const selectedCantrips = cantrips
       .slice(0, params.selectedStartingCantripCount)
       .map((value) => value.trim())
-      .filter(Boolean);
+      .filter((value) => value.length > 0);
     const selectedSpells = spells
       .slice(0, params.selectedStartingSlotSpellCount)
       .map((value) => value.trim())
-      .filter(Boolean);
+      .filter((value) => value.length > 0);
 
     if (
       new Set(selectedCantrips).size !== selectedCantrips.length ||
@@ -669,7 +669,7 @@ export function prepareCharacterCreateSubmit(params: {
       new Set(
         (params.formState.startingSpells?.preparedSpells ?? [])
           .map((value) => value.trim())
-          .filter(Boolean)
+          .filter((value) => value.length > 0)
       )
     );
     const preparedSpellPool = params.isStartingDynamicPreparedCaster
@@ -703,7 +703,7 @@ export function prepareCharacterCreateSubmit(params: {
     ok: true,
     payload: {
       ...params.formState,
-      proficientSkills: params.formState.proficientSkills?.filter(Boolean) ?? [],
+      proficientSkills: params.formState.proficientSkills?.filter((skill) => skill.length > 0) ?? [],
       features: buildClassFeaturesForSubmit(
         params.formState.className,
         params.formState.features
@@ -823,7 +823,7 @@ export function buildCharacterCreateReviewViewModel(params: {
       ? `선택 필요 ${params.requiredFeaturePreviewItemCount}개`
       : null,
   ]
-    .filter(Boolean)
+    .flatMap((value) => value ? [value] : [])
     .join(', ');
   const hasRequiredFeatureItems = params.requiredFeaturePreviewItemCount > 0;
 

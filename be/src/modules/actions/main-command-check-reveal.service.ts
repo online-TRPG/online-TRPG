@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandIntent, MainCommandResponseDto, MainCommandStatus } from "@trpg/shared-types";
+import { ActionOutcome, MainCommandIntent, MainCommandNarrativeCheckEffectDto, MainCommandResponseDto, MainCommandStatus } from "@trpg/shared-types";
 import { SessionsService } from "../sessions/sessions.service";
-import type { MainCommandCheckEffect } from "./main-command-check-effect-parser.service";
 
 type CheckResultDraft = {
   status: MainCommandStatus;
@@ -59,7 +58,7 @@ export class MainCommandCheckRevealService {
     requestId: string;
     sessionId: string;
     sessionScenarioId: string;
-    effect: MainCommandCheckEffect;
+    effect: MainCommandNarrativeCheckEffectDto;
     result: CheckResultDraft;
   }): Promise<{ result: CheckResultDraft; counts: RevealCountSummary }> {
     let result = params.result;
@@ -168,7 +167,7 @@ export class MainCommandCheckRevealService {
     const sections = [
       clueLines.length ? `새 단서를 발견했습니다.\n${clueLines.join("\n")}` : null,
       itemLines.length ? `아이템을 획득했습니다. 인벤토리에 추가되었습니다.\n${itemLines.join("\n")}` : null,
-    ].filter((section): section is string => Boolean(section));
+    ].flatMap((section) => section ? [section] : []);
 
     return {
       ...response,

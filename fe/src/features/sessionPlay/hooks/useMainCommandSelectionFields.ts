@@ -10,7 +10,9 @@ export function useMainCommandSelectionFields() {
   const [selectedMainTargetId, setSelectedMainTargetId] = useState('');
   const [selectedMainItemId, setSelectedMainItemId] = useState('');
   const [selectedMainSpellId, setSelectedMainSpellId] = useState('');
-  const [selectedMainRelatedIntent, setSelectedMainRelatedIntent] = useState('');
+  const [selectedMainRelatedIntent, setSelectedMainRelatedIntent] = useState<
+    SubmitMainCommandDto['intent'] | ''
+  >('');
   const [mainPointX, setMainPointX] = useState('');
   const [mainPointY, setMainPointY] = useState('');
   const [selectedExplorationMapSelection, setSelectedExplorationMapSelection] =
@@ -77,7 +79,7 @@ export function useMainCommandSelectionFields() {
     setSelectedMainItemId,
     selectedMainSpellId,
     setSelectedMainSpellId,
-    selectedMainRelatedIntent: selectedMainRelatedIntent as SubmitMainCommandDto['intent'] | '',
+    selectedMainRelatedIntent,
     setSelectedMainRelatedIntent,
     mainPointX,
     setMainPointX,

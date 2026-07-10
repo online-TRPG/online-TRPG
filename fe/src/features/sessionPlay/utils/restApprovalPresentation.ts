@@ -40,7 +40,7 @@ export function buildPendingRestApprovalViewModels(params: {
   }
 
   const logApprovals = logs
-    .map((log) => {
+    .flatMap((log) => {
       const restApproval = log.metadata?.restApproval;
       if (
         !restApproval?.actionId ||
@@ -50,7 +50,7 @@ export function buildPendingRestApprovalViewModels(params: {
         resolvedActionIds.has(restApproval.actionId) ||
         seenActionIds.has(restApproval.actionId)
       ) {
-        return null;
+        return [];
       }
 
       seenActionIds.add(restApproval.actionId);
@@ -61,19 +61,18 @@ export function buildPendingRestApprovalViewModels(params: {
         message: stripScopePrefix(log.message),
         expiresAt: restApproval.expiresAt ?? null,
       };
-      return model;
-    })
-    .filter((approval): approval is PendingRestApprovalViewModel => approval !== null);
+      return [model];
+    });
 
   const snapshotApprovalModels = snapshotApprovals
-    .map((approval) => {
+    .flatMap((approval) => {
       if (
         !approval.actionId ||
         resolvedRequestIds.has(approval.actionId) ||
         resolvedActionIds.has(approval.actionId) ||
         seenActionIds.has(approval.actionId)
       ) {
-        return null;
+        return [];
       }
 
       seenActionIds.add(approval.actionId);
@@ -84,9 +83,8 @@ export function buildPendingRestApprovalViewModels(params: {
         message: formatSnapshotRestApprovalMessage(approval),
         expiresAt: approval.expiresAt ?? null,
       };
-      return model;
-    })
-    .filter((approval): approval is PendingRestApprovalViewModel => approval !== null);
+      return [model];
+    });
 
   return [...logApprovals, ...snapshotApprovalModels];
 }

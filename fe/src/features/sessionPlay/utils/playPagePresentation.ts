@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { isRecord } from '@trpg/shared-types/frontend';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 
@@ -80,11 +81,10 @@ export function getConnectionLabel(connected: boolean) {
 }
 
 export function getNodeLabel(value: unknown): string | null {
-  if (!value || typeof value !== 'object') return null;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.label === 'string') return candidate.label;
-  if (typeof candidate.id === 'string') return candidate.id;
-  if (typeof candidate.skill === 'string') return candidate.skill;
+  if (!isRecord(value)) return null;
+  if (typeof value.label === 'string') return value.label;
+  if (typeof value.id === 'string') return value.id;
+  if (typeof value.skill === 'string') return value.skill;
   return null;
 }
 

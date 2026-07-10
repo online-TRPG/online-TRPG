@@ -16,6 +16,15 @@ interface BattleMapFogInspectorProps {
   onDelete: (fogId: string) => void;
 }
 
+function readFiniteNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readPositiveNumber(value: string, fallback: number): number {
+  return Math.max(1, readFiniteNumber(value, fallback));
+}
+
 export function BattleMapFogInspector({
   fog,
   labels,
@@ -34,11 +43,11 @@ export function BattleMapFogInspector({
       <div className="vtt-field-row">
         <label>
           X
-          <input type="number" value={fog.x} onChange={(event) => onUpdate(fog.id, { x: Number(event.target.value) })} />
+          <input type="number" value={fog.x} onChange={(event) => onUpdate(fog.id, { x: readFiniteNumber(event.target.value, fog.x) })} />
         </label>
         <label>
           Y
-          <input type="number" value={fog.y} onChange={(event) => onUpdate(fog.id, { y: Number(event.target.value) })} />
+          <input type="number" value={fog.y} onChange={(event) => onUpdate(fog.id, { y: readFiniteNumber(event.target.value, fog.y) })} />
         </label>
       </div>
       <div className="vtt-field-row">
@@ -47,7 +56,7 @@ export function BattleMapFogInspector({
           <input
             type="number"
             value={fog.width}
-            onChange={(event) => onUpdate(fog.id, { width: Number(event.target.value) })}
+            onChange={(event) => onUpdate(fog.id, { width: readPositiveNumber(event.target.value, fog.width) })}
           />
         </label>
         <label>
@@ -55,7 +64,7 @@ export function BattleMapFogInspector({
           <input
             type="number"
             value={fog.height}
-            onChange={(event) => onUpdate(fog.id, { height: Number(event.target.value) })}
+            onChange={(event) => onUpdate(fog.id, { height: readPositiveNumber(event.target.value, fog.height) })}
           />
         </label>
       </div>

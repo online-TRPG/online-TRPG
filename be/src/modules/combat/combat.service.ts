@@ -5,6 +5,7 @@ import {
   GamePhase as PrismaGamePhase,
   GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
+  Prisma,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -28,6 +29,7 @@ import {
   EndTurnDto,
   ForceMoveCombatParticipantDto,
   GamePhase,
+  isRecord,
   MoveCombatParticipantDto,
   ResolveCombatAttackDto,
   StartCombatDto,
@@ -35,6 +37,11 @@ import {
   VttMapStateDto,
 } from "@trpg/shared-types";
 import { conflict, forbidden, notFound, unprocessable } from "../../common/exceptions/domain-error";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { ActionRuleService } from "../rules/action-rule.service";
@@ -45,7 +52,7 @@ import { AoeTargetingService } from "../rules/aoe-targeting.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { ConcentrationRuntimeService } from "../rules/concentration-runtime.service";
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
-import type { ConditionInstance } from "../rules/condition-runtime.service";
+import type { ConditionInstance, ConditionStateEntry } from "../rules/condition-runtime.service";
 import { CoverPositionService } from "../rules/cover-position.service";
 import { DiceService } from "../rules/dice.service";
 import { ForcedMovementService } from "../rules/forced-movement.service";
@@ -62,6 +69,7 @@ import type { CoverModifierProduced, SavingThrowAbility } from "../rules/rule-en
 import { SpellSlotService } from "../rules/spell-slot.service";
 import { SpellScalingService } from "../rules/spell-scaling.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
+import { readCompletedCombatNodeIds } from "../sessions/session-completion-flag-store.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { CombatActionService } from "./combat-action.service";
@@ -113,6 +121,16 @@ type EquippedWeaponProfile = {
   isLightMeleeWeapon?: boolean;
   fixedDamageTotal?: number;
   isBasicAttack?: boolean;
+};
+type InventorySnapshotItem = {
+  id?: string;
+  itemDefinitionId?: string;
+  name?: string;
+  quantity?: number;
+  itemType?: string;
+  damageDice?: string;
+  damageType?: string;
+  properties?: string[];
 };
 
 type OpportunityAttackCheckResult = {
@@ -377,10 +395,8 @@ export class CombatService {
     // 넘어간 노드를 FE 가 (스냅샷 전파 지연 등으로) 미완료로 오인해 startCombat 을
     // 다시 호출하면, 새 ACTIVE 전투가 생겨 applyPlayerVttMapUpdate 의 "현재 전투
     // 행동자만 맵 조작" 규칙에 걸려 비방장 플레이어 이동이 전부 403 으로 막힌다.
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
-      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
-      : [];
+    const flags = this.parseRecordJson(state.flagsJson);
+    const completedCombatNodeIds = readCompletedCombatNodeIds(flags);
     if (state.currentNodeId && completedCombatNodeIds.includes(state.currentNodeId)) {
       throw conflict("COMBAT_409", "이미 종료된 전투입니다.", {
         reason: "COMBAT_NODE_ALREADY_COMPLETED",
@@ -412,7 +428,9 @@ export class CombatService {
 
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const playerTokenIdBySessionCharacterId = new Map(
-      (map.tokens ?? []).filter((token) => token.sessionCharacterId).map((token) => [token.sessionCharacterId as string, token.id]),
+      (map.tokens ?? []).flatMap((token) =>
+        typeof token.sessionCharacterId === "string" ? [[token.sessionCharacterId, token.id] as const] : [],
+      ),
     );
     const rawMonsterTokens = (map.tokens ?? [])
       .filter((token) => token.hidden !== true && token.isHostile === true)
@@ -420,7 +438,7 @@ export class CombatService {
     const scalingResult = dto.participantEntityIds?.length
       ? {
           monsterTokens: rawMonsterTokens,
-          excludedTokenIds: [] as string[],
+          excludedTokenIds: [],
           applied: false,
         }
       : this.combatStats.scaleMonsterTokensForParty(rawMonsterTokens, candidates.length, map);
@@ -453,7 +471,7 @@ export class CombatService {
 
     const playerInitiativeRows = candidates.map((candidate) => {
       const featureTags = this.ruleCatalog.resolveRuntimeTags(
-        this.parseJsonArray<string>(candidate.character.featuresJson ?? "[]"),
+        this.parseStringArray(candidate.character.featuresJson ?? "[]"),
       );
       return {
         kind: "player" as const,
@@ -707,7 +725,7 @@ export class CombatService {
       characterId: sessionCharacter.characterId,
       isCurrentTurn,
       actions: this.actionRules.getAvailableActions({
-        phase: state.phase.toLowerCase() as GamePhase,
+        phase: this.toSharedGamePhase(state.phase),
         hasActiveCombat: Boolean(combat),
         isCurrentTurn,
         isAlive: sessionCharacter.status === PrismaSessionCharacterStatus.ACTIVE && sessionCharacter.currentHp > 0,
@@ -950,7 +968,7 @@ export class CombatService {
       this.combatTerrain.describeConditions(terrainEffectApplication),
       triggeredReadyActions.count > 0 ? `준비행동 ${triggeredReadyActions.count}개가 발동 대기 중입니다.` : null,
     ]
-      .filter((entry): entry is string => Boolean(entry))
+      .flatMap((entry) => (entry ? [entry] : []))
       .join(" / ");
     return {
       savedMap,
@@ -1104,7 +1122,7 @@ export class CombatService {
           this.combatTerrain.describeDamage(terrainEffectApplication),
           this.combatTerrain.describeConditions(terrainEffectApplication),
         ]
-          .filter((message): message is string => Boolean(message))
+          .flatMap((message) => (message ? [message] : []))
           .join(" / "),
         pendingReaction: null,
         movementDistanceFt,
@@ -1144,7 +1162,7 @@ export class CombatService {
       terrainConditionMessage,
       readyActionMessage,
     ]
-      .filter((message): message is string => Boolean(message))
+      .flatMap((message) => (message ? [message] : []))
       .join(" / ");
     return {
       combat: response,
@@ -1682,17 +1700,22 @@ export class CombatService {
     combat: NonNullable<CombatWithParticipants>,
     effectIds: string[],
   ): Promise<void> {
-    const linkedIds = new Set(effectIds.map((effectId) => effectId.trim()).filter(Boolean));
+    const linkedIds = new Set(
+      effectIds.flatMap((effectId) => {
+        const trimmed = effectId.trim();
+        return trimmed ? [trimmed] : [];
+      }),
+    );
     if (!linkedIds.size) {
       return;
     }
     for (const participant of combat.participants) {
       const entries = await this.combatConditions.readCombatConditionEntries(participant);
       const filtered = entries.filter((entry) => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        if (!isRecord(entry)) {
           return true;
         }
-        const sourceId = (entry as { sourceId?: unknown }).sourceId;
+        const sourceId = entry.sourceId;
         return typeof sourceId !== "string" || !linkedIds.has(sourceId);
       });
       if (filtered.length !== entries.length) {
@@ -1787,7 +1810,7 @@ export class CombatService {
         },
       },
     });
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter?.character.abilitiesJson ?? "{}", {});
+    const abilities = this.parseNumberRecordJson(sessionCharacter?.character.abilitiesJson ?? "{}");
     const constitutionModifier = this.getAbilityModifier(abilities.con ?? abilities.constitution ?? 10);
     const proficiencyBonus = sessionCharacter?.character.proficiencyBonus ?? 0;
     const proficient = this.combatConditions
@@ -1798,8 +1821,7 @@ export class CombatService {
     );
     const modifierRolls: DiceRollResponseDto[] = [];
     const fixedSavingThrowBonuses = conditionTags
-      .map((tag) => /^saving_throw_bonus:\+(\d+)$/.exec(tag)?.[1])
-      .filter((value): value is string => Boolean(value))
+      .flatMap((tag) => this.matchFirstGroup(tag, /^saving_throw_bonus:\+(\d+)$/))
       .map(Number)
       .filter((value) => Number.isFinite(value) && value > 0);
     const conditionModifiers = [
@@ -1865,7 +1887,7 @@ export class CombatService {
         },
       },
     });
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter?.character.abilitiesJson ?? "{}", {});
+    const abilities = this.parseNumberRecordJson(sessionCharacter?.character.abilitiesJson ?? "{}");
     const abilityModifier = this.getAbilityModifier(abilities[ability] ?? 10);
     const proficiencyBonus = sessionCharacter?.character.proficiencyBonus ?? 0;
     const conditionTags = this.combatConditions.combatConditionTags(
@@ -1899,15 +1921,23 @@ export class CombatService {
     };
   }
 
-  private removeExpiredConditionEntries(current: unknown[], removedConditions: unknown[]): unknown[] {
-    const removedKeys = new Set(removedConditions.map((condition) => this.toConditionEntryKey(condition)).filter((key): key is string => key !== null));
+  private removeExpiredConditionEntries(
+    current: ConditionStateEntry[],
+    removedConditions: ConditionStateEntry[],
+  ): ConditionStateEntry[] {
+    const removedKeys = new Set(
+      removedConditions.flatMap((condition) => {
+        const key = this.toConditionEntryKey(condition);
+        return key === null ? [] : [key];
+      }),
+    );
     return current.filter((entry) => {
       const key = this.toConditionEntryKey(entry);
       return key === null || !removedKeys.has(key);
     });
   }
 
-  private toConditionEntryKey(entry: unknown): string | null {
+  private toConditionEntryKey(entry: ConditionStateEntry): string | null {
     const parsed = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]))[0];
     return parsed ? this.combatConditions.conditionEntryKey(parsed) : null;
   }
@@ -1948,7 +1978,7 @@ export class CombatService {
     }
 
     const buildBasicAttackProfile = (): EquippedWeaponProfile => {
-      const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
+      const abilities = this.parseNumberRecordJson(sessionCharacter.character.abilitiesJson);
       const strMod = this.getAbilityModifier(abilities.str);
       return {
         name: "맨손공격",
@@ -1973,16 +2003,7 @@ export class CombatService {
 
     const entry = sessionCharacter.inventoryEntries.find((candidate) => candidate.id === equippedWeaponId || candidate.itemDefinitionId === equippedWeaponId);
     const snapshotInventory = !entry
-      ? this.parseJsonArray<{
-          id?: string;
-          itemDefinitionId?: string;
-          name?: string;
-          quantity?: number;
-          itemType?: string;
-          damageDice?: string;
-          damageType?: string;
-          properties?: string[];
-        }>(sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson)
+      ? this.parseInventorySnapshotJson(sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson)
       : [];
     const snapshotItem = snapshotInventory.find((item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId);
     const item = entry
@@ -2002,9 +2023,13 @@ export class CombatService {
       return buildBasicAttackProfile();
     }
 
-    const fallback = this.getFallbackWeaponProfile([item.itemDefinitionId, item.id, item.name].filter(Boolean).join(" "));
+    const fallback = this.getFallbackWeaponProfile(
+      [item.itemDefinitionId, item.id, item.name]
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .join(" "),
+    );
     const properties = new Set([...(item.properties ?? []), ...(fallback.properties ?? [])].map((value) => value.toLowerCase().replace(/[_\s]+/g, "-")));
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
+    const abilities = this.parseNumberRecordJson(sessionCharacter.character.abilitiesJson);
     const strMod = this.getAbilityModifier(abilities.str);
     const dexMod = this.getAbilityModifier(abilities.dex);
     const isRanged = properties.has("ranged");
@@ -2018,7 +2043,7 @@ export class CombatService {
       });
     }
     const abilityMod = isRanged ? dexMod : isFinesse ? Math.max(strMod, dexMod) : strMod;
-    const featureTags = this.parseJsonArray<string>(sessionCharacter.character.featuresJson);
+    const featureTags = this.parseStringArray(sessionCharacter.character.featuresJson);
     const hasTwoWeaponFighting = featureTags.some((feature) => feature.toLowerCase() === "fighting_style:two_weapon_fighting");
 
     return {
@@ -2028,11 +2053,17 @@ export class CombatService {
       attackBonus: sessionCharacter.character.proficiencyBonus + abilityMod,
       damageDice: item.damageDice ?? fallback.damageDice ?? "1d6",
       damageBonus: slot === "offhand" && !hasTwoWeaponFighting ? Math.min(0, abilityMod) : abilityMod,
-      rangeFt: fallback.rangeFt ?? (isRanged ? 80 : 5),
+      rangeFt: this.readWeaponRangeProperty(properties, "range:") ?? fallback.rangeFt ?? (isRanged ? 80 : 5),
       properties: Array.from(properties),
       attackKind: isRanged ? "ranged_weapon_attack" : "melee_weapon_attack",
       isLightMeleeWeapon,
     };
+  }
+
+  private readWeaponRangeProperty(properties: Set<string>, prefix: "range:"): number | null {
+    const value = Array.from(properties).find((property) => property.startsWith(prefix))?.slice(prefix.length);
+    const rangeFt = Number(value);
+    return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
   }
 
   private getFallbackWeaponProfile(key: string): {
@@ -2135,13 +2166,121 @@ export class CombatService {
     return koreanProfiles.find(([name]) => key.includes(name))?.[1] ?? {};
   }
 
-  private parseJsonArray<T>(value: string | null | undefined): T[] {
-    const parsed = this.parseJson<unknown>(value, []);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  private parseStringArray(value: string | null | undefined): string[] {
+    return parseJsonOrThrow(value, [], decodeStringArray, "character string array JSON");
   }
 
-  private parseStringArray(value: string | null | undefined): string[] {
-    return this.parseJsonArray<string>(value).filter((entry): entry is string => typeof entry === "string");
+  private parseConditionEntriesJson(value: string | null | undefined): ConditionStateEntry[] {
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeConditionEntries(parsed),
+      "sessionCharacter.conditionsJson",
+    );
+  }
+
+  private decodeConditionEntries(value: unknown): ConditionStateEntry[] {
+    if (!Array.isArray(value)) {
+      throw new Error("conditions must be an array.");
+    }
+    return value.map((entry, index) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+      const [condition] = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]));
+      if (!condition) {
+        throw new Error(`conditions[${index}] is invalid.`);
+      }
+      return condition;
+    });
+  }
+
+  private parseRecordJson(value: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrThrow(value, {}, "gameState.flagsJson");
+  }
+
+  private parseNumberRecordJson(value: string | null | undefined): Record<string, number> {
+    return parseJsonOrThrow(value, {}, (parsed) => this.decodeNumberRecord(parsed), "character.abilitiesJson");
+  }
+
+  private decodeNumberRecord(value: unknown): Record<string, number> {
+    if (!isRecord(value)) {
+      throw new Error("number record must be an object.");
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, numericValue]) => {
+      if (typeof numericValue !== "number" || !Number.isFinite(numericValue)) {
+        throw new Error(`${key} must be a finite number.`);
+      }
+      return [key, numericValue];
+    }));
+  }
+
+  private parseInventorySnapshotJson(value: string | null | undefined): InventorySnapshotItem[] {
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeInventorySnapshotItems(parsed),
+      "sessionCharacter.inventorySnapshotJson",
+    );
+  }
+
+  private decodeInventorySnapshotItems(value: unknown): InventorySnapshotItem[] {
+    if (!Array.isArray(value)) {
+      throw new Error("inventory snapshot must be an array.");
+    }
+    return value.map((entry, index) => this.decodeInventorySnapshotItem(entry, index));
+  }
+
+  private decodeInventorySnapshotItem(value: unknown, index: number): InventorySnapshotItem {
+    if (!isRecord(value)) {
+      throw new Error(`inventory[${index}] must be an object.`);
+    }
+    if (typeof value.id !== "string" && typeof value.itemDefinitionId !== "string") {
+      throw new Error(`inventory[${index}] must have id or itemDefinitionId.`);
+    }
+    for (const key of ["id", "itemDefinitionId", "name", "itemType", "damageDice", "damageType"] as const) {
+      if (value[key] !== undefined && typeof value[key] !== "string") {
+        throw new Error(`inventory[${index}].${key} must be a string.`);
+      }
+    }
+    const item: InventorySnapshotItem = {};
+    if (typeof value.id === "string") {
+      item.id = value.id;
+    }
+    if (typeof value.itemDefinitionId === "string") {
+      item.itemDefinitionId = value.itemDefinitionId;
+    }
+    if (typeof value.name === "string") {
+      item.name = value.name;
+    }
+    if (value.quantity !== undefined) {
+      if (typeof value.quantity !== "number" || !Number.isInteger(value.quantity) || value.quantity < 1) {
+        throw new Error(`inventory[${index}].quantity must be a positive integer.`);
+      }
+      item.quantity = value.quantity;
+    }
+    if (typeof value.itemType === "string") {
+      item.itemType = value.itemType;
+    }
+    if (typeof value.damageDice === "string") {
+      item.damageDice = value.damageDice;
+    }
+    if (typeof value.damageType === "string") {
+      item.damageType = value.damageType;
+    }
+    if (value.properties !== undefined) {
+      item.properties = decodeStringArray(value.properties);
+    }
+    return item;
+  }
+
+  private compactPresentStrings(value: readonly unknown[]): string[] {
+    return value.flatMap((item) => (typeof item === "string" && item ? [item] : []));
+  }
+
+  private matchFirstGroup(value: string, pattern: RegExp): string[] {
+    const match = pattern.exec(value)?.[1];
+    return match ? [match] : [];
   }
 
   private async runServerAutoMonsterTurns(sessionId: string): Promise<void> {
@@ -2460,8 +2599,8 @@ export class CombatService {
         },
       },
     });
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter?.character.abilitiesJson ?? "{}", {});
-    const featureIds = this.parseJsonArray<string>(
+    const abilities = this.parseNumberRecordJson(sessionCharacter?.character.abilitiesJson ?? "{}");
+    const featureIds = this.parseStringArray(
       sessionCharacter?.character.featuresJson ?? "[]",
     );
     const runtimeTags = Array.from(new Set([
@@ -3387,8 +3526,8 @@ export class CombatService {
 
   private async consumeTriggeredReadyAction(sessionId: string, reactionId: string): Promise<TriggeredReadyAction> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const triggeredActions = this.parseTriggeredReadyActions(flags[TRIGGERED_READY_ACTIONS_FLAG]);
+    const flags = this.parseRecordJson(state.flagsJson);
+    const triggeredActions = this.readTriggeredReadyActionsFromFlags(flags);
     const triggered = triggeredActions.find((candidate) => candidate.id === reactionId) ?? null;
     if (!triggered) {
       throw notFound("COMBAT_404", "처리할 준비행동 요청을 찾을 수 없습니다.", {
@@ -3467,14 +3606,8 @@ export class CombatService {
     return session.gmMode === PrismaGmMode.HUMAN ? (session.gmUserId ?? session.hostUserId) : session.hostUserId;
   }
 
-  private async lockSessionRuntime(tx: unknown, sessionId: string): Promise<void> {
-    const client = tx as {
-      $executeRaw?: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
-    };
-    if (!client.$executeRaw) {
-      return;
-    }
-    await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
+  private async lockSessionRuntime(tx: Pick<Prisma.TransactionClient, "$executeRaw">, sessionId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
   }
 
   private async ensureActorCanAct(
@@ -3586,18 +3719,17 @@ export class CombatService {
           : sessionCharacter.tempHp ?? 0;
       const hpDelta =
         delta < 0 ? -(incomingDamage - absorbedByTempHp) : delta;
-      const featureIds = this.parseJsonArray<string>(
+      const featureIds = this.parseStringArray(
         sessionCharacter.character.featuresJson,
       );
       const runtimeTags = this.ruleCatalog.resolveRuntimeTags(featureIds);
-      const currentConditions = this.parseJsonArray<unknown>(
+      const currentConditions = this.parseConditionEntriesJson(
         sessionCharacter.conditionsJson,
       );
       const conditionTags =
         this.combatConditions.combatConditionTags(currentConditions);
       const maxHpBonus = conditionTags
-        .map((tag) => /^max_hp_bonus:(\d+)$/.exec(tag)?.[1])
-        .filter((value): value is string => Boolean(value))
+        .flatMap((tag) => this.matchFirstGroup(tag, /^max_hp_bonus:(\d+)$/))
         .map(Number)
         .filter((value) => Number.isFinite(value) && value > 0)
         .reduce((maximum, value) => Math.max(maximum, value), 0);
@@ -3706,7 +3838,7 @@ export class CombatService {
         },
       },
     });
-    const featureIds = this.parseJsonArray<string>(
+    const featureIds = this.parseStringArray(
       sessionCharacter?.character.featuresJson ?? "[]",
     );
     if (
@@ -3796,7 +3928,7 @@ export class CombatService {
       },
     });
     const featureTags = this.ruleCatalog.resolveRuntimeTags(
-      this.parseJsonArray<string>(
+      this.parseStringArray(
         sessionCharacter?.character.featuresJson ?? "[]",
       ),
     );
@@ -3846,7 +3978,7 @@ export class CombatService {
     });
     return this.ruleCatalog
       .resolveRuntimeTags(
-        this.parseJsonArray<string>(
+        this.parseStringArray(
           sessionCharacter?.character.featuresJson ?? "[]",
         ),
       )
@@ -3856,13 +3988,11 @@ export class CombatService {
   private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {
     const conditions = this.parseConditions(conditionsJson);
     const speedOverride = conditions
-      .map((tag) => /^movement_speed_override:(\d+)$/.exec(tag)?.[1])
-      .filter((value): value is string => Boolean(value))
+      .flatMap((tag) => this.matchFirstGroup(tag, /^movement_speed_override:(\d+)$/))
       .map(Number)
       .find((value) => Number.isFinite(value) && value > 0);
     const speedBonus = conditions
-      .map((tag) => /^movement_speed_bonus:(\d+)$/.exec(tag)?.[1])
-      .filter((value): value is string => Boolean(value))
+      .flatMap((tag) => this.matchFirstGroup(tag, /^movement_speed_bonus:(\d+)$/))
       .map(Number)
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((total, value) => total + value, 0);
@@ -3906,8 +4036,8 @@ export class CombatService {
       return 0;
     }
 
-    const abilities = this.parseJson<Record<string, number>>(character.abilitiesJson, {});
-    const proficientSkills = this.parseJson<string[]>(character.proficientSkillsJson, []).map((skill) => skill.trim().toLowerCase());
+    const abilities = this.parseNumberRecordJson(character.abilitiesJson);
+    const proficientSkills = this.parseStringArray(character.proficientSkillsJson).map((skill) => skill.trim().toLowerCase());
     const dexterityModifier = this.getAbilityModifier(abilities.dex ?? abilities.dexterity ?? abilities.dexterityScore);
     const isStealthProficient = proficientSkills.some((skill) => ["stealth", "dexterity_stealth", "은신"].includes(skill));
     return dexterityModifier + (isStealthProficient ? character.proficiencyBonus : 0);
@@ -3925,8 +4055,7 @@ export class CombatService {
 
   private resolveParticipantArmorClass(participant: CombatParticipantEntity): number {
     const armorClassBonus = this.parseConditions(participant.conditionsJson ?? "[]")
-      .map((tag) => /^armor_class:\+(\d+)$/.exec(tag)?.[1])
-      .filter((value): value is string => Boolean(value))
+      .flatMap((tag) => this.matchFirstGroup(tag, /^armor_class:\+(\d+)$/))
       .map(Number)
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((total, value) => total + value, 0);
@@ -3937,20 +4066,24 @@ export class CombatService {
     return this.combatTargeting.resolveParticipantTargetVisibility(map, participant).heavilyObscured;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
-
   private getAbilityModifier(score: number | null | undefined): number {
     return Math.floor(((score ?? 10) - 10) / 2);
+  }
+
+  private toSharedGamePhase(value: PrismaGamePhase): GamePhase {
+    switch (value) {
+      case PrismaGamePhase.LOBBY:
+        return GamePhase.LOBBY;
+      case PrismaGamePhase.EXPLORATION:
+        return GamePhase.EXPLORATION;
+      case PrismaGamePhase.COMBAT:
+        return GamePhase.COMBAT;
+      case PrismaGamePhase.DIALOGUE:
+        return GamePhase.DIALOGUE;
+      case PrismaGamePhase.REST:
+        return GamePhase.REST;
+    }
+    throw new Error(`Unsupported game phase: ${value}`);
   }
 
   private clampNumber(value: number, min: number, max: number): number {
@@ -3961,7 +4094,7 @@ export class CombatService {
   }
 
   private async endExpiredRagesForCombat(combat: NonNullable<CombatWithParticipants>): Promise<number> {
-    const sessionCharacterIds = combat.participants.map((participant) => participant.sessionCharacterId).filter((id): id is string => Boolean(id));
+    const sessionCharacterIds = this.compactPresentStrings(combat.participants.map((participant) => participant.sessionCharacterId));
 
     if (!sessionCharacterIds.length) {
       return 0;
@@ -3985,8 +4118,8 @@ export class CombatService {
 
   private async expireReadyActionsForTurn(sessionId: string, combat: NonNullable<CombatWithParticipants>): Promise<number> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+    const flags = this.parseRecordJson(state.flagsJson);
+    const pendingActions = this.readPendingReadyActionsFromFlags(flags);
     if (pendingActions.length === 0) {
       return 0;
     }
@@ -4025,8 +4158,8 @@ export class CombatService {
     nextMoverToken: VttMapToken;
   }): Promise<ReadyActionMovementResult> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+    const flags = this.parseRecordJson(state.flagsJson);
+    const pendingActions = this.readPendingReadyActionsFromFlags(flags);
     if (pendingActions.length === 0) {
       return { count: 0, prompts: [] };
     }
@@ -4096,7 +4229,10 @@ export class CombatService {
         flagsJson: JSON.stringify({
           ...flags,
           [PENDING_READY_ACTIONS_FLAG]: remaining,
-          [TRIGGERED_READY_ACTIONS_FLAG]: [...(Array.isArray(flags[TRIGGERED_READY_ACTIONS_FLAG]) ? flags[TRIGGERED_READY_ACTIONS_FLAG] : []), ...triggered],
+          [TRIGGERED_READY_ACTIONS_FLAG]: [
+            ...this.readTriggeredReadyActionsFromFlags(flags),
+            ...triggered,
+          ],
         }),
       },
     });
@@ -4116,8 +4252,8 @@ export class CombatService {
     eventTurnNo?: number;
   }): Promise<ReadyActionMovementResult> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+    const flags = this.parseRecordJson(state.flagsJson);
+    const pendingActions = this.readPendingReadyActionsFromFlags(flags);
     if (pendingActions.length === 0) {
       return { count: 0, prompts: [] };
     }
@@ -4195,7 +4331,10 @@ export class CombatService {
         flagsJson: JSON.stringify({
           ...flags,
           [PENDING_READY_ACTIONS_FLAG]: remaining,
-          [TRIGGERED_READY_ACTIONS_FLAG]: [...(Array.isArray(flags[TRIGGERED_READY_ACTIONS_FLAG]) ? flags[TRIGGERED_READY_ACTIONS_FLAG] : []), ...triggered],
+          [TRIGGERED_READY_ACTIONS_FLAG]: [
+            ...this.readTriggeredReadyActionsFromFlags(flags),
+            ...triggered,
+          ],
         }),
       },
     });
@@ -4205,35 +4344,14 @@ export class CombatService {
     return { count: triggered.length, prompts };
   }
 
-  private parsePendingReadyActions(value: unknown): PendingReadyAction[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-    return value.filter((candidate): candidate is PendingReadyAction => {
-      if (!candidate || typeof candidate !== "object") {
-        return false;
-      }
-      const pending = candidate as Partial<PendingReadyAction>;
-      return (
-        typeof pending.id === "string" &&
-        pending.type === "ready_action" &&
-        typeof pending.actorParticipantId === "string" &&
-        typeof pending.actorUserId === "string" &&
-        typeof pending.combatId === "string" &&
-        typeof pending.roundNo === "number" &&
-        typeof pending.turnNo === "number" &&
-        typeof pending.expiresAtRound === "number" &&
-        typeof pending.expiresAtTurn === "number" &&
-        Boolean(pending.trigger) &&
-        Boolean(pending.heldAction)
-      );
-    });
+  private readPendingReadyActionsFromFlags(flags: unknown): PendingReadyAction[] {
+    return this.readyActions.readPendingReadyActionsFromFlags(flags);
   }
 
   private async hasPendingTriggeredReadyAction(sessionId: string): Promise<boolean> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const triggeredActions = this.parseTriggeredReadyActions(flags[TRIGGERED_READY_ACTIONS_FLAG]);
+    const flags = this.parseRecordJson(state.flagsJson);
+    const triggeredActions = this.readTriggeredReadyActionsFromFlags(flags);
     if (triggeredActions.length === 0) {
       return false;
     }
@@ -4261,25 +4379,12 @@ export class CombatService {
     return activeTriggeredActions.length > 0;
   }
 
-  private parseTriggeredReadyActions(value: unknown): TriggeredReadyAction[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-    return value.filter((candidate): candidate is TriggeredReadyAction => {
-      if (!candidate || typeof candidate !== "object") {
-        return false;
-      }
-      const triggered = candidate as Partial<TriggeredReadyAction>;
-      return (
-        typeof triggered.id === "string" &&
-        triggered.type === "triggered_ready_action" &&
-        triggered.status === "pending_response" &&
-        typeof triggered.triggeredAtRound === "number" &&
-        typeof triggered.triggeredAtTurn === "number" &&
-        Boolean(triggered.pending) &&
-        Boolean(triggered.triggerEvent)
-      );
-    });
+  private readTriggeredReadyActionsFromFlags(flags: unknown): TriggeredReadyAction[] {
+    return this.readyActions.readTriggeredReadyActionsFromFlags(flags);
+  }
+
+  private isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
   }
 
   private isRageExpired(
@@ -4326,12 +4431,7 @@ export class CombatService {
   }
 
   private parseConditions(value: string): string[] {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed) ? this.combatConditions.combatConditionTags(parsed) : [];
-    } catch {
-      return [];
-    }
+    return this.combatConditions.combatConditionTags(this.parseConditionEntriesJson(value));
   }
 
   private getCurrentPlayerParticipantOrThrow(combat: NonNullable<CombatWithParticipants>): CombatParticipantEntity {
@@ -4402,7 +4502,7 @@ export class CombatService {
         },
       },
     });
-    const featureIds = this.parseJsonArray<string>(
+    const featureIds = this.parseStringArray(
       sessionCharacter?.character.featuresJson ?? "[]",
     );
     const hasExtraAttack = featureIds.some((featureId) =>
@@ -4483,9 +4583,9 @@ export class CombatService {
 
     return this.combatMapper.mapCombat(combat, {
       gmRuntimeUserId: this.getGmRuntimeUserId(session),
-      findParticipantToken: (map, participant) => this.combatTargeting.findParticipantToken(map, participant as CombatParticipantEntity),
+      findParticipantToken: (map, participant) => this.combatTargeting.findParticipantToken(map, participant),
       listMonsterActionOptionsForParticipant: (participant, token, flags) =>
-        this.combatMonsterActions.listMonsterActionOptionsForParticipant(participant as CombatParticipantEntity, token, flags),
+        this.combatMonsterActions.listMonsterActionOptionsForParticipant(participant, token, flags),
     });
   }
 }

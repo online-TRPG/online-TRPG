@@ -1,4 +1,5 @@
-import type { SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
+import { VTT_MAP_INTERACTION_KINDS } from '@trpg/shared-types/frontend';
+import { MainCommandIntent, type SubmitMainCommandDto } from '@trpg/shared-types';
 import type { GameIconName } from '../../../components/GameIcon';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 
@@ -16,13 +17,13 @@ export type ExplorationActionButton = {
   localAction?:
     | 'move'
     | 'ping'
-    | 'open_door'
-    | 'close_door'
+    | typeof VTT_MAP_INTERACTION_KINDS.OPEN_DOOR
+    | typeof VTT_MAP_INTERACTION_KINDS.CLOSE_DOOR
     | 'unlock_door'
-    | 'break_door'
-    | 'break_object'
-    | 'investigate_object'
-    | 'disarm_hazard';
+    | typeof VTT_MAP_INTERACTION_KINDS.BREAK_DOOR
+    | typeof VTT_MAP_INTERACTION_KINDS.BREAK_OBJECT
+    | typeof VTT_MAP_INTERACTION_KINDS.INVESTIGATE_OBJECT
+    | typeof VTT_MAP_INTERACTION_KINDS.DISARM_HAZARD;
   disabled?: boolean;
   // 기본 탐험 행동은 전투/채팅 버튼과 바로 구분되도록 RPG풍 아이콘을 함께 표시합니다.
   iconName?: GameIconName;
@@ -30,12 +31,7 @@ export type ExplorationActionButton = {
 
 export type ExplorationLocalAction = NonNullable<ExplorationActionButton['localAction']>;
 
-const ExplorationMainCommandIntent = {
-  TALK_TO_NPC: 'TALK_TO_NPC' as SubmitMainCommandDto['intent'],
-  OBSERVE_AREA: 'OBSERVE_AREA' as SubmitMainCommandDto['intent'],
-  INVESTIGATE_OBJECT: 'INVESTIGATE_OBJECT' as SubmitMainCommandDto['intent'],
-  INTERACT_OBJECT: 'INTERACT_OBJECT' as SubmitMainCommandDto['intent'],
-};
+const ExplorationMainCommandIntent = MainCommandIntent;
 
 const explorationActionIconNames: Partial<Record<string, GameIconName>> = {
   관찰: 'game-icons:eye-target',
@@ -177,7 +173,7 @@ export function getContextActions(
     const investigateAction: ExplorationActionButton = isGmView
       ? {
           label: '조사',
-          localAction: 'investigate_object',
+          localAction: VTT_MAP_INTERACTION_KINDS.INVESTIGATE_OBJECT,
           iconName: getExplorationActionIconName('조사'),
         }
       : command(
@@ -203,26 +199,25 @@ export function getContextActions(
       ...positionActions,
       {
         label: '열기',
-        localAction: 'open_door',
+        localAction: VTT_MAP_INTERACTION_KINDS.OPEN_DOOR,
         iconName: getExplorationActionIconName('열기'),
       },
       {
         label: '닫기',
-        localAction: 'close_door',
+        localAction: VTT_MAP_INTERACTION_KINDS.CLOSE_DOOR,
         iconName: getExplorationActionIconName('열기'),
       },
       investigateAction,
       unlockAction,
       {
         label: '부수기',
-        localAction: 'break_door',
+        localAction: VTT_MAP_INTERACTION_KINDS.BREAK_DOOR,
         iconName: getExplorationActionIconName('부수기'),
       },
     ];
   }
 
   if (selection.kind === 'object') {
-    const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
     const canDisarmHazard = isGmView
       ? isArmedHazardSelection(selection)
       : isDetectedArmedHazardSelection(selection);
@@ -230,7 +225,7 @@ export function getContextActions(
       ? [
           {
             label: '함정 해제',
-            localAction: 'disarm_hazard',
+            localAction: VTT_MAP_INTERACTION_KINDS.DISARM_HAZARD,
             iconName: getExplorationActionIconName('함정 해제'),
           },
         ]
@@ -238,7 +233,7 @@ export function getContextActions(
     const investigateAction: ExplorationActionButton = isGmView
       ? {
           label: '조사',
-          localAction: 'investigate_object',
+          localAction: VTT_MAP_INTERACTION_KINDS.INVESTIGATE_OBJECT,
           iconName: getExplorationActionIconName('조사'),
         }
       : command(
@@ -248,11 +243,11 @@ export function getContextActions(
           `${targetLabel}을 조사합니다.`
         );
     const breakActions: ExplorationActionButton[] =
-      objectCell.canBreak && !objectCell.broken
+      selection.cell.canBreak && !selection.cell.broken
         ? [
             {
               label: '부수기',
-              localAction: 'break_object',
+              localAction: VTT_MAP_INTERACTION_KINDS.BREAK_OBJECT,
               iconName: getExplorationActionIconName('부수기'),
             },
           ]

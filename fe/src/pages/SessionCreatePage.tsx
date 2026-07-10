@@ -9,6 +9,7 @@
  * 5) JSX: 입력 폼 카드와 선택 시나리오 프리뷰 카드
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { isRecruitingSessionStatus } from '@trpg/shared-types/frontend';
 import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
@@ -29,6 +30,14 @@ interface SessionCreatePageProps {
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
   ) => void | Promise<void>;
+}
+
+function readClampedInteger(value: string, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -81,7 +90,7 @@ export function SessionCreatePage({
   const [selectedScenarioImage, setSelectedScenarioImage] = useState<string | null>(null);
 
   // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
-  const hasRecruitingSession = mySessionList.some((item) => item.status === 'recruiting');
+  const hasRecruitingSession = mySessionList.some((item) => isRecruitingSessionStatus(item.status));
 
   // 시나리오 옵션이 로드되면 구현 완료된 기본 제공 시나리오를 우선 선택합니다.
   useEffect(() => {
@@ -211,10 +220,9 @@ export function SessionCreatePage({
                   max={4}
                   value={maxPlayers}
                   step={1}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setMaxPlayers(Number.isFinite(next) ? Math.min(4, Math.max(1, next)) : 1);
-                  }}
+                  onChange={(event) =>
+                    setMaxPlayers(readClampedInteger(event.target.value, maxPlayers, 1, 4))
+                  }
                 />
               </div>
 

@@ -104,19 +104,17 @@ export class CombatTerrainService {
         ? `지형 이탈 해제 ${application.removedConditionTags.join(", ")}`
         : null,
     ];
-    return messages.filter((message): message is string => Boolean(message)).join(" / ") || null;
+    return compactStrings(messages).join(" / ") || null;
   }
 
   describeLifecycle(
     label: string,
     application: CombatTerrainEffectApplication,
   ): string | null {
-    const summary = [
+    const summary = compactStrings([
       this.describeDamage(application),
       this.describeConditions(application),
-    ]
-      .filter((message): message is string => Boolean(message))
-      .join(" / ");
+    ]).join(" / ");
     return summary ? `${label}: ${summary}` : null;
   }
 
@@ -140,4 +138,8 @@ export class CombatTerrainService {
     }
     return { ability, dc: effect.saveDc };
   }
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
 }

@@ -99,7 +99,9 @@ export class SessionSnapshotService {
       orderBy: { clientCreatedAt: "asc" },
     });
     const requesterUserIds = Array.from(new Set(actions.map((action) => action.userId)));
-    const sessionCharacterIds = Array.from(new Set(actions.map((action) => action.sessionCharacterId).filter((id): id is string => Boolean(id))));
+    const sessionCharacterIds = Array.from(
+      new Set(actions.flatMap((action) => (action.sessionCharacterId ? [action.sessionCharacterId] : []))),
+    );
     const [requesters, sessionCharacters] = await Promise.all([
       requesterUserIds.length
         ? runtime.prisma.user.findMany({

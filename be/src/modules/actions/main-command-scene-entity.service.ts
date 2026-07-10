@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandTargetType, SubmitMainCommandDto } from "@trpg/shared-types";
+import { MainCommandTargetType, SubmitMainCommandDto, decodeScenarioNodeMeta, isRecord } from "@trpg/shared-types";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 
 export type VisibleSceneEntity = {
   id: string;
@@ -12,7 +13,7 @@ export type VisibleSceneEntity = {
 @Injectable()
 export class MainCommandSceneEntityService {
   extractVisibleSceneEntities(nodeMetaJson: string | null): VisibleSceneEntity[] {
-    const nodeMeta = this.parseJson<Record<string, unknown> | null>(nodeMetaJson, null);
+    const nodeMeta = parseJsonOrThrow(nodeMetaJson, null, decodeScenarioNodeMeta, "scenarioNode.nodeMetaJson");
     if (!nodeMeta) {
       return [];
     }
@@ -79,38 +80,25 @@ export class MainCommandSceneEntityService {
     }
 
     return value
-      .map((item) => {
-        if (!item || typeof item !== "object") {
-          return null;
+      .flatMap((item) => {
+        if (!isRecord(item)) {
+          return [];
         }
-        const record = item as Record<string, unknown>;
+        const record = item;
         const id = this.readString(record.id);
         const name = this.readString(record.name) ?? this.readString(record.title);
         const isVisible = record.isVisible !== false;
         if (!id || !name || !isVisible) {
-          return null;
+          return [];
         }
-        return {
+        return [{
           id,
           name,
           kind,
           summary: this.readString(record.shortDescription) ?? this.readString(record.description) ?? this.readString(record.summary) ?? name,
           disposition: this.readString(record.disposition) ?? "neutral",
-        };
-      })
-      .filter((entry): entry is VisibleSceneEntity => Boolean(entry));
-  }
-
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+        }];
+      });
   }
 
   private readString(value: unknown): string | null {

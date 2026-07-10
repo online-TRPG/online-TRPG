@@ -1,7 +1,10 @@
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { CombatReactionPromptDto, CombatResponseDto, VttMapStateDto } from '@trpg/shared-types';
-import { getCombatReactionPrompts } from '../utils/combatResultPresentation';
+import { decodeCombatReactionPrompt } from '@trpg/shared-types/frontend';
+import {
+  getCombatReactionPrompts,
+} from '../utils/combatResultPresentation';
 
 type CombatReactionResult = {
   combat: CombatResponseDto;
@@ -21,19 +24,6 @@ type UseCombatReactionAutoHandlerParams = {
   setCombatError: Dispatch<SetStateAction<string | null>>;
 };
 
-const SUPPORTED_REACTION_EVENT_TYPES: ReadonlySet<CombatReactionPromptDto['type']> = new Set([
-  'opportunity_attack',
-  'shield',
-  'ready_action',
-  'counterspell',
-]);
-
-function isSupportedReactionPrompt(value: unknown): value is CombatReactionPromptDto {
-  if (!value || typeof value !== 'object') return false;
-  const type = (value as { type?: unknown }).type;
-  return typeof type === 'string' && SUPPORTED_REACTION_EVENT_TYPES.has(type as CombatReactionPromptDto['type']);
-}
-
 export function useCombatReactionAutoHandler(params: UseCombatReactionAutoHandlerParams) {
   const {
     sessionId,
@@ -48,8 +38,13 @@ export function useCombatReactionAutoHandler(params: UseCombatReactionAutoHandle
   useEffect(() => {
     function handleReactionPrompt(event: Event) {
       if (!sessionId) return;
-      const reaction = (event as CustomEvent<unknown>).detail;
-      if (!isSupportedReactionPrompt(reaction)) return;
+      if (!(event instanceof CustomEvent)) return;
+      let reaction: CombatReactionPromptDto;
+      try {
+        reaction = decodeCombatReactionPrompt(event.detail);
+      } catch {
+        return;
+      }
       if (!isCombatReactionForCurrentUser(reaction)) return;
       if (!claimCombatReactionHandling(reaction.id)) return;
       void submitCombatReactionPrompt(reaction)

@@ -73,7 +73,13 @@ export function getImplementedSpellLabel(
 export function getPreparedSpellAbilityKey(
   className: string | null | undefined
 ): CharacterAbilityKey | null {
-  return resolvePreparedSpellAbility(className ?? '') as CharacterAbilityKey | null;
+  return toCharacterAbilityKey(resolvePreparedSpellAbility(className ?? ''));
+}
+
+function toCharacterAbilityKey(value: string | null): CharacterAbilityKey | null {
+  return value === 'str' || value === 'dex' || value === 'con' || value === 'int' || value === 'wis' || value === 'cha'
+    ? value
+    : null;
 }
 
 export function usesDynamicPreparedSpellPool(
@@ -146,7 +152,7 @@ export function buildSpellSelectionDetail(
     srdSpell?.castingTime?.raw ? `시전 ${srdSpell.castingTime.raw}` : null,
     srdSpell?.range?.raw
       ? `거리 ${srdSpell.range.raw}`
-      : typeof catalogEntry?.rangeFt === 'number'
+      : isNonNegativeFiniteNumber(catalogEntry?.rangeFt)
         ? `거리 ${catalogEntry.rangeFt}ft`
         : null,
     catalogEntry?.targetingType ? formatTargetingType(catalogEntry.targetingType) : null,
@@ -154,7 +160,7 @@ export function buildSpellSelectionDetail(
     srdSpell?.components?.raw ? `구성 ${srdSpell.components.raw}` : null,
     srdSpell?.concentration ? '집중' : null,
     srdSpell?.ritual ? '의식' : null,
-  ].filter((spec): spec is string => Boolean(spec));
+  ].flatMap((spec) => spec ? [spec] : []);
 
   return {
     specs,
@@ -170,7 +176,7 @@ export function buildSpellDisplayOptions(
   ruleCatalog: RuleCatalogReferenceDto[],
   spellCatalogById: Map<string, StaticSpellCatalogEntry>
 ): SpellSelectionGridOption[] {
-  const uniqueSpellIds = Array.from(new Set(spellIds.map((spellId) => spellId.trim()).filter(Boolean)));
+  const uniqueSpellIds = Array.from(new Set(compactTrimmedStrings(spellIds)));
   return attachSpellDetails(
     uniqueSpellIds.map((spellId) => {
       const srdSpell = spellCatalogById.get(spellId);
@@ -190,20 +196,20 @@ export function getSelectedStartingSlotSpellIds(
   startingSpells: { spells?: string[] } | null | undefined
 ) {
   return Array.from(
-    new Set((startingSpells?.spells ?? []).map((spell) => spell.trim()).filter(Boolean))
+    new Set(compactTrimmedStrings(startingSpells?.spells ?? []))
   );
 }
 
 export function getSelectedStartingCantripIds(
   startingSpells: { cantrips?: string[] } | null | undefined
 ) {
-  return (startingSpells?.cantrips ?? []).map((spell) => spell.trim()).filter(Boolean);
+  return compactTrimmedStrings(startingSpells?.cantrips ?? []);
 }
 
 export function getSelectedStartingPreparedSpellIds(
   startingSpells: { preparedSpells?: string[] } | null | undefined
 ) {
-  return (startingSpells?.preparedSpells ?? []).map((spell) => spell.trim()).filter(Boolean);
+  return compactTrimmedStrings(startingSpells?.preparedSpells ?? []);
 }
 
 export function buildStartingSpellReviewCounts(params: {
@@ -239,7 +245,7 @@ export function buildStartingSpellSectionState(params: {
           : null,
         preparedSpellCount > 0 ? `준비 주문 ${preparedSpellCount}개` : null,
       ]
-        .filter(Boolean)
+        .flatMap((part) => part ? [part] : [])
         .join(' + ')
     : '선택할 시작 주문 없음';
 
@@ -804,7 +810,7 @@ function getCatalogSpellOptions(
     .filter((spell) =>
       kind === 'cantrip'
         ? spell.level === 0
-        : typeof spell.level === 'number' &&
+        : isSlotSpellLevel(spell.level) &&
           spell.level >= 1 &&
           spell.level <= normalizedMaxSpellLevel
     )
@@ -829,7 +835,7 @@ function getQuickCreateCatalogSpellIds(
     .filter((spell) =>
       kind === 'cantrip'
         ? spell.level === 0
-        : typeof spell.level === 'number' &&
+        : isSlotSpellLevel(spell.level) &&
           spell.level >= 1 &&
           spell.level <= normalizedMaxSpellLevel
     )
@@ -867,17 +873,36 @@ function getQuickCreateFallbackSlotSpellIds(
 }
 
 function getCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | null {
-  if (typeof entry.spellLevel === 'number') return entry.spellLevel;
+  if (isSpellLevel(entry.spellLevel)) return entry.spellLevel;
   const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
   if (!tag) return null;
   const level = Number(tag.slice('spell_level:'.length));
-  return Number.isInteger(level) ? level : null;
+  return isSpellLevel(level) ? level : null;
+}
+
+function compactTrimmedStrings(values: string[]): string[] {
+  return values.flatMap((value) => {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 function formatSpellLevelLabel(level: number | null | undefined) {
   if (level === 0) return '캔트립';
-  if (typeof level === 'number') return `${level}레벨`;
+  if (isSlotSpellLevel(level)) return `${level}레벨`;
   return null;
+}
+
+function isSpellLevel(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 9;
+}
+
+function isSlotSpellLevel(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 9;
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function formatTargetingType(targetingType: string) {

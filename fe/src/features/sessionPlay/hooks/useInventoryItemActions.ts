@@ -13,6 +13,10 @@ type UseInventoryItemActionsParams = {
   selectedSessionCharacter: Character | null;
 };
 
+export type InventoryItemWithEquipmentDisplayState = InventoryItemDto & {
+  __equipmentDisplayState?: 'equipped' | 'available';
+};
+
 export function useInventoryItemActions(params: UseInventoryItemActionsParams) {
   const { user, sessionId, busy, selectedSessionCharacter } = params;
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
@@ -58,12 +62,10 @@ export function useInventoryItemActions(params: UseInventoryItemActionsParams) {
   );
 
   const handleEquipInventoryItem = useCallback(
-    async (item: InventoryItemDto) => {
+    async (item: InventoryItemWithEquipmentDisplayState) => {
       if (busy || isInventoryUsePending || !selectedSessionCharacter) return;
 
-      const equipmentDisplayState = (
-        item as InventoryItemDto & { __equipmentDisplayState?: 'equipped' | 'available' }
-      ).__equipmentDisplayState;
+      const equipmentDisplayState = item.__equipmentDisplayState;
       const equipmentItemId = item.itemDefinitionId ?? item.id;
       const isShield = isShieldInventoryItem(item);
       const isEquipped =

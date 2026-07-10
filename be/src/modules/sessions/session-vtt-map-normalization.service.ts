@@ -1,6 +1,19 @@
 import { Injectable } from "@nestjs/common";
-import { VttMapStateDto } from "@trpg/shared-types";
+import {
+  VTT_CHECK_DC_MAX,
+  VTT_CHECK_DC_MIN,
+  VTT_DOOR_STATES,
+  VTT_DOOR_STATE_VALUES,
+  VTT_ENCOUNTER_PRIORITY_MAX,
+  VTT_ENCOUNTER_PRIORITY_MIN,
+  VttDoorState,
+  VttMapStateDto,
+  decodeVttMapState,
+  isRecord,
+} from "@trpg/shared-types";
 import { randomUUID } from "crypto";
+
+export const VTT_MAP_FLAGS_KEY = "vttMap";
 
 @Injectable()
 export class SessionVttMapNormalizationService {
@@ -16,8 +29,8 @@ export class SessionVttMapNormalizationService {
         sessionCharacterId: token.sessionCharacterId ?? null,
         name: token.name.slice(0, 80),
         imageUrl: token.imageUrl ?? null,
-        x: Number(token.x) || 0,
-        y: Number(token.y) || 0,
+        x: this.readFiniteNumber(token.x, 0),
+        y: this.readFiniteNumber(token.y, 0),
         size: this.clampNumber(token.size, 24, 160),
         hidden: token.hidden === true,
         isHostile: token.isHostile === true,
@@ -25,7 +38,12 @@ export class SessionVttMapNormalizationService {
           ? {
               encounterRole: token.encounterRole === "fixed" ? ("fixed" as const) : ("scalable" as const),
               encounterGroupId: typeof token.encounterGroupId === "string" && token.encounterGroupId.trim() ? token.encounterGroupId.trim().slice(0, 80) : null,
-              encounterPriority: this.clampNumber(Number(token.encounterPriority) || 0, 0, 99),
+              encounterPriority: this.readIntegerInRange(
+                token.encounterPriority,
+                VTT_ENCOUNTER_PRIORITY_MIN,
+                VTT_ENCOUNTER_PRIORITY_MAX,
+                VTT_ENCOUNTER_PRIORITY_MIN,
+              ),
             }
           : {}),
         monster: token.monster
@@ -99,8 +117,8 @@ export class SessionVttMapNormalizationService {
       map.encounterScaling && typeof map.encounterScaling === "object"
         ? {
             enabled: map.encounterScaling.enabled === true,
-            basePartySize: this.clampNumber(Number(map.encounterScaling.basePartySize) || 4, 1, 12),
-            minMonsterCount: this.clampNumber(Number(map.encounterScaling.minMonsterCount) || 1, 0, 80),
+            basePartySize: this.readIntegerInRange(map.encounterScaling.basePartySize, 1, 12, 4),
+            minMonsterCount: this.readIntegerInRange(map.encounterScaling.minMonsterCount, 0, 80, 1),
             mode: "by_party_ratio" as const,
           }
         : null;
@@ -135,10 +153,10 @@ export class SessionVttMapNormalizationService {
               .replace(/[\s-]+/g, "_")
               .slice(0, 80)
           : null,
-      x: this.clampNumber(Number(cell.x), 0, width - gridSize),
-      y: this.clampNumber(Number(cell.y), 0, height - gridSize),
-      width: this.clampNumber(Number(cell.width) || gridSize, gridSize, width),
-      height: this.clampNumber(Number(cell.height) || gridSize, gridSize, height),
+      x: this.clampNumber(this.readFiniteNumber(cell.x, 0), 0, width - gridSize),
+      y: this.clampNumber(this.readFiniteNumber(cell.y, 0), 0, height - gridSize),
+      width: this.readIntegerInRange(cell.width, gridSize, width, gridSize),
+      height: this.readIntegerInRange(cell.height, gridSize, height, gridSize),
     });
     const normalizeObjectShapeCells = (
       cell: {
@@ -160,10 +178,10 @@ export class SessionVttMapNormalizationService {
 
       rawShapeCells.slice(0, 80).forEach((shapeCell) => {
         const normalized = {
-          x: this.clampNumber(Number(shapeCell.x), 0, width - gridSize),
-          y: this.clampNumber(Number(shapeCell.y), 0, height - gridSize),
-          width: this.clampNumber(Number(shapeCell.width) || gridSize, gridSize, width),
-          height: this.clampNumber(Number(shapeCell.height) || gridSize, gridSize, height),
+          x: this.clampNumber(this.readFiniteNumber(shapeCell.x, 0), 0, width - gridSize),
+          y: this.clampNumber(this.readFiniteNumber(shapeCell.y, 0), 0, height - gridSize),
+          width: this.readIntegerInRange(shapeCell.width, gridSize, width, gridSize),
+          height: this.readIntegerInRange(shapeCell.height, gridSize, height, gridSize),
         };
         shapeByKey.set(`${normalized.x}:${normalized.y}:${normalized.width}:${normalized.height}`, normalized);
       });
@@ -188,10 +206,13 @@ export class SessionVttMapNormalizationService {
     const wallCells = (map.wallCells ?? []).slice(0, 400).map((cell, index) => normalizeStructureCell(cell, "wall", index));
     const doorCells = (map.doorCells ?? []).slice(0, 200).map((cell, index) => ({
       ...normalizeStructureCell(cell, "door", index),
-      state: cell.state === "open" || cell.state === "closed" || cell.state === "locked" || cell.state === "broken" ? cell.state : "closed",
+      state: this.isVttDoorState(cell.state) ? cell.state : VTT_DOOR_STATES.CLOSED,
       keyItemId: typeof cell.keyItemId === "string" && cell.keyItemId.trim() ? cell.keyItemId.trim() : null,
       canBreak: cell.canBreak === true,
-      breakCheckDc: typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc) ? this.clampNumber(cell.breakCheckDc, 1, 40) : null,
+      breakCheckDc:
+        typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc)
+          ? this.clampNumber(cell.breakCheckDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX)
+          : null,
     }));
     const objectCells = (map.objectCells ?? []).slice(0, 300).map((cell, index) => {
       const baseCell = normalizeStructureCell(cell, "object", index);
@@ -204,7 +225,10 @@ export class SessionVttMapNormalizationService {
         visibleToPlayers: cell.visibleToPlayers !== false,
         canBreak: cell.canBreak === true,
         broken: cell.broken === true,
-        breakCheckDc: typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc) ? this.clampNumber(cell.breakCheckDc, 1, 40) : null,
+        breakCheckDc:
+          typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc)
+            ? this.clampNumber(cell.breakCheckDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX)
+            : null,
         hiddenClueIds: Array.isArray(cell.hiddenClueIds) ? cell.hiddenClueIds.filter((id) => typeof id === "string").slice(0, 30) : [],
         hiddenItemIds: Array.isArray(cell.hiddenItemIds) ? cell.hiddenItemIds.filter((id) => typeof id === "string").slice(0, 30) : [],
         hiddenEventIds: Array.isArray(cell.hiddenEventIds) ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30) : [],
@@ -218,7 +242,7 @@ export class SessionVttMapNormalizationService {
                 requiresCheck: check.requiresCheck !== false,
                 ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
                 skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
-                dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
+                dc: this.readIntegerInRange(check.dc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX, 15),
               }))
               .filter((check) => check.contentId)
               .slice(0, 60)
@@ -232,11 +256,11 @@ export class SessionVttMapNormalizationService {
                 name: typeof event.name === "string" && event.name.trim() ? event.name.trim().slice(0, 80) : null,
                 type: "REVEAL_FOG_ON_PROXIMITY" as const,
                 trigger: {
-                  distanceFeet: this.clampNumber(Number(event.trigger?.distanceFeet), 0, 500),
+                  distanceFeet: this.readIntegerInRange(event.trigger?.distanceFeet, 0, 500, 0),
                   once: event.trigger?.once !== false,
                 },
                 effect: {
-                  revealRadiusFeet: this.clampNumber(Number(event.effect?.revealRadiusFeet), 5, 500),
+                  revealRadiusFeet: this.readIntegerInRange(event.effect?.revealRadiusFeet, 5, 500, 5),
                 },
               }))
           : [],
@@ -246,8 +270,8 @@ export class SessionVttMapNormalizationService {
                 kind: this.normalizeHazardKind(cell.hazard.kind),
                 armed: cell.hazard.armed !== false,
                 triggerOnce: cell.hazard.triggerOnce !== false,
-                detectionRadiusCells: this.clampNumber(Number(cell.hazard.detectionRadiusCells) || 3, 1, 20),
-                detectionDc: this.clampNumber(Number(cell.hazard.detectionDc) || 12, 1, 40),
+                detectionRadiusCells: this.readIntegerInRange(cell.hazard.detectionRadiusCells, 1, 20, 3),
+                detectionDc: this.readIntegerInRange(cell.hazard.detectionDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX, 12),
                 linkedClueIds: Array.isArray(cell.hazard.linkedClueIds) ? cell.hazard.linkedClueIds.filter((id) => typeof id === "string").slice(0, 30) : [],
                 attemptedBySessionCharacterIds: Array.isArray(cell.hazard.attemptedBySessionCharacterIds)
                   ? cell.hazard.attemptedBySessionCharacterIds.filter((id) => typeof id === "string").slice(0, 80)
@@ -283,26 +307,26 @@ export class SessionVttMapNormalizationService {
   }
 
   toVttMapOrNull(value: unknown): VttMapStateDto | null {
-    if (!value || typeof value !== "object") {
+    if (!isRecord(value)) {
       return null;
     }
 
-    const candidate = value as Partial<VttMapStateDto>;
-    if (!candidate.id || !Array.isArray(candidate.tokens) || !Array.isArray(candidate.fogRects)) {
+    const candidate = value;
+    if (typeof candidate.id !== "string" || !Array.isArray(candidate.tokens) || !Array.isArray(candidate.fogRects)) {
       return null;
     }
 
-    return this.normalize(
-      {
+    try {
+      const map = decodeVttMapState({
         id: candidate.id,
-        scenarioNodeId: candidate.scenarioNodeId ?? null,
-        imageUrl: candidate.imageUrl ?? null,
+        scenarioNodeId: typeof candidate.scenarioNodeId === "string" ? candidate.scenarioNodeId : null,
+        imageUrl: typeof candidate.imageUrl === "string" ? candidate.imageUrl : null,
         gridType: candidate.gridType === "hex" ? "hex" : "square",
-        gridSize: Number(candidate.gridSize) || 64,
-        width: Number(candidate.width) || 1280,
-        height: Number(candidate.height) || 832,
+        gridSize: this.readIntegerInRange(candidate.gridSize, 16, 160, 64),
+        width: this.readIntegerInRange(candidate.width, 320, 4000, 1280),
+        height: this.readIntegerInRange(candidate.height, 240, 4000, 832),
         tokens: candidate.tokens,
-        encounterScaling: candidate.encounterScaling && typeof candidate.encounterScaling === "object" ? candidate.encounterScaling : null,
+        encounterScaling: isRecord(candidate.encounterScaling) ? candidate.encounterScaling : null,
         fogRects: candidate.fogRects,
         lightSources: Array.isArray(candidate.lightSources) ? candidate.lightSources : [],
         startingPositions: Array.isArray(candidate.startingPositions) ? candidate.startingPositions : [],
@@ -311,14 +335,27 @@ export class SessionVttMapNormalizationService {
         wallCells: Array.isArray(candidate.wallCells) ? candidate.wallCells : [],
         doorCells: Array.isArray(candidate.doorCells) ? candidate.doorCells : [],
         objectCells: Array.isArray(candidate.objectCells) ? candidate.objectCells : [],
-        updatedAt: candidate.updatedAt ?? new Date().toISOString(),
-      },
-      candidate.scenarioNodeId ?? null,
-    );
+        updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : new Date().toISOString(),
+      });
+      return this.normalize(map, map.scenarioNodeId ?? null);
+    } catch {
+      return null;
+    }
+  }
+
+  toVttMapFromFlags(flags: unknown): VttMapStateDto | null {
+    if (!isRecord(flags)) {
+      return null;
+    }
+    return this.toVttMapOrNull(flags[VTT_MAP_FLAGS_KEY]);
   }
 
   private normalizeHazardKind(value: unknown): "TRAP" | "AMBUSH" | "HAZARD" {
     return value === "AMBUSH" || value === "HAZARD" ? value : "TRAP";
+  }
+
+  private isVttDoorState(value: unknown): value is VttDoorState {
+    return typeof value === "string" && VTT_DOOR_STATE_VALUES.some((state) => state === value);
   }
 
   private clampNumber(value: number, min: number, max: number): number {
@@ -326,5 +363,15 @@ export class SessionVttMapNormalizationService {
       return min;
     }
     return Math.min(Math.max(value, min), max);
+  }
+
+  private readIntegerInRange(value: unknown, min: number, max: number, fallback: number): number {
+    return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+      ? value
+      : fallback;
+  }
+
+  private readFiniteNumber(value: unknown, fallback: number): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 }

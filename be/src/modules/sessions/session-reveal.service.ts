@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import type { Prisma } from "@prisma/client";
 import {
   ActionOutcome,
+  isRecord,
   MainCommandTargetType,
   PlayerCheckOptionDto,
   PlayerScenarioClueDto,
@@ -9,18 +10,68 @@ import {
   PlayerScenarioViewDto,
   PlayerVisibleTargetDto,
   RevealSessionContentDto,
+  ScenarioClueDto,
+  ScenarioCheckOptionDto,
   ScenarioNodeType,
   SessionRevealResponseDto,
+  VttObjectProximityTriggerDto,
+  VttObjectRevealFogEffectDto,
+  decodeLenientScenarioClueArray,
+  decodeScenarioNodeMeta,
 } from "@trpg/shared-types";
 import { randomUUID } from "crypto";
+import {
+  parseJsonOrFallback,
+} from "../../common/utils/json-runtime";
 import type { SessionsService } from "./sessions.service";
 
 type SessionRevealRuntime = ReturnType<SessionsService["createSessionRevealRuntime"]>;
 type HumanGmOverrideLogResult = Awaited<ReturnType<SessionRevealRuntime["createHumanGmOverrideTurnLog"]>>;
+export type RevealableScenarioClue = ScenarioClueDto & { nodeId: string };
+export type RevealContentKind = "clue" | "item" | "event";
+export type RevealScope = "party" | "user" | "character";
+export type RevealClueSnapshot = ScenarioClueDto & {
+  nodeId?: string;
+  sourceHazardId?: string;
+  sourceHazardName?: string | null;
+};
+export type RevealedClueSnapshot = {
+  id?: string;
+  title?: string;
+  handoutText?: string;
+  playerText?: string;
+  importance?: string;
+};
+export type RevealItemSnapshot = {
+  id: string;
+  name?: string | null;
+  sourceObjectId?: string;
+};
+export type RevealEventSnapshot = {
+  id: string;
+  name?: string | null;
+  type?: "REVEAL_FOG_ON_PROXIMITY";
+  sourceObjectId?: string;
+  sourceObjectName?: string | null;
+  currentNodeId?: string | null;
+  trigger?: VttObjectProximityTriggerDto;
+  effect?: VttObjectRevealFogEffectDto;
+};
+type RecordSessionRevealBaseParams = {
+  sessionScenarioId: string;
+  contentId: string;
+  scope: RevealScope;
+  recipientId?: string | null;
+  revealedBy: string;
+  reason?: string | null;
+  turnLogId?: string | null;
+};
+export type RecordSessionRevealParams =
+  | (RecordSessionRevealBaseParams & { contentKind: "clue"; snapshot?: RevealClueSnapshot | null })
+  | (RecordSessionRevealBaseParams & { contentKind: "item"; snapshot?: RevealItemSnapshot | null })
+  | (RecordSessionRevealBaseParams & { contentKind: "event"; snapshot?: RevealEventSnapshot | null });
 
 export type RevealPolicyMode = "AUTO_REVEAL" | "PLAYER_ACTION" | "CHECK_SUCCESS" | "CHECK_PARTIAL" | "POST_COMBAT" | "GM_APPROVAL";
-
-const revealContentKinds = new Set(["clue", "item", "event"]);
 
 @Injectable()
 export class SessionRevealService {
@@ -45,10 +96,10 @@ export class SessionRevealService {
       : [];
     const nodeById = new Map(nodes.map((node) => [node.nodeId, node]));
     const revealedClueSnapshots = await this.getRevealedClueSnapshotsForUser(runtime, sessionScenario.id, resolvedSessionId, userId);
-    const visitedNodes = visitedNodeIds
-      .map((nodeId) => nodeById.get(nodeId))
-      .filter((node): node is NonNullable<typeof node> => Boolean(node))
-      .map((node) => this.mapPlayerScenarioNode(runtime, node, revealedClueSnapshots));
+    const visitedNodes = visitedNodeIds.flatMap((nodeId) => {
+      const node = nodeById.get(nodeId);
+      return node ? [this.mapPlayerScenarioNode(runtime, node, revealedClueSnapshots)] : [];
+    });
     const revealedClues = this.getUniquePlayerClues(
       runtime,
       visitedNodes.flatMap((node) => node.publicClues),
@@ -75,8 +126,7 @@ export class SessionRevealService {
     }
 
     return Array.from(revealedClueSnapshots.values())
-      .map((clue) => this.mapPlayerScenarioClue(runtime, clue))
-      .filter((clue): clue is PlayerScenarioClueDto => Boolean(clue))
+      .flatMap((clue) => this.mapPlayerScenarioClueEntry(clue))
       .map((clue) => `${clue.title}: ${clue.text}`);
   }
 
@@ -84,22 +134,20 @@ export class SessionRevealService {
     runtime: SessionRevealRuntime,
     userId: string,
     sessionId: string,
-    dto: RevealSessionContentDto,
+    dto: Omit<RevealSessionContentDto, "contentKind"> & { contentKind?: string },
   ): Promise<SessionRevealResponseDto> {
     const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
     const activeScenario = await runtime.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     await runtime.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
-    const contentKind = dto.contentKind?.trim() || "clue";
-    if (!revealContentKinds.has(contentKind)) {
-      throw new BadRequestException("Unsupported reveal content kind.");
+    const contentKind = this.toRevealContentKind(dto.contentKind);
+    if (contentKind !== "clue") {
+      throw new BadRequestException("Manual session reveal currently supports clue content only.");
     }
     const scope = dto.scope ?? "party";
     const recipientId = dto.recipientId?.trim() || null;
     const content = await runtime.findSessionScenarioRevealable(activeScenario.id, dto.contentId);
-    let gmTurnLog: HumanGmOverrideLogResult | null = null;
-
-    const reveal = await runtime.prisma.$transaction(async (tx) => {
+    const { reveal, gmTurnLog } = await runtime.prisma.$transaction(async (tx) => {
       const createdReveal = await this.recordSessionReveal(runtime, tx, {
         sessionScenarioId: activeScenario.id,
         contentId: dto.contentId,
@@ -110,7 +158,7 @@ export class SessionRevealService {
         reason: dto.reason?.trim() || "manual_gm_reveal",
         snapshot: content,
       });
-      gmTurnLog = await runtime.createHumanGmOverrideTurnLog({
+      const gmTurnLog = await runtime.createHumanGmOverrideTurnLog({
         tx,
         kind: "reveal_handout",
         sessionId: resolvedSessionId,
@@ -133,11 +181,11 @@ export class SessionRevealService {
         where: { id: createdReveal.id },
         data: { turnLogId: gmTurnLog.turnLog.turnLogId },
       });
-      return createdReveal;
+      return { reveal: createdReveal, gmTurnLog };
     });
 
     const snapshot = await runtime.buildSnapshot(resolvedSessionId);
-    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    const emittedGmTurnLog = gmTurnLog;
     if (emittedGmTurnLog) {
       runtime.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
       if (emittedGmTurnLog.stateDiff) {
@@ -208,9 +256,9 @@ export class SessionRevealService {
       cluesJson: string;
       nodeMetaJson?: string | null;
     },
-    revealedClueSnapshots: Map<string, Record<string, unknown>>,
+    revealedClueSnapshots: Map<string, RevealedClueSnapshot>,
   ): PlayerScenarioNodeDto {
-    const clues = runtime.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+    const clues = this.parseScenarioCluesJson(node.cluesJson);
 
     return {
       id: node.nodeId ?? node.id,
@@ -220,19 +268,18 @@ export class SessionRevealService {
       imageUrl: node.imageUrl ?? null,
       checkOptions: this.mapPlayerCheckOptions(runtime, runtime.extractChecksFromCheckOptions(node.checkOptionsJson)),
       publicClues: clues
-        .map((clue) => {
-          const clueId = runtime.getStringProperty(clue, "id");
-          return clueId ? (revealedClueSnapshots.get(clueId) ?? null) : null;
+        .flatMap((clue) => {
+          const clueId = clue.id;
+          const revealedClue = clueId ? revealedClueSnapshots.get(clueId) : null;
+          return revealedClue ? [revealedClue] : [];
         })
-        .filter((clue): clue is Record<string, unknown> => Boolean(clue))
-        .map((clue) => this.mapPlayerScenarioClue(runtime, clue))
-        .filter((clue): clue is PlayerScenarioClueDto => Boolean(clue)),
+        .flatMap((clue) => this.mapPlayerScenarioClueEntry(clue)),
       visibleTargets: this.mapPlayerVisibleTargets(runtime, node.nodeMetaJson ?? null),
     };
   }
 
   mapPlayerVisibleTargets(runtime: SessionRevealRuntime, nodeMetaJson: string | null): PlayerVisibleTargetDto[] {
-    const nodeMeta = runtime.parseJson<Record<string, unknown> | null>(nodeMetaJson, null);
+    const nodeMeta = parseJsonOrFallback(nodeMetaJson, null, decodeScenarioNodeMeta);
     if (!nodeMeta) {
       return [];
     }
@@ -250,72 +297,73 @@ export class SessionRevealService {
       return [];
     }
 
-    return value
-      .map((entry): PlayerVisibleTargetDto | null => {
-        if (!entry || typeof entry !== "object") {
-          return null;
-        }
-        const record = entry as Record<string, unknown>;
-        if (record.isVisible === false) {
-          return null;
-        }
+    return value.flatMap((entry) => {
+      if (!isRecord(entry)) {
+        return [];
+      }
+      const record = entry;
+      if (record.isVisible === false) {
+        return [];
+      }
 
-        const id = runtime.getStringProperty(record, "id");
-        const name = runtime.getStringProperty(record, "name") ?? runtime.getStringProperty(record, "title");
-        if (!id || !name) {
-          return null;
-        }
+      const id = runtime.getStringProperty(record, "id");
+      const name = runtime.getStringProperty(record, "name") ?? runtime.getStringProperty(record, "title");
+      if (!id || !name) {
+        return [];
+      }
 
-        return {
-          id,
+      return [{
+        id,
+        name,
+        targetType,
+        summary:
+          runtime.getStringProperty(record, "shortDescription") ??
+          runtime.getStringProperty(record, "description") ??
+          runtime.getStringProperty(record, "summary") ??
           name,
-          targetType,
-          summary:
-            runtime.getStringProperty(record, "shortDescription") ??
-            runtime.getStringProperty(record, "description") ??
-            runtime.getStringProperty(record, "summary") ??
-            name,
-          disposition: runtime.getStringProperty(record, "disposition") ?? null,
-        };
-      })
-      .filter((entry): entry is PlayerVisibleTargetDto => Boolean(entry));
+        disposition: runtime.getStringProperty(record, "disposition") ?? null,
+      }];
+    });
   }
 
-  mapPlayerCheckOptions(runtime: SessionRevealRuntime, options: Record<string, unknown>[]): PlayerCheckOptionDto[] {
-    return options
-      .map((option) => {
-        const id = runtime.getStringProperty(option, "id");
-        const type = runtime.getStringProperty(option, "type");
-        const skill = runtime.getStringProperty(option, "skill");
-        const label = runtime.getStringProperty(option, "playerLabel") ?? runtime.getStringProperty(option, "label") ?? skill ?? id;
-        if (!label) {
-          return null;
-        }
+  mapPlayerCheckOptions(runtime: SessionRevealRuntime, options: ScenarioCheckOptionDto[]): PlayerCheckOptionDto[] {
+    return options.flatMap((option) => {
+      const id = option.id;
+      const type = option.type;
+      const skill = option.skill;
+      const label = option.playerLabel ?? option.label ?? skill ?? id;
+      if (!label) {
+        return [];
+      }
 
-        return {
-          ...(id ? { id } : {}),
-          label,
-          ...(type ? { type } : {}),
-          ...(skill ? { skill } : {}),
-        };
-      })
-      .filter((option): option is PlayerCheckOptionDto => Boolean(option));
+      return [{
+        ...(id ? { id } : {}),
+        label,
+        ...(type ? { type } : {}),
+        ...(skill ? { skill } : {}),
+      }];
+    });
   }
 
-  mapPlayerScenarioClue(runtime: SessionRevealRuntime, clue: Record<string, unknown>): PlayerScenarioClueDto | null {
-    const playerText = runtime.getStringProperty(clue, "handoutText") ?? runtime.getStringProperty(clue, "playerText");
+  mapPlayerScenarioClue(clue: RevealedClueSnapshot): PlayerScenarioClueDto | null {
+    const playerText = clue.handoutText ?? clue.playerText ?? null;
     if (!playerText) {
       return null;
     }
-    const title = runtime.getStringProperty(clue, "title") ?? playerText.slice(0, 40) ?? "단서";
+    const title = clue.title ?? playerText.slice(0, 40) ?? "단서";
     const text = playerText;
 
     return {
-      id: runtime.getStringProperty(clue, "id") ?? randomUUID(),
+      id: clue.id ?? randomUUID(),
       title,
       text,
-      importance: runtime.getStringProperty(clue, "importance"),
+      importance: clue.importance ?? null,
     };
+  }
+
+  private mapPlayerScenarioClueEntry(clue: RevealedClueSnapshot): PlayerScenarioClueDto[] {
+    const mapped = this.mapPlayerScenarioClue(clue);
+    return mapped ? [mapped] : [];
   }
 
   getUniquePlayerClues(runtime: SessionRevealRuntime, clues: PlayerScenarioClueDto[]): PlayerScenarioClueDto[] {
@@ -334,7 +382,7 @@ export class SessionRevealService {
     sessionScenarioId: string,
     sessionId: string,
     userId: string,
-  ): Promise<Map<string, Record<string, unknown>>> {
+  ): Promise<Map<string, RevealedClueSnapshot>> {
     const characterRecipients = await runtime.prisma.sessionCharacter.findMany({
       where: { sessionId, userId },
       select: { id: true, characterId: true },
@@ -351,22 +399,43 @@ export class SessionRevealService {
       },
       select: { contentId: true, snapshotJson: true },
     });
-    const revealed = new Map<string, Record<string, unknown>>();
+    const revealed = new Map<string, RevealedClueSnapshot>();
     for (const reveal of reveals) {
-      revealed.set(reveal.contentId, runtime.parseJson<Record<string, unknown>>(reveal.snapshotJson, { id: reveal.contentId }));
+      revealed.set(reveal.contentId, this.parseRevealedClueSnapshot(reveal.snapshotJson, reveal.contentId));
     }
     return revealed;
   }
 
-  async findSessionScenarioRevealable(runtime: SessionRevealRuntime, sessionScenarioId: string, contentId: string): Promise<Record<string, unknown>> {
+  private parseRevealedClueSnapshot(value: string | null | undefined, fallbackId: string): RevealedClueSnapshot {
+    return parseJsonOrFallback(value, { id: fallbackId }, (parsed) => this.decodeRevealedClueSnapshot(parsed, fallbackId));
+  }
+
+  private decodeRevealedClueSnapshot(value: unknown, fallbackId: string): RevealedClueSnapshot {
+    if (!isRecord(value)) {
+      throw new Error("revealed clue snapshot must be an object.");
+    }
+    return {
+      id: this.readOptionalString(value.id) ?? fallbackId,
+      title: this.readOptionalString(value.title),
+      handoutText: this.readOptionalString(value.handoutText),
+      playerText: this.readOptionalString(value.playerText),
+      importance: this.readOptionalString(value.importance),
+    };
+  }
+
+  private readOptionalString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+  }
+
+  async findSessionScenarioRevealable(runtime: SessionRevealRuntime, sessionScenarioId: string, contentId: string): Promise<RevealableScenarioClue> {
     const nodes = await runtime.prisma.sessionScenarioNode.findMany({
       where: { sessionScenarioId },
       select: { nodeId: true, cluesJson: true },
     });
 
     for (const node of nodes) {
-      const clues = runtime.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
-      const clue = clues.find((candidate) => runtime.getStringProperty(candidate, "id") === contentId);
+      const clues = this.parseScenarioCluesJson(node.cluesJson);
+      const clue = clues.find((candidate) => candidate.id === contentId);
       if (clue) {
         return { ...clue, nodeId: node.nodeId };
       }
@@ -375,13 +444,13 @@ export class SessionRevealService {
     throw new NotFoundException(`Revealable content ${contentId} was not found in the active scenario.`);
   }
 
-  shouldRevealOnNodeVisit(runtime: SessionRevealRuntime, clue: Record<string, unknown>): boolean {
+  shouldRevealOnNodeVisit(runtime: SessionRevealRuntime, clue: ScenarioClueDto): boolean {
     return this.getRevealPolicyMode(runtime, clue) === "AUTO_REVEAL";
   }
 
-  getRevealPolicyMode(runtime: SessionRevealRuntime, clue: Record<string, unknown>): RevealPolicyMode {
+  getRevealPolicyMode(runtime: SessionRevealRuntime, clue: ScenarioClueDto): RevealPolicyMode {
     const revealPolicy = clue.revealPolicy;
-    const policyMode = revealPolicy && typeof revealPolicy === "object" ? runtime.getStringProperty(revealPolicy as Record<string, unknown>, "mode") : null;
+    const policyMode = isRecord(revealPolicy) ? runtime.getStringProperty(revealPolicy, "mode") : null;
     switch (policyMode) {
       case "AUTO_REVEAL":
       case "PLAYER_ACTION":
@@ -428,7 +497,7 @@ export class SessionRevealService {
       return [];
     }
 
-    const clues = runtime.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+    const clues = this.parseScenarioCluesJson(node.cluesJson);
     const revealInputs = clues.flatMap((clue) => {
       const policyMode = this.getRevealPolicyMode(runtime, clue);
       if (params.policyModes && !params.policyModes.includes(policyMode)) {
@@ -438,7 +507,7 @@ export class SessionRevealService {
         return [];
       }
 
-      const contentId = runtime.getStringProperty(clue, "id");
+      const contentId = clue.id;
       if (!contentId) {
         return [];
       }
@@ -447,7 +516,7 @@ export class SessionRevealService {
         {
           contentId,
           reason: params.reason ?? this.getRevealReason(runtime, policyMode, params.outcome),
-          snapshot: clue,
+          snapshot: this.toScenarioClueRecord(clue),
         },
       ];
     });
@@ -486,7 +555,7 @@ export class SessionRevealService {
 
   shouldRevealClueForPolicy(
     runtime: SessionRevealRuntime,
-    clue: Record<string, unknown>,
+    clue: ScenarioClueDto,
     policyMode: RevealPolicyMode,
     params: {
       actionText?: string | null;
@@ -527,8 +596,8 @@ export class SessionRevealService {
     }
   }
 
-  matchesDiscoverySource(runtime: SessionRevealRuntime, clue: Record<string, unknown>, actionText: string | null | undefined): boolean {
-    const source = runtime.getStringProperty(clue, "source") ?? runtime.getStringProperty(clue, "discoverySource");
+  matchesDiscoverySource(runtime: SessionRevealRuntime, clue: ScenarioClueDto, actionText: string | null | undefined): boolean {
+    const source = clue.source ?? clue.discoverySource ?? null;
     if (!source || !actionText?.trim()) {
       return false;
     }
@@ -553,7 +622,7 @@ export class SessionRevealService {
     return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, " ").trim();
   }
 
-  buildRecipientKey(runtime: SessionRevealRuntime, scope: string, recipientId: string | null | undefined): string {
+  buildRecipientKey(runtime: SessionRevealRuntime, scope: RevealScope, recipientId: string | null | undefined): string {
     return scope === "party" ? "party" : `${scope}:${recipientId ?? "unknown"}`;
   }
 
@@ -575,8 +644,8 @@ export class SessionRevealService {
       id: reveal.id,
       sessionScenarioId: reveal.sessionScenarioId,
       contentId: reveal.contentId,
-      contentKind: reveal.contentKind,
-      scope: reveal.scope,
+      contentKind: this.toRevealContentKind(reveal.contentKind),
+      scope: this.toRevealScope(reveal.scope),
       recipientId: reveal.recipientId,
       revealedAt: reveal.revealedAt.toISOString(),
       revealedBy: reveal.revealedBy,
@@ -584,16 +653,36 @@ export class SessionRevealService {
     };
   }
 
-  toRevealClueSummary(runtime: SessionRevealRuntime, contentId: string, snapshot: Record<string, unknown>): { id: string; title: string; text: string | null } {
+  toRevealClueSummary(runtime: SessionRevealRuntime, contentId: string, snapshot: RevealClueSnapshot): { id: string; title: string; text: string | null } {
     return {
       id: contentId,
-      title: runtime.getStringProperty(snapshot, "title") ?? contentId,
-      text:
-        runtime.getStringProperty(snapshot, "handoutText") ??
-        runtime.getStringProperty(snapshot, "playerText") ??
-        runtime.getStringProperty(snapshot, "text") ??
-        runtime.getStringProperty(snapshot, "revelation"),
+      title: snapshot.title ?? contentId,
+      text: snapshot.handoutText ?? snapshot.playerText ?? snapshot.text ?? snapshot.revelation ?? null,
     };
+  }
+
+  private toRevealContentKind(value: string | null | undefined): RevealContentKind {
+    const contentKind = value?.trim() || "clue";
+    switch (contentKind) {
+      case "clue":
+      case "item":
+      case "event":
+        return contentKind;
+      default:
+        throw new BadRequestException("Unsupported reveal content kind.");
+    }
+  }
+
+  private toRevealScope(value: string | null | undefined): RevealScope {
+    const scope = value?.trim() || "party";
+    switch (scope) {
+      case "party":
+      case "user":
+      case "character":
+        return scope;
+      default:
+        throw new BadRequestException("Unsupported reveal scope.");
+    }
   }
 
   toScenarioNodeType(runtime: SessionRevealRuntime, value: string): PlayerScenarioNodeDto["nodeType"] {
@@ -651,13 +740,13 @@ export class SessionRevealService {
       },
     });
 
-    const clues = runtime.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+    const clues = this.parseScenarioCluesJson(node.cluesJson);
 
     await Promise.all(
       clues
         .filter((clue) => this.shouldRevealOnNodeVisit(runtime, clue))
         .map((clue) => {
-          const contentId = runtime.getStringProperty(clue, "id");
+          const contentId = clue.id;
           if (!contentId) {
             return Promise.resolve();
           }
@@ -669,26 +758,20 @@ export class SessionRevealService {
             revealedBy: "system",
             reason: "node_visit",
             turnLogId: params.enteredByTurnLogId,
-            snapshot: clue,
+            snapshot: this.toScenarioClueRecord(clue),
           });
         }),
     );
   }
 
+  private toScenarioClueRecord(clue: ScenarioClueDto): RevealClueSnapshot {
+    return { ...clue };
+  }
+
   async recordSessionReveal(
     runtime: SessionRevealRuntime,
     tx: Prisma.TransactionClient,
-    params: {
-      sessionScenarioId: string;
-      contentId: string;
-      contentKind: string;
-      scope: string;
-      recipientId?: string | null;
-      revealedBy: string;
-      reason?: string | null;
-      turnLogId?: string | null;
-      snapshot?: Record<string, unknown> | null;
-    },
+    params: RecordSessionRevealParams,
   ) {
     const recipientId = params.scope === "party" ? null : (params.recipientId ?? null);
     const recipientKey = this.buildRecipientKey(runtime, params.scope, recipientId);
@@ -721,5 +804,9 @@ export class SessionRevealService {
         snapshotJson: params.snapshot ? JSON.stringify(params.snapshot) : undefined,
       },
     });
+  }
+
+  private parseScenarioCluesJson(value: string | null | undefined): ScenarioClueDto[] {
+    return parseJsonOrFallback(value, [], decodeLenientScenarioClueArray);
   }
 }

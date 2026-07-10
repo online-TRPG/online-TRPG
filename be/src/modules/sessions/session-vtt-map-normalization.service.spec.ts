@@ -1,4 +1,4 @@
-import { VttMapStateDto } from "@trpg/shared-types";
+import { VTT_DOOR_STATES, VttMapStateDto } from "@trpg/shared-types";
 import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
 
 describe("SessionVttMapNormalizationService", () => {
@@ -85,7 +85,7 @@ describe("SessionVttMapNormalizationService", () => {
             y: 0,
             width: 64,
             height: 64,
-            state: "locked",
+            state: VTT_DOOR_STATES.LOCKED,
             keyItemId: "key-1",
             canBreak: true,
             breakCheckDc: 99,
@@ -122,16 +122,16 @@ describe("SessionVttMapNormalizationService", () => {
       "node-1",
     );
 
-    expect(normalized.terrainCells[0]).toMatchObject({
+    expect(normalized.terrainCells![0]).toMatchObject({
       terrainEffectId: "poison_cloud",
     });
-    expect(normalized.doorCells[0]).toMatchObject({
-      state: "locked",
+    expect(normalized.doorCells![0]).toMatchObject({
+      state: VTT_DOOR_STATES.LOCKED,
       keyItemId: "key-1",
       canBreak: true,
       breakCheckDc: 40,
     });
-    expect(normalized.objectCells[0]).toMatchObject({
+    expect(normalized.objectCells![0]).toMatchObject({
       x: 128,
       width: 128,
       visibleToPlayers: false,

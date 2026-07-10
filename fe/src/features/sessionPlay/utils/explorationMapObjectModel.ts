@@ -34,7 +34,7 @@ export function getMapObjectItemPayload(
   map: VttMapStateDto | null
 ) {
   if (!selection || selection.kind !== 'object') return null;
-  const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
+  const objectCell = selection.cell;
   const itemDefinitionId = objectCell.hiddenItemIds?.[0]?.trim();
   if (!itemDefinitionId) return null;
   const gridPoint = getSelectionGridPoint(selection, map);

@@ -247,9 +247,10 @@ export class TerrainEffectService {
   }
 
   resolveCombinedEffects(terrainEffectIds: string[]): TerrainEffectResolution {
-    const effects = terrainEffectIds
-      .map((id) => this.resolveEffect(id))
-      .filter((effect): effect is TerrainEffectResolution => effect !== null);
+    const effects = terrainEffectIds.flatMap((id) => {
+      const effect = this.resolveEffect(id);
+      return effect ? [effect] : [];
+    });
 
     return {
       terrainEffectId: "terrain.combined",
@@ -269,10 +270,14 @@ export class TerrainEffectService {
   private normalizeTerrainEffectId(value: string): TerrainEffectDefinitionId {
     const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
     const withPrefix = normalized.startsWith("terrain.") ? normalized : `terrain.${normalized}`;
-    if (!(withPrefix in TERRAIN_EFFECTS)) {
-      throw new Error(`Unsupported terrainEffectId: ${value}`);
+    if (this.isTerrainEffectDefinitionId(withPrefix)) {
+      return withPrefix;
     }
-    return withPrefix as TerrainEffectDefinitionId;
+    throw new Error(`Unsupported terrainEffectId: ${value}`);
+  }
+
+  private isTerrainEffectDefinitionId(value: string): value is TerrainEffectDefinitionId {
+    return Object.prototype.hasOwnProperty.call(TERRAIN_EFFECTS, value);
   }
 
   private tryNormalizeTerrainEffectId(value: string): TerrainEffectDefinitionId | null {
@@ -284,7 +289,7 @@ export class TerrainEffectService {
   }
 
   private maxNullable(values: Array<number | null>): number | null {
-    const numbers = values.filter((value): value is number => typeof value === "number");
+    const numbers = values.flatMap((value) => (typeof value === "number" && Number.isFinite(value) ? [value] : []));
     return numbers.length ? Math.max(...numbers) : null;
   }
 

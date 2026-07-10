@@ -1,9 +1,14 @@
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { PlayerScenarioNodeDto, VttMapStateDto } from '@trpg/shared-types';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 import { getCharacterClassLabel } from './characterVisuals';
 
 function getArrayCount(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function getCellKindLabel(
@@ -16,9 +21,9 @@ function getCellKindLabel(
 }
 
 export function getDoorStateLabel(state: string | undefined) {
-  if (state === 'open') return '열림';
-  if (state === 'locked') return '잠김';
-  if (state === 'broken') return '파괴됨';
+  if (state === VTT_DOOR_STATES.OPEN) return '열림';
+  if (state === VTT_DOOR_STATES.LOCKED) return '잠김';
+  if (state === VTT_DOOR_STATES.BROKEN) return '파괴됨';
   return '닫힘';
 }
 
@@ -44,7 +49,7 @@ function getMonsterSummary(token: VttMapStateDto['tokens'][number]) {
     token.monster.speedRaw ? `속도: ${token.monster.speedRaw}` : null,
     token.monster.challengeRaw ? `CR: ${token.monster.challengeRaw}` : null,
   ]
-    .filter(Boolean)
+    .flatMap((part) => (part ? [part] : []))
     .join(' / ');
 
   return parts || token.monster.basicRaw;
@@ -80,7 +85,7 @@ export function getSelectionDisplay(
 
     return {
       target: `${cell.name?.trim() || kindLabel} (${kindLabel})`,
-      status: [kindLabel, doorStatus].filter(Boolean).join(' · '),
+      status: [kindLabel, doorStatus].flatMap((part) => (part ? [part] : [])).join(' · '),
       summary: cell.description?.trim() || '시나리오 에디터에 등록된 설명이 없습니다.',
       monsterHpLabel: null,
     };
@@ -145,7 +150,7 @@ export function getGmMapSummary(map: VttMapStateDto | null) {
     hiddenTokens: map.tokens.filter((token) => token.hidden).length,
     hiddenObjects: (map.objectCells ?? []).filter((cell) => cell.visibleToPlayers === false).length,
     hazards: (map.objectCells ?? []).filter((cell) => cell.hazard && cell.hazard.armed !== false).length,
-    lockedDoors: (map.doorCells ?? []).filter((door) => door.state === 'locked').length,
+    lockedDoors: (map.doorCells ?? []).filter((door) => door.state === VTT_DOOR_STATES.LOCKED).length,
     fogRects: map.fogRects.length,
   };
 }
@@ -175,12 +180,12 @@ export function getGmSelectionDetails(selection: BattleMapSelection | null) {
         token.hidden ? '숨김 토큰' : '공개 토큰',
         token.isHostile ? '적대' : character ? '플레이어' : 'NPC',
         token.monster ? '몬스터' : null,
-      ].filter(Boolean) as string[],
+      ].filter(isNonEmptyString),
       lines: [
         `좌표 ${Math.round(token.x)}, ${Math.round(token.y)} / 크기 ${token.size}`,
         character ? `HP ${character.currentHp}/${character.maxHp} / AC ${character.armorClass}` : null,
         token.monster ? getMonsterSummary(token) : null,
-      ].filter(Boolean) as string[],
+      ].filter(isNonEmptyString),
     };
   }
 
@@ -208,7 +213,7 @@ export function getGmSelectionDetails(selection: BattleMapSelection | null) {
       revealCheckCount ? `판정 ${revealCheckCount}개` : null,
       hazard ? (hazard.armed === false ? '위험 해제됨' : '위험 활성') : null,
       objectEvents.length ? `이벤트 ${objectEvents.length}개` : null,
-    ].filter(Boolean) as string[],
+    ].filter(isNonEmptyString),
     lines: [
       cell.description?.trim() || '설명이 등록되지 않았습니다.',
       selection.kind === 'door' && 'keyItemId' in cell && cell.keyItemId ? `열쇠: ${cell.keyItemId}` : null,
@@ -219,6 +224,6 @@ export function getGmSelectionDetails(selection: BattleMapSelection | null) {
         ? `탐지 DC ${hazard.detectionDc ?? '미설정'} / 반경 ${hazard.detectionRadiusCells ?? 1}칸`
         : null,
       ...objectEvents.map((event) => `이벤트: ${event.name?.trim() || event.type}`),
-    ].filter(Boolean) as string[],
+    ].filter(isNonEmptyString),
   };
 }

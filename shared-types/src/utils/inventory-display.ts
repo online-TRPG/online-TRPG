@@ -13,6 +13,8 @@ export type InventoryItemDisplaySource = InventoryPackContentDisplaySource & {
   useEffect?: string | null;
   damageDice?: string;
   damageType?: string;
+  rangeFt?: number;
+  longRangeFt?: number;
   packContents?: InventoryPackContentDisplaySource[];
 };
 
@@ -180,7 +182,7 @@ export function formatInternalInventoryIdAsName(value: string | null | undefined
   const raw = value?.trim() ?? "";
   if (!raw) return fallback;
   if (looksLikeOpaqueDatabaseId(raw)) return fallback;
-  const tail = raw.split(/[.:]/).filter(Boolean).pop() ?? raw;
+  const tail = compactStrings(raw.split(/[.:]/)).pop() ?? raw;
   const readable = tail
     .replace(/__+/g, " ")
     .replace(/[_-]+/g, " ")
@@ -216,13 +218,13 @@ function formatCompositeInventoryTokens(
       return direct !== null ? [token] : token.split(/[_-]+/);
     })
     .map((token) => token.trim())
-    .filter(Boolean);
+    .flatMap((token) => compactStrings([token]));
 
   if (rawTokens.length <= 1) return null;
 
   const labels = rawTokens
     .map((token) => getDirectLabel(token, labelMaps) ?? formatInternalInventoryIdAsName(token, fallback))
-    .filter(Boolean);
+    .flatMap((label) => compactStrings([label]));
 
   return labels.length ? Array.from(new Set(labels)).join(" / ") : null;
 }
@@ -261,16 +263,19 @@ export function getUserFacingInventoryDamageTypeLabel(damageType: string | null 
 function getDisplayProperties(item: InventoryItemDisplaySource) {
   return (item.properties ?? [])
     .map((property) => property.trim())
-    .filter((property) => Boolean(property))
+    .flatMap((property) => compactStrings([property]))
     .map(getUserFacingInventoryItemPropertyLabel)
-    .filter((label) => Boolean(label));
+    .flatMap((label) => compactStrings([label]));
 }
 
 function getInventoryItemSearchKey(item: InventoryItemDisplaySource) {
-  return [item.itemType, item.name, ...(item.properties ?? [])]
-    .filter(Boolean)
+  return compactStrings([item.itemType, item.name, ...(item.properties ?? [])])
     .join(" ")
     .toLowerCase();
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
 }
 
 export function getUserFacingInventoryItemName(item: InventoryItemDisplaySource, fallback = "아이템") {

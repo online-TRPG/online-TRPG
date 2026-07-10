@@ -157,7 +157,10 @@ export function ProfilePage({
   }, [myCharacters]);
 
   const lastActivityAt = useMemo(() => {
-    const candidates = [effectiveProfile.createdAt, ...myCharacters.map((character) => character.updatedAt)].filter(Boolean);
+    const candidates = [
+      effectiveProfile.createdAt,
+      ...myCharacters.map((character) => character.updatedAt),
+    ].flatMap((value) => (value ? [value] : []));
     if (candidates.length === 0) return null;
     return candidates.reduce((latest, current) =>
       new Date(current).getTime() > new Date(latest).getTime() ? current : latest,
@@ -285,28 +288,31 @@ export function ProfilePage({
               <p className="profile-empty">최근 캐릭터 정보를 불러오는 중입니다.</p>
             ) : recentCharacters.length > 0 ? (
               <div className="profile-character-grid">
-                {recentCharacters.map((character) => (
-                  <article key={character.id} className="profile-character-card profile-character-card-framed">
-                    <div
-                      className="profile-character-avatar"
-                      style={{ ["--profile-character-frame-image" as string]: `url(${profileBorderCharacter})` }}
-                    >
-                      {getProfileCharacterImage(character) ? (
-                        <img src={getProfileCharacterImage(character)!} alt={`${character.name} avatar`} />
-                      ) : (
-                        <span className="profile-character-avatar-fallback">{character.name.slice(0, 1)}</span>
-                      )}
-                      <span className="profile-character-nameplate">{character.name}</span>
-                    </div>
-                    <div className="profile-character-copy">
-                      <span>
-                        {character.ancestry} / {getClassLabel(character.className)}
-                      </span>
-                      <span>레벨 {character.level}</span>
-                      <span>최근 플레이 {formatCompactDate(character.updatedAt)}</span>
-                    </div>
-                  </article>
-                ))}
+                {recentCharacters.map((character) => {
+                  const characterImage = getProfileCharacterImage(character);
+                  return (
+                    <article key={character.id} className="profile-character-card profile-character-card-framed">
+                      <div
+                        className="profile-character-avatar"
+                        style={{ ["--profile-character-frame-image" as string]: `url(${profileBorderCharacter})` }}
+                      >
+                        {characterImage ? (
+                          <img src={characterImage} alt={`${character.name} avatar`} />
+                        ) : (
+                          <span className="profile-character-avatar-fallback">{character.name.slice(0, 1)}</span>
+                        )}
+                        <span className="profile-character-nameplate">{character.name}</span>
+                      </div>
+                      <div className="profile-character-copy">
+                        <span>
+                          {character.ancestry} / {getClassLabel(character.className)}
+                        </span>
+                        <span>레벨 {character.level}</span>
+                        <span>최근 플레이 {formatCompactDate(character.updatedAt)}</span>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             ) : (
               <p className="profile-empty">아직 최근 사용 캐릭터가 없습니다.</p>

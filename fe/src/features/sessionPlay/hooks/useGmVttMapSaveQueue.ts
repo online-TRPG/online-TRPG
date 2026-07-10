@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import { isActiveCombatStatus } from '@trpg/shared-types/frontend';
 import type { CombatResponseDto, VttMapStateDto } from '@trpg/shared-types';
 import type { StoredUser } from '../../../types/session';
 import { getCombat } from '../../../services/combatApi';
@@ -62,7 +63,7 @@ export function useGmVttMapSaveQueue(params: UseGmVttMapSaveQueueParams) {
           latestConfirmedMapRef.current = savedMap;
           setMapLoadError(null);
           setMap((current) => (current === mapToSave ? savedMap : current));
-          if (combat?.sessionId === sessionId && combat.status === 'ACTIVE') {
+          if (combat?.sessionId === sessionId && isActiveCombatStatus(combat.status)) {
             const refreshedCombat = await getCombat(user, sessionId);
             setCombat(refreshedCombat);
           }

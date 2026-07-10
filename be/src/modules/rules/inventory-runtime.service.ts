@@ -5,8 +5,12 @@ import {
   ItemDefinition,
   Prisma,
 } from "@prisma/client";
-import { InventoryItemDto, normalizeInventoryItemDisplay } from "@trpg/shared-types";
+import { InventoryItemDto, isRecord, normalizeInventoryItemDisplay } from "@trpg/shared-types";
 import { badRequest, notFound } from "../../common/exceptions/domain-error";
+import {
+  parseJsonOrFallback,
+  parseJsonStringArrayOrFallback,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { BagOfHoldingIntegrity } from "./rule-engine.types";
@@ -447,6 +451,9 @@ export class InventoryRuntimeService {
   }
 
   private mapEntryToInventoryItem(entry: EntryWithDefinition): InventoryItemDto {
+    const properties = this.parseStringArrayJson(entry.itemDefinition.propertiesJson) ?? [];
+    const rangeFt = this.readRangeProperty(properties, "range:");
+    const longRangeFt = this.readRangeProperty(properties, "range_long:");
     return normalizeInventoryItemDisplay({
       id: entry.id,
       name: entry.itemDefinition.name,
@@ -458,15 +465,23 @@ export class InventoryRuntimeService {
       volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
       damageDice: entry.itemDefinition.damageDice ?? undefined,
       damageType: entry.itemDefinition.damageType ?? undefined,
+      rangeFt: rangeFt ?? undefined,
+      longRangeFt: longRangeFt ?? undefined,
       armorClassBase: entry.itemDefinition.armorClassBase ?? undefined,
       armorClassBonus: entry.itemDefinition.armorClassBonus ?? undefined,
       armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
       armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
       useEffect: entry.itemDefinition.useEffect ?? undefined,
       packContents: this.parsePackContentsJson(entry.itemDefinition.packContentsJson),
-      properties: this.parseStringArrayJson(entry.itemDefinition.propertiesJson),
+      properties,
       containerId: entry.containerEntryId ?? undefined,
     });
+  }
+
+  private readRangeProperty(properties: string[], prefix: "range:" | "range_long:"): number | null {
+    const value = properties.find((property) => property.toLowerCase().startsWith(prefix))?.slice(prefix.length);
+    const rangeFt = Number(value);
+    return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
   }
 
   private parsePackContentsJson(value: string | null | undefined): InventoryItemDto["packContents"] {
@@ -474,31 +489,25 @@ export class InventoryRuntimeService {
       return undefined;
     }
 
-    try {
-      const parsed = JSON.parse(value) as unknown;
+    return parseJsonOrFallback(value, undefined, (parsed) => {
       if (!Array.isArray(parsed)) {
-        return undefined;
+        throw new Error("pack contents must be an array.");
       }
-      return parsed
-        .map((item) => {
-          if (!item || typeof item !== "object") {
-            return null;
-          }
-          const record = item as Record<string, unknown>;
-          const itemId = typeof record.itemId === "string" ? record.itemId : "";
-          const name = typeof record.name === "string" ? record.name : "";
-          const quantity = typeof record.quantity === "number" ? record.quantity : 0;
-          if (!itemId || !name || !Number.isInteger(quantity) || quantity < 1) {
-            return null;
-          }
-          return { itemId, name, quantity };
-        })
-        .filter((item): item is NonNullable<InventoryItemDto["packContents"]>[number] =>
-          Boolean(item),
-        );
-    } catch {
-      return undefined;
-    }
+      const packContents = parsed.flatMap((item) => {
+        if (!isRecord(item)) {
+          return [];
+        }
+        const record = item;
+        const itemId = typeof record.itemId === "string" ? record.itemId : "";
+        const name = typeof record.name === "string" ? record.name : "";
+        const quantity = typeof record.quantity === "number" ? record.quantity : 0;
+        if (!itemId || !name || !Number.isInteger(quantity) || quantity < 1) {
+          return [];
+        }
+        return [{ itemId, name, quantity }];
+      });
+      return packContents.length ? packContents : undefined;
+    });
   }
 
   private parseStringArrayJson(value: string | null | undefined): string[] | undefined {
@@ -506,22 +515,20 @@ export class InventoryRuntimeService {
       return undefined;
     }
 
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (!Array.isArray(parsed)) {
-        return undefined;
-      }
-      const strings = parsed.filter((entry): entry is string => typeof entry === "string");
-      return strings.length ? strings : undefined;
-    } catch {
-      return undefined;
-    }
+    const strings = parseJsonStringArrayOrFallback(value, undefined);
+    return strings?.length ? strings : undefined;
   }
 
   private toRuleIntegrity(value: string): BagOfHoldingIntegrity {
     const normalized = value.trim().toLowerCase();
-    return ["intact", "pierced", "torn", "overloaded"].includes(normalized)
-      ? (normalized as BagOfHoldingIntegrity)
-      : "intact";
+    if (
+      normalized === "intact" ||
+      normalized === "pierced" ||
+      normalized === "torn" ||
+      normalized === "overloaded"
+    ) {
+      return normalized;
+    }
+    return "intact";
   }
 }

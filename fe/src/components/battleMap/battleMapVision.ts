@@ -1,3 +1,4 @@
+import { VTT_DOOR_STATES } from '@trpg/shared-types/frontend';
 import type { VttMapStateDto } from '@trpg/shared-types';
 
 const feetPerGrid = 5;
@@ -43,7 +44,9 @@ export function getOpaqueVisionCells(map: VttMapStateDto) {
   const blockers = [
     ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
-    ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
+    ...(map.doorCells ?? []).filter(
+      (door) => door.state !== VTT_DOOR_STATES.OPEN && door.state !== VTT_DOOR_STATES.BROKEN
+    ),
   ];
 
   blockers.forEach((blocker) => addRectCells(opaque, blocker, map));

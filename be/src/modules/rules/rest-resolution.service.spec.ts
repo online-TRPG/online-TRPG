@@ -1,7 +1,9 @@
 import { RestResolutionService } from "./rest-resolution.service";
+import { ConditionRuntimeService } from "./condition-runtime.service";
 
 describe("RestResolutionService", () => {
   const service = new RestResolutionService();
+  const conditions = new ConditionRuntimeService();
 
   it("recovers short-rest resources without healing HP", () => {
     expect(
@@ -87,18 +89,18 @@ describe("RestResolutionService", () => {
         currentHp: 4,
         maxHp: 12,
         conditions: [
-          {
+          conditions.createCondition({
             conditionId: "condition.burning",
             sourceId: "terrain.burning",
             duration: { type: "until_rest", restType: "short" },
             tags: ["damage_over_time:fire"],
-          },
-          {
+          }),
+          conditions.createCondition({
             conditionId: "condition.poisoned",
             sourceId: "terrain.poison_cloud",
             duration: { type: "until_rest", restType: "long" },
             tags: ["disadvantage:attack_roll"],
-          },
+          }),
         ],
       }),
     ).toMatchObject({
@@ -120,16 +122,16 @@ describe("RestResolutionService", () => {
         currentHp: 4,
         maxHp: 12,
         conditions: [
-          {
+          conditions.createCondition({
             conditionId: "condition.burning",
             sourceId: "terrain.burning",
             duration: { type: "until_rest", restType: "short" },
-          },
-          {
+          }),
+          conditions.createCondition({
             conditionId: "condition.poisoned",
             sourceId: "terrain.poison_cloud",
             duration: { type: "until_rest", restType: "long" },
-          },
+          }),
         ],
       }).conditions,
     ).toEqual([]);
@@ -147,7 +149,10 @@ describe("RestResolutionService", () => {
           "resistance:slashing",
           "resource:relentless_endurance_expended",
           "condition.prone",
-          { conditionId: "condition.burning", tags: ["resource:rage_expended"] },
+          conditions.createCondition({
+            conditionId: "condition.burning",
+            tags: ["resource:rage_expended"],
+          }),
         ],
         resource: {
           secondWindAvailable: false,

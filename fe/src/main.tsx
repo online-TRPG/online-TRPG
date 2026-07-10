@@ -7,7 +7,13 @@ import "./styles/reset.css";
 import "./styles/global.css";
 import "./styles/shared.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error('Application root element "#root" was not found.');
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <App />

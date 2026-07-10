@@ -6,8 +6,13 @@ import {
   POINT_BUY_COST,
   POINT_BUY_TOTAL,
   RaceAbilityIncreaseDto,
+  isRecord,
 } from "@trpg/shared-types";
 import { normalizeSrdCharacterClassKey } from "@trpg/srd-data/rules";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
@@ -86,7 +91,12 @@ export class CharacterCreationService {
       return;
     }
 
-    const increases = JSON.parse(race.abilityIncreasesJson) as RaceAbilityIncreaseDto;
+    const increases = parseJsonOrThrow(
+      race.abilityIncreasesJson,
+      emptyRaceAbilityIncrease(),
+      decodeRaceAbilityIncrease,
+      "race.abilityIncreasesJson",
+    );
     const finalScores: Record<keyof AbilityScoresDto, number> = {
       str: abilities.str,
       dex: abilities.dex,
@@ -114,7 +124,12 @@ export class CharacterCreationService {
       return skills;
     }
 
-    const choices = JSON.parse(klass.skillChoicesJson) as string[];
+    const choices: string[] = parseJsonOrThrow(
+      klass.skillChoicesJson,
+      [],
+      decodeStringArray,
+      "characterClass.skillChoicesJson",
+    );
 
     if (skills.length !== klass.skillChoiceCount) {
       throw new BadRequestException(
@@ -199,4 +214,27 @@ export class CharacterCreationService {
 
     return { proficiencyBonus: expectedProf, maxHp: expectedMaxHp };
   }
+}
+
+function emptyRaceAbilityIncrease(): RaceAbilityIncreaseDto {
+  return { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
+}
+
+function decodeRaceAbilityIncrease(value: unknown): RaceAbilityIncreaseDto {
+  if (!isRecord(value)) {
+    throw new Error("race ability increases must be an object.");
+  }
+  const record = value;
+  return {
+    str: readFiniteNumber(record.str),
+    dex: readFiniteNumber(record.dex),
+    con: readFiniteNumber(record.con),
+    int: readFiniteNumber(record.int),
+    wis: readFiniteNumber(record.wis),
+    cha: readFiniteNumber(record.cha),
+  };
+}
+
+function readFiniteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

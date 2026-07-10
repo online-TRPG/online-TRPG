@@ -96,8 +96,7 @@ export class CombatCoverService {
         coverLevel: coverRuleResult.produced.coverLevel,
       };
       const error = conflict("COMBAT_409", "대상이 완전 엄폐 상태입니다.", data);
-      (error as typeof error & { data: typeof data }).data = data;
-      throw error;
+      throw Object.assign(error, { data });
     }
   }
 

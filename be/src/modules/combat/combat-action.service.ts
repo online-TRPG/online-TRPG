@@ -12,6 +12,7 @@ import {
   EquippedWeaponAttackDto,
   ResolveCombatAttackDto,
   VttMapStateDto,
+  isRecord,
 } from "@trpg/shared-types";
 import { conflict, notFound, unprocessable } from "../../common/exceptions/domain-error";
 import type { AoeDirection } from "../rules/aoe-targeting.service";
@@ -331,7 +332,7 @@ export class CombatActionService {
         spellDefinition,
         slotLevel,
       );
-      const requestedTargetIds = (dto.targetParticipantIds ?? []).filter(Boolean);
+      const requestedTargetIds = compactStrings(dto.targetParticipantIds ?? []);
       if (!requestedTargetIds.length) {
         throw conflict("COMBAT_409", "Scorching Ray 대상이 필요합니다.", {
           reason: "SPELL_TARGET_REQUIRED",
@@ -606,8 +607,7 @@ export class CombatActionService {
         slotLevel,
       );
       const maximumTargets = spellScaling.targetCount ?? 3;
-      const targetIds = Array.from(new Set(dto.targetParticipantIds ?? []))
-        .filter(Boolean)
+      const targetIds = uniqueTargetParticipantIds(dto.targetParticipantIds)
         .slice(0, maximumTargets);
       if (!targetIds.length) {
         throw conflict("COMBAT_409", `${spellId === "spell.bless" ? "Bless" : "Bane"} 대상이 필요합니다.`, {
@@ -1169,8 +1169,7 @@ export class CombatActionService {
           spellDefinition,
         ) ??
         1;
-      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
-        .filter(Boolean)
+      const targets = uniqueTargetParticipantIds(dto.targetParticipantIds)
         .slice(0, maximumTargets)
         .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
       if (!targets.length) {
@@ -1332,7 +1331,7 @@ export class CombatActionService {
     } else if (spellId === "spell.magic_missile") {
       spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const targets = (dto.targetParticipantIds?.length ? dto.targetParticipantIds : [dto.targetParticipantIds?.[0]])
-        .filter((id): id is string => typeof id === "string" && id.length > 0)
+        .flatMap((id) => (typeof id === "string" && id.length > 0 ? [id] : []))
         .slice(0, spellScaling.targetCount ?? 3)
         .map((id) => runtime.findCombatParticipantOrThrow(combat, id));
       if (!targets.length) {
@@ -1429,8 +1428,7 @@ export class CombatActionService {
       }
       message = `Revivify: ${target.nameSnapshot}이(가) HP 1로 전투에 복귀했습니다.`;
     } else if (spellId === "spell.feather_fall") {
-      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
-        .filter(Boolean)
+      const targets = uniqueTargetParticipantIds(dto.targetParticipantIds)
         .slice(0, 5)
         .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
       if (!targets.length) {
@@ -1488,8 +1486,7 @@ export class CombatActionService {
         slotLevel,
       );
       const maximumTargets = spellScaling.targetCount ?? 1;
-      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
-        .filter(Boolean)
+      const targets = uniqueTargetParticipantIds(dto.targetParticipantIds)
         .slice(0, maximumTargets)
         .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
       if (!targets.length) {
@@ -1586,8 +1583,8 @@ export class CombatActionService {
       for (const participant of combat.participants) {
         const entries = await runtime.combatConditions.readCombatConditionEntries(participant);
         const next = entries.filter((entry) => {
-          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return true;
-          const candidate = entry as { conditionId?: unknown; sourceId?: unknown };
+          if (!isRecord(entry)) return true;
+          const candidate = entry;
           return !(
             candidate.conditionId === "condition.spell.hunters_mark" &&
             candidate.sourceId === effectId
@@ -1621,8 +1618,7 @@ export class CombatActionService {
         slotLevel,
       );
       const hitPointBonus = Math.max(5, 5 + Math.max(0, slotLevel - 2) * 5);
-      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
-        .filter(Boolean)
+      const targets = uniqueTargetParticipantIds(dto.targetParticipantIds)
         .slice(0, 3)
         .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
       if (!targets.length) {
@@ -1716,8 +1712,7 @@ export class CombatActionService {
     ) {
       spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const maximumTargets = spellScaling.targetCount ?? 1;
-      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
-        .filter(Boolean)
+      const targets = uniqueTargetParticipantIds(dto.targetParticipantIds)
         .slice(0, maximumTargets)
         .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
       if (!targets.length) {
@@ -2158,9 +2153,7 @@ export class CombatActionService {
       });
       message = `Light: 선택한 타일 기준 ${lightSource.rangeFt}ft 파티 시야를 제공합니다.`;
     } else if (spellDefinition) {
-      const targetIds = Array.from(
-        new Set(dto.targetParticipantIds ?? []),
-      ).filter(Boolean);
+      const targetIds = uniqueTargetParticipantIds(dto.targetParticipantIds);
       let targets =
         spellDefinition.targeting.type === "self"
           ? [caster]
@@ -2285,13 +2278,14 @@ export class CombatActionService {
         tag.startsWith("teleport:self:"),
       );
       if (teleportTag && dto.point) {
+        const point = dto.point;
         const teleportRangeFt = Number(
           teleportTag.slice("teleport:self:".length),
         );
         runtime.combatTargeting.assertPointInRange(
           map,
           casterToken,
-          dto.point,
+          point,
           teleportRangeFt,
         );
         responseMap = await runtime.mapRuntimeService.saveSystemVttMap(
@@ -2303,12 +2297,12 @@ export class CombatActionService {
                 ? {
                     ...token,
                     x: runtime.clampNumber(
-                      Math.floor(dto.point!.x),
+                      Math.floor(point.x),
                       0,
                       Math.max(0, map.width - token.size),
                     ),
                     y: runtime.clampNumber(
-                      Math.floor(dto.point!.y),
+                      Math.floor(point.y),
                       0,
                       Math.max(0, map.height - token.size),
                     ),
@@ -2330,6 +2324,7 @@ export class CombatActionService {
         summonedLightCount > 0 &&
         dto.point
       ) {
+        const point = dto.point;
         const lightIds = Array.from(
           { length: Math.min(summonedLightCount, 4) },
           (_, index) =>
@@ -2358,12 +2353,12 @@ export class CombatActionService {
               ...lightIds.map((id, index) => ({
                 id,
                 x: runtime.clampNumber(
-                  Math.floor(dto.point!.x + offsets[index].x),
+                  Math.floor(point.x + offsets[index].x),
                   0,
                   Math.max(0, map.width - map.gridSize),
                 ),
                 y: runtime.clampNumber(
-                  Math.floor(dto.point!.y + offsets[index].y),
+                  Math.floor(point.y + offsets[index].y),
                   0,
                   Math.max(0, map.height - map.gridSize),
                 ),
@@ -2693,10 +2688,21 @@ export class CombatActionService {
     const dy = point.y - origin.y;
     const horizontal = dx > 0 ? "east" : dx < 0 ? "west" : "";
     const vertical = dy > 0 ? "south" : dy < 0 ? "north" : "";
-    if (horizontal && vertical) {
-      return `${vertical}_${horizontal}` as AoeDirection;
-    }
-    return (horizontal || vertical || "east") as AoeDirection;
+    return this.toAoeDirection(vertical, horizontal, "east");
+  }
+
+  private toAoeDirection(
+    vertical: "north" | "south" | "",
+    horizontal: "east" | "west" | "",
+    fallback: AoeDirection,
+  ): AoeDirection {
+    if (vertical === "north" && horizontal === "east") return "north_east";
+    if (vertical === "north" && horizontal === "west") return "north_west";
+    if (vertical === "south" && horizontal === "east") return "south_east";
+    if (vertical === "south" && horizontal === "west") return "south_west";
+    if (vertical) return vertical;
+    if (horizontal) return horizontal;
+    return fallback;
   }
 
   private resolveSpellDurationRounds(
@@ -3256,16 +3262,10 @@ export class CombatActionService {
       const targetConditionEntries =
         await runtime.combatConditions.readCombatConditionEntries(target);
       const markedByAttacker = targetConditionEntries.some((entry) => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-          return false;
-        }
-        const condition = entry as {
-          conditionId?: unknown;
-          sourceId?: unknown;
-        };
+        if (!isRecord(entry)) return false;
         return (
-          condition.conditionId === "condition.spell.hunters_mark" &&
-          condition.sourceId === `spell.hunters_mark:${attacker.id}`
+          entry.conditionId === "condition.spell.hunters_mark" &&
+          entry.sourceId === `spell.hunters_mark:${attacker.id}`
         );
       });
       if (markedByAttacker) {
@@ -4015,4 +4015,12 @@ export class CombatActionService {
       entityType: actor.entityType,
     });
   }
+}
+
+function uniqueTargetParticipantIds(targetParticipantIds: string[] | undefined): string[] {
+  return Array.from(new Set(compactStrings(targetParticipantIds ?? [])));
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
 }

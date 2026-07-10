@@ -34,9 +34,13 @@ import { MainCommandInterpreterRouteResponseService } from "./main-command-inter
 import { MainCommandInterpreterRouterService } from "./main-command-interpreter-router.service";
 import { MainCommandInventoryLabelService } from "./main-command-inventory-label.service";
 import type { ResolvedInterpreterActionRoute } from "./main-command-interpreter-router.service";
-import { MainCommandIntentHandlersService } from "./main-command-intent-handlers.service";
+import {
+  MainCommandIntentHandlersService,
+  type MainCommandIntentHandlersRuntime,
+} from "./main-command-intent-handlers.service";
 import { MainCommandNpcDialogueService } from "./main-command-npc-dialogue.service";
 import { MainCommandPersistenceService } from "./main-command-persistence.service";
+import { MAIN_COMMAND_CONFIDENCE } from "./main-command-policy.constants";
 import { MainCommandPostActionRevealService } from "./main-command-post-action-reveal.service";
 import { MainCommandProgressEvidenceService } from "./main-command-progress-evidence.service";
 import type { RevealedClueState } from "./main-command-progress-evidence.service";
@@ -166,7 +170,7 @@ export class MainCommandsService {
     private readonly mainCommandVttCheckResult: MainCommandVttCheckResultService,
   ) {}
 
-  private createMainCommandIntentHandlersRuntime() {
+  private createMainCommandIntentHandlersRuntime(): MainCommandIntentHandlersRuntime {
     return {
       aiService: this.aiService,
       sessionsService: this.sessionsService,
@@ -397,7 +401,7 @@ export class MainCommandsService {
       );
     }
 
-    if ((interpreter.parsed.action.confidence ?? 0) < 0.55) {
+    if ((interpreter.parsed.action.confidence ?? 0) < MAIN_COMMAND_CONFIDENCE.DEFAULT_GM_REVIEW_THRESHOLD) {
       return this.mainCommandInterpreterRouteResponse.buildLowConfidenceApprovalResponse(requestId, actionSummary, actionCandidate);
     }
 

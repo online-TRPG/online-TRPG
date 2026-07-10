@@ -28,11 +28,13 @@ export type RuleTurnLogEvent = {
   public: boolean;
 };
 
+export type RuleStatePatch = readonly [];
+
 export type RuleHookResult<TProduced> = {
   hookId: RuleHookId;
   accepted: boolean;
   produced: TProduced;
-  statePatch: unknown[];
+  statePatch: RuleStatePatch;
   turnLogEvents: RuleTurnLogEvent[];
   rejectedReason: string | null;
 };

@@ -25,7 +25,7 @@ export function formatSpellIdLabel(spellId: string) {
   const raw = spellId.includes('.') ? spellId.slice(spellId.lastIndexOf('.') + 1) : spellId;
   return raw
     .split('_')
-    .filter(Boolean)
+    .filter((part) => part.length > 0)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 }

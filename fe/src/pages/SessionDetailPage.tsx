@@ -18,6 +18,13 @@ import {
   rejectCharacterTransfer,
 } from "../services/sessionApi";
 import type { SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
+import {
+  isActiveSessionScenarioStatus,
+  isAiGmMode,
+  isCompletedSessionStatus,
+  isJoinedParticipantStatus,
+  isRecord,
+} from "@trpg/shared-types/frontend";
 import type { CampaignArchiveResponseDto } from "@trpg/shared-types";
 
 type P6CharacterTransferRequestView = {
@@ -107,7 +114,7 @@ export function SessionDetailPage({
   }, [accessToken, sessionPublicId, user]);
 
   useEffect(() => {
-    if (!detail || detail.session.status !== "completed") {
+    if (!detail || !isCompletedSessionStatus(detail.session.status)) {
       setArchive(null);
       setArchiveError(null);
       return;
@@ -135,8 +142,8 @@ export function SessionDetailPage({
   const isCurrentSession = detail?.session.id === snapshot?.session.id;
   const isKnownMember = isCurrentSession || (detail ? snapshot?.session.id === detail.session.id : false);
   const activeScenario =
-    detail?.sessionScenarios.find((item) => item.status === "ACTIVE")?.scenario ?? detail?.scenario ?? null;
-  const participantCount = detail?.participants.filter((item) => item.status === "JOINED").length ?? 0;
+    detail?.sessionScenarios.find((item) => isActiveSessionScenarioStatus(item.status))?.scenario ?? detail?.scenario ?? null;
+  const participantCount = detail?.participants.filter((item) => isJoinedParticipantStatus(item.status)).length ?? 0;
   const canonicalPath = detail ? buildSessionPath(detail.session) : null;
   const isHost = detail?.session.hostUserId === user.id;
   const transferRequests = parseP6CharacterTransferRequests(detail?.state.flags?.p6CharacterTransferRequests);
@@ -278,7 +285,7 @@ export function SessionDetailPage({
           <button type="button" className="ghost" onClick={() => onOpenHostProfile(detail.host)}>
             호스트 프로필 보기
           </button>
-          {isHost && detail.session.status !== "completed" ? (
+          {isHost && !isCompletedSessionStatus(detail.session.status) ? (
             <button
               type="button"
               className="ghost"
@@ -315,7 +322,7 @@ export function SessionDetailPage({
             </div>
             <div className="profile-kv-item">
               <dt>GM 모드</dt>
-              <dd>{detail.session.gmMode === "AI" ? "AI GM" : "\uC77C\uBC18 GM"}</dd>
+              <dd>{isAiGmMode(detail.session.gmMode) ? "AI GM" : "\uC77C\uBC18 GM"}</dd>
             </div>
             <div className="profile-kv-item">
               <dt>공개 범위</dt>
@@ -352,7 +359,7 @@ export function SessionDetailPage({
         </article>
       </section>
 
-      {detail.session.status === "completed" ? (
+      {isCompletedSessionStatus(detail.session.status) ? (
         <section className="profile-card">
           <div className="section-heading">
             <div>
@@ -439,29 +446,32 @@ export function SessionDetailPage({
 
 function parseP6CharacterTransferRequests(value: unknown): P6CharacterTransferRequestView[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-    .filter(
-      (entry) =>
-        typeof entry.requestId === "string" &&
-        typeof entry.requestedByUserId === "string" &&
-        typeof entry.sourceSessionId === "string" &&
-        typeof entry.sourceSessionCharacterId === "string" &&
-        (entry.status === "requested" || entry.status === "approved" || entry.status === "rejected") &&
-        (entry.mode === "clone" || entry.mode === "transfer") &&
-        typeof entry.createdAt === "string",
-    )
-    .map((entry) => ({
-      requestId: entry.requestId as string,
-      requestedByUserId: entry.requestedByUserId as string,
-      sourceSessionId: entry.sourceSessionId as string,
-      sourceSessionCharacterId: entry.sourceSessionCharacterId as string,
-      status: entry.status as P6CharacterTransferRequestView["status"],
-      mode: entry.mode as P6CharacterTransferRequestView["mode"],
+  return value.flatMap((entry) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.requestId !== "string" ||
+      typeof entry.requestedByUserId !== "string" ||
+      typeof entry.sourceSessionId !== "string" ||
+      typeof entry.sourceSessionCharacterId !== "string" ||
+      (entry.status !== "requested" && entry.status !== "approved" && entry.status !== "rejected") ||
+      (entry.mode !== "clone" && entry.mode !== "transfer") ||
+      typeof entry.createdAt !== "string"
+    ) {
+      return [];
+    }
+
+    return [{
+      requestId: entry.requestId,
+      requestedByUserId: entry.requestedByUserId,
+      sourceSessionId: entry.sourceSessionId,
+      sourceSessionCharacterId: entry.sourceSessionCharacterId,
+      status: entry.status,
+      mode: entry.mode,
       targetSessionCharacterId:
         typeof entry.targetSessionCharacterId === "string" ? entry.targetSessionCharacterId : null,
-      createdAt: entry.createdAt as string,
-    }));
+      createdAt: entry.createdAt,
+    }];
+  });
 }
 
 function formatCompactDate(value: string | null | undefined): string {

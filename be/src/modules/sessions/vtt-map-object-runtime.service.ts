@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { MainCommandCheckOptionDto, MainCommandStatus } from "@trpg/shared-types";
+import { MainCommandCheckEffectDto, MainCommandCheckOptionDto, MainCommandStatus } from "@trpg/shared-types";
 import { SessionsService } from "./sessions.service";
 
 type MapPoint = { x: number; y: number };
@@ -17,7 +17,7 @@ export class VttMapObjectRuntimeService {
     status: MainCommandStatus;
     message: string;
     checkOptions?: MainCommandCheckOptionDto[];
-    checkEffect?: Record<string, unknown>;
+    checkEffect?: MainCommandCheckEffectDto;
   } | null> {
     return this.sessionsService.breakVttObjectAtPoint(params);
   }
@@ -47,18 +47,14 @@ export class VttMapObjectRuntimeService {
       };
     }
 
-    const reveal = (await this.sessionsService.revealVttObjectContentsAtPoint({
+    const reveal = await this.sessionsService.revealVttObjectContentsAtPoint({
       sessionId: params.sessionId,
       sessionScenarioId: params.sessionScenarioId,
       nodeId: params.nodeId,
       mapPoint: params.mapPoint,
       sessionCharacterId: params.actorSessionCharacterId,
       revealedBy: "player",
-    })) as {
-      count: number;
-      revealedClues: Array<{ title: string }>;
-      revealedItems: Array<{ name: string; description?: string | null }>;
-    };
+    });
     const revealSummary = [
       reveal.revealedClues.length ? `단서 ${reveal.revealedClues.map((clue) => clue.title).join(", ")}` : null,
       reveal.revealedItems.length
@@ -67,7 +63,7 @@ export class VttMapObjectRuntimeService {
             .join(", ")}`
         : null,
     ]
-      .filter(Boolean)
+      .flatMap((summary) => summary ? [summary] : [])
       .join(" / ");
 
     return {
