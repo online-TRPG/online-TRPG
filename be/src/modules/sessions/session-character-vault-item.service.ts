@@ -4,6 +4,7 @@ import {
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import type { CharacterVaultItemDto } from "@trpg/shared-types";
+import { parseJsonRecordOrFallback } from "../../common/utils/json-runtime";
 import { CampaignArchiveRuntimeService } from "./campaign-archive-runtime.service";
 
 type CharacterVaultAssignment = {
@@ -34,7 +35,7 @@ export class SessionCharacterVaultItemService {
     return assignments.flatMap((assignment) => {
       const scenario = this.selectActiveScenario(assignment.session.sessionScenarios);
       const archive = this.campaignArchiveRuntime.parseCampaignArchive(
-        this.parseJson<Record<string, unknown>>(scenario?.gameState?.flagsJson, {}),
+        parseJsonRecordOrFallback(scenario?.gameState?.flagsJson),
       );
       if (!archive) {
         return [];
@@ -60,10 +61,4 @@ export class SessionCharacterVaultItemService {
     return sessionScenarios.find((candidate) => candidate.status === PrismaSessionScenarioStatus.ACTIVE) ?? sessionScenarios[0] ?? null;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    return JSON.parse(value) as T;
-  }
 }

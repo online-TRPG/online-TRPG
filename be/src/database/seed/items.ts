@@ -1,4 +1,9 @@
 import { PrismaClient } from "@prisma/client";
+import {
+  isRecord,
+  isStringArray,
+  parseJsonWithDecoder,
+} from "@trpg/shared-types";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -183,18 +188,22 @@ function loadSrdEquipment(): SrdEquipmentRecord[] {
   if (!filePath) {
     return [];
   }
-  return readFileSync(filePath, "utf8")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line) as SrdEquipmentRecord;
-      } catch {
-        return null;
+  const records: SrdEquipmentRecord[] = [];
+  for (const rawLine of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    try {
+      const record = parseJsonWithDecoder(line, decodeSrdEquipmentRecord, "seed equipment record");
+      if (record) {
+        records.push(record);
       }
-    })
-    .filter((record): record is SrdEquipmentRecord => Boolean(record?.id));
+    } catch {
+      // Ignore malformed generated records and continue seeding valid entries.
+    }
+  }
+  return records;
 }
 
 function loadStaticItemCatalogItems(): StaticItemRecord[] {
@@ -208,11 +217,11 @@ function loadStaticItemCatalogItems(): StaticItemRecord[] {
     return [];
   }
   try {
-    const catalog = JSON.parse(readFileSync(filePath, "utf8")) as StaticItemCatalog;
+    const catalog = parseJsonWithDecoder(readFileSync(filePath, "utf8"), decodeStaticItemCatalog, "static item catalog");
     return [
       ...(Array.isArray(catalog.equipmentItems) ? catalog.equipmentItems : []),
       ...(Array.isArray(catalog.magicItems) ? catalog.magicItems : []),
-    ].filter((item): item is StaticItemRecord => Boolean(item?.id));
+    ].flatMap((item) => item.id ? [item] : []);
   } catch {
     return [];
   }
@@ -318,8 +327,7 @@ function findStaticSrdEquipmentRecord(
   records: SrdEquipmentRecord[],
   item: StaticItemRecord,
 ): SrdEquipmentRecord | null {
-  const candidates = [item.id, item.nameEn, item.nameKo]
-    .filter((value): value is string => Boolean(value))
+  const candidates = compactStrings([item.id, item.nameEn, item.nameKo])
     .map(normalizeEquipmentLookupKey);
   return (
     records.find((record) =>
@@ -342,7 +350,7 @@ function toSrdItemDefinitionData(record: SrdEquipmentRecord, records: SrdEquipme
     record.category?.equipmentCategory,
     ...buildSrdWeaponRangeProperties(record.weapon?.rangeRaw),
     ...(record.weapon?.properties ?? []).map((property) => property.id ?? property.raw),
-  ].filter((property): property is string => Boolean(property));
+  ].flatMap((property) => property ? [property] : []);
 
   return {
     name: getSrdEquipmentName(record, record.id),
@@ -369,7 +377,7 @@ function buildSrdWeaponRangeProperties(rangeRaw: string | null | undefined): str
   return [
     Number.isInteger(normal) && normal >= 0 ? `range:${normal}` : null,
     Number.isInteger(long) && long >= 0 ? `range_long:${long}` : null,
-  ].filter((property): property is string => Boolean(property));
+  ].flatMap((property) => property ? [property] : []);
 }
 
 function toStaticItemDefinitionData(item: StaticItemRecord) {
@@ -378,7 +386,7 @@ function toStaticItemDefinitionData(item: StaticItemRecord) {
     item.id.startsWith("magic_item.") ? "magic-item" : null,
     item.equipmentCategory,
     item.rarityRaw,
-  ].filter((property): property is string => Boolean(property));
+  ].flatMap((property) => property ? [property] : []);
 
   return {
     name: getStaticItemName(item),
@@ -435,7 +443,7 @@ function buildStaticItemDescription(item: StaticItemRecord): string | null {
     item.armorClassRaw ? `AC: ${item.armorClassRaw}` : null,
     item.strengthRequirementRaw ? `힘 요구: ${item.strengthRequirementRaw}` : null,
     item.stealthRaw ? `은신: ${item.stealthRaw}` : null,
-  ].filter((part): part is string => Boolean(part));
+  ].flatMap((part) => part ? [part] : []);
   return parts.length ? parts.join("\n") : null;
 }
 
@@ -452,9 +460,7 @@ function readArmorStrengthRequirement(record: SrdEquipmentRecord): number | null
 
 function buildSrdEquipmentUseEffect(record: SrdEquipmentRecord): string | null {
   const key = normalizeEquipmentLookupKey(
-    [record.id, record.name?.en, record.name?.ko, record.category?.equipmentCategory]
-      .filter(Boolean)
-      .join(" "),
+    compactStrings([record.id, record.name?.en, record.name?.ko, record.category?.equipmentCategory]).join(" "),
   );
   if (key.includes("potionofhealing") || key.includes("치유물약")) {
     return "사용하면 HP를 평균 7점 회복합니다.";
@@ -509,13 +515,139 @@ function parseStringArrayJson(value: string | null | undefined): string[] | unde
     return undefined;
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((entry): entry is string => typeof entry === "string")
-      : undefined;
+    const parsed = parseJsonWithDecoder(value, decodeOptionalStringArray, "seed string array");
+    return parsed.length ? parsed : undefined;
   } catch {
     return undefined;
   }
+}
+
+function decodeSrdEquipmentRecord(value: unknown): SrdEquipmentRecord | null {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return null;
+  }
+  return {
+    id: value.id,
+    ...(isRecord(value.name) ? { name: decodeSrdEquipmentName(value.name) } : {}),
+    ...(isRecord(value.category) ? { category: decodeSrdEquipmentCategory(value.category) } : {}),
+    ...(isRecord(value.economy) ? { economy: decodeSrdEquipmentEconomy(value.economy) } : {}),
+    ...(isRecord(value.weapon) ? { weapon: decodeSrdEquipmentWeapon(value.weapon) } : {}),
+    ...(isRecord(value.armor) ? { armor: decodeSrdEquipmentArmor(value.armor) } : {}),
+    ...(isRecord(value.use) ? { use: decodeSrdEquipmentUse(value.use) } : {}),
+    ...(Array.isArray(value.contents) ? { contents: decodeSrdEquipmentContents(value.contents) } : {}),
+  };
+}
+
+function decodeSrdEquipmentName(value: Record<string, unknown>): NonNullable<SrdEquipmentRecord["name"]> {
+  return {
+    ...(typeof value.en === "string" ? { en: value.en } : {}),
+    ...(typeof value.ko === "string" ? { ko: value.ko } : {}),
+    ...(isStringArray(value.aliases) ? { aliases: value.aliases } : {}),
+  };
+}
+
+function decodeSrdEquipmentCategory(value: Record<string, unknown>): NonNullable<SrdEquipmentRecord["category"]> {
+  return {
+    ...(typeof value.kind === "string" ? { kind: value.kind } : {}),
+    ...(typeof value.equipmentCategory === "string" ? { equipmentCategory: value.equipmentCategory } : {}),
+  };
+}
+
+function decodeSrdEquipmentEconomy(value: Record<string, unknown>): NonNullable<SrdEquipmentRecord["economy"]> {
+  const weight = isRecord(value.weight) && typeof value.weight.lb === "number"
+    ? { lb: value.weight.lb }
+    : null;
+  return { weight };
+}
+
+function decodeSrdEquipmentWeapon(value: Record<string, unknown>): NonNullable<SrdEquipmentRecord["weapon"]> {
+  return {
+    ...(typeof value.rangeRaw === "string" ? { rangeRaw: value.rangeRaw } : {}),
+    ...(isRecord(value.damage) ? { damage: decodeDiceOnly(value.damage) } : {}),
+    ...(typeof value.damageType === "string" ? { damageType: value.damageType } : {}),
+    ...(Array.isArray(value.properties) ? { properties: value.properties.flatMap(decodeSrdEquipmentProperty) } : {}),
+  };
+}
+
+function decodeSrdEquipmentArmor(value: Record<string, unknown>): NonNullable<SrdEquipmentRecord["armor"]> {
+  const strengthRequirement = typeof value.strengthRequirement === "number"
+    ? value.strengthRequirement
+    : isRecord(value.strengthRequirement) && typeof value.strengthRequirement.minimum === "number"
+      ? { minimum: value.strengthRequirement.minimum }
+      : value.strengthRequirement === null
+        ? null
+        : undefined;
+  return {
+    ...(isRecord(value.armorClass) ? { armorClass: decodeArmorClass(value.armorClass) } : {}),
+    ...(strengthRequirement !== undefined ? { strengthRequirement } : {}),
+    ...(typeof value.stealthDisadvantage === "boolean" ? { stealthDisadvantage: value.stealthDisadvantage } : {}),
+  };
+}
+
+function decodeSrdEquipmentUse(value: Record<string, unknown>): NonNullable<SrdEquipmentRecord["use"]> {
+  return {
+    ...(isRecord(value.damage) ? { damage: decodeDiceOnly(value.damage) } : {}),
+    ...(typeof value.damageType === "string" ? { damageType: value.damageType } : {}),
+  };
+}
+
+function decodeDiceOnly(value: Record<string, unknown>): { dice?: string } {
+  return typeof value.dice === "string" ? { dice: value.dice } : {};
+}
+
+function decodeArmorClass(value: Record<string, unknown>): NonNullable<NonNullable<SrdEquipmentRecord["armor"]>["armorClass"]> {
+  return {
+    ...(typeof value.base === "number" ? { base: value.base } : {}),
+    ...(typeof value.bonus === "number" ? { bonus: value.bonus } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  };
+}
+
+function decodeSrdEquipmentProperty(value: unknown): NonNullable<NonNullable<SrdEquipmentRecord["weapon"]>["properties"]>[number][] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  return [{
+    ...(typeof value.id === "string" ? { id: value.id } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  }];
+}
+
+function decodeSrdEquipmentContents(value: unknown): SrdEquipmentContent[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((content) => {
+    if (!isRecord(content) || typeof content.itemId !== "string" || typeof content.quantity !== "number") {
+      return [];
+    }
+    return [{ itemId: content.itemId, quantity: content.quantity }];
+  });
+}
+
+function decodeStaticItemCatalog(value: unknown): StaticItemCatalog {
+  if (!isRecord(value)) {
+    throw new Error("static item catalog must be an object.");
+  }
+  return {
+    equipmentItems: Array.isArray(value.equipmentItems)
+      ? value.equipmentItems.flatMap((item) => toStaticItemRecord(item))
+      : [],
+    magicItems: Array.isArray(value.magicItems)
+      ? value.magicItems.flatMap((item) => toStaticItemRecord(item))
+      : [],
+  };
+}
+
+function toStaticItemRecord(value: unknown): StaticItemRecord[] {
+  return isRecord(value) && typeof value.id === "string" ? [{ ...value, id: value.id }] : [];
+}
+
+function decodeOptionalStringArray(value: unknown): string[] {
+  if (!isStringArray(value)) {
+    throw new Error("value must be a string array.");
+  }
+  return value;
 }
 
 function readRangeProperty(properties: string[] | undefined, prefix: "range:" | "range_long:"): number | null {
@@ -531,6 +663,10 @@ function normalizeEquipmentLookupKey(value: string): string {
     .replace(/['’]/g, "")
     .replace(/[^a-z0-9가-힣]+/g, "")
     .replace(/s(?=pack$)/g, "");
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
 }
 
 function toRuntimeItemType(category: string): string {

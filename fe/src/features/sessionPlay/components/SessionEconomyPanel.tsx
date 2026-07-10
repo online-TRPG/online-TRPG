@@ -65,6 +65,44 @@ const actionLabels: Record<ApplySessionEconomyActionDto["actionType"], string> =
   recover_charges: "충전 회복",
 };
 
+function toEconomyActionType(value: string): ApplySessionEconomyActionDto["actionType"] | null {
+  switch (value) {
+    case "purchase":
+    case "sell":
+    case "grant_reward":
+    case "distribute":
+    case "start_crafting":
+    case "progress_crafting":
+    case "identify":
+    case "repair":
+    case "attune":
+    case "recover_charges":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function readClampedNumber(value: string, fallback: number, min: number, max = Number.POSITIVE_INFINITY): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function readClampedInteger(value: string, fallback: number, min: number, max = Number.POSITIVE_INFINITY): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function readOptionalOptionId(value: string, allowedIds: readonly string[]): string | null {
+  return value === "" || allowedIds.includes(value) ? value : null;
+}
+
 export function SessionEconomyPanel({
   economy,
   characters,
@@ -134,11 +172,11 @@ export function SessionEconomyPanel({
               requiredToolProficiencies: toolProficiencies
                 .split(",")
                 .map((value) => value.trim())
-                .filter(Boolean),
+                .filter((value) => value.length > 0),
               knownToolProficiencies: toolProficiencies
                 .split(",")
                 .map((value) => value.trim())
-                .filter(Boolean),
+                .filter((value) => value.length > 0),
               laborHours,
             }
           : actionType === "progress_crafting"
@@ -218,18 +256,48 @@ export function SessionEconomyPanel({
           </section>
 
           <section className="session-economy-form">
-            <select value={actionType} onChange={(event) => setActionType(event.target.value as typeof actionType)}>
+            <select
+              value={actionType}
+              onChange={(event) => {
+                const nextActionType = toEconomyActionType(event.target.value);
+                if (nextActionType) {
+                  setActionType(nextActionType);
+                }
+              }}
+            >
               {Object.entries(actionLabels).map(([value, label]) => (
                 <option value={value} key={value}>{label}</option>
               ))}
             </select>
-            <select value={sessionCharacterId} onChange={(event) => setSessionCharacterId(event.target.value)}>
+            <select
+              value={sessionCharacterId}
+              onChange={(event) => {
+                const nextSessionCharacterId = readOptionalOptionId(
+                  event.target.value,
+                  characters.map((character) => character.id)
+                );
+                if (nextSessionCharacterId !== null) {
+                  setSessionCharacterId(nextSessionCharacterId);
+                }
+              }}
+            >
               <option value="">대상 캐릭터</option>
               {characters.map((character) => (
                 <option value={character.id} key={character.id}>{character.name}</option>
               ))}
             </select>
-            <select value={shopId} onChange={(event) => setShopId(event.target.value)}>
+            <select
+              value={shopId}
+              onChange={(event) => {
+                const nextShopId = readOptionalOptionId(
+                  event.target.value,
+                  shops.map((shop) => shop.shopId)
+                );
+                if (nextShopId !== null) {
+                  setShopId(nextShopId);
+                }
+              }}
+            >
               <option value="">상점 선택</option>
               {shops.map((shop) => (
                 <option value={shop.shopId} key={shop.shopId}>
@@ -237,7 +305,18 @@ export function SessionEconomyPanel({
                 </option>
               ))}
             </select>
-            <select value={itemDefinitionId} onChange={(event) => setItemDefinitionId(event.target.value)}>
+            <select
+              value={itemDefinitionId}
+              onChange={(event) => {
+                const nextItemDefinitionId = readOptionalOptionId(
+                  event.target.value,
+                  availableItemIds
+                );
+                if (nextItemDefinitionId !== null) {
+                  setItemDefinitionId(nextItemDefinitionId);
+                }
+              }}
+            >
               <option value="">아이템 선택</option>
               {availableItemIds.map((id) => (
                 <option value={id} key={id}>
@@ -245,15 +324,39 @@ export function SessionEconomyPanel({
                 </option>
               ))}
             </select>
-            <input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} placeholder="수량" />
+            <input
+              type="number"
+              min={1}
+              value={quantity}
+              onChange={(event) => setQuantity((current) => readClampedInteger(event.target.value, current, 1))}
+              placeholder="수량"
+            />
             {(actionType === "sell") ? (
-              <input type="number" min={0} value={priceGp} onChange={(event) => setPriceGp(Math.max(0, Number(event.target.value) || 0))} placeholder="기준 가격 gp" />
+              <input
+                type="number"
+                min={0}
+                value={priceGp}
+                onChange={(event) => setPriceGp((current) => readClampedNumber(event.target.value, current, 0))}
+                placeholder="기준 가격 gp"
+              />
             ) : null}
             {["identify", "repair", "start_crafting"].includes(actionType) ? (
-              <input type="number" min={0} value={costGp} onChange={(event) => setCostGp(Math.max(0, Number(event.target.value) || 0))} placeholder="비용 gp" />
+              <input
+                type="number"
+                min={0}
+                value={costGp}
+                onChange={(event) => setCostGp((current) => readClampedNumber(event.target.value, current, 0))}
+                placeholder="비용 gp"
+              />
             ) : null}
             {actionType === "grant_reward" ? (
-              <input type="number" min={0} value={rewardGp} onChange={(event) => setRewardGp(Math.max(0, Number(event.target.value) || 0))} placeholder="보상 gp" />
+              <input
+                type="number"
+                min={0}
+                value={rewardGp}
+                onChange={(event) => setRewardGp((current) => readClampedNumber(event.target.value, current, 0))}
+                placeholder="보상 gp"
+              />
             ) : null}
             {actionType === "start_crafting" ? (
               <>
@@ -264,7 +367,18 @@ export function SessionEconomyPanel({
               </>
             ) : null}
             {actionType === "progress_crafting" ? (
-              <select value={craftingId} onChange={(event) => setCraftingId(event.target.value)}>
+              <select
+                value={craftingId}
+                onChange={(event) => {
+                  const nextCraftingId = readOptionalOptionId(
+                    event.target.value,
+                    craftingEntries.map((entry) => entry.craftingId)
+                  );
+                  if (nextCraftingId !== null) {
+                    setCraftingId(nextCraftingId);
+                  }
+                }}
+              >
                 <option value="">제작 선택</option>
                 {craftingEntries.map((entry) => (
                   <option value={entry.craftingId} key={entry.craftingId}>
@@ -274,12 +388,30 @@ export function SessionEconomyPanel({
               </select>
             ) : null}
             {["start_crafting", "progress_crafting"].includes(actionType) ? (
-              <input type="number" min={1} value={laborHours} onChange={(event) => setLaborHours(Math.max(1, Number(event.target.value) || 1))} placeholder="작업 시간" />
+              <input
+                type="number"
+                min={1}
+                value={laborHours}
+                onChange={(event) => setLaborHours((current) => readClampedInteger(event.target.value, current, 1))}
+                placeholder="작업 시간"
+              />
             ) : null}
             {actionType === "recover_charges" ? (
               <>
-                <input type="number" min={1} value={chargesRecovered} onChange={(event) => setChargesRecovered(Math.max(1, Number(event.target.value) || 1))} placeholder="회복 charge" />
-                <input type="number" min={1} value={maximumCharges} onChange={(event) => setMaximumCharges(Math.max(1, Number(event.target.value) || 1))} placeholder="최대 charge" />
+                <input
+                  type="number"
+                  min={1}
+                  value={chargesRecovered}
+                  onChange={(event) => setChargesRecovered((current) => readClampedInteger(event.target.value, current, 1))}
+                  placeholder="회복 charge"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  value={maximumCharges}
+                  onChange={(event) => setMaximumCharges((current) => readClampedInteger(event.target.value, current, 1))}
+                  placeholder="최대 charge"
+                />
               </>
             ) : null}
             <button type="button" disabled={isBusy} onClick={submit}>

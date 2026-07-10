@@ -25,19 +25,27 @@ import { loadItemCatalog, loadMonsterCatalog } from '../services/staticSrd';
 import type { ScenarioDetail, StoredUser } from '../types/session';
 import type {
   CreateScenarioDto,
-  ScenarioAssetKind,
   ScenarioAssetResponseDto,
-  ScenarioLicense,
-  ScenarioNodeType,
+  ScenarioNodeMetaDto,
   SrdMonsterReferenceDto,
   UpdateScenarioDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import {
+  ScenarioAssetKind,
+  ScenarioLicense,
+  ScenarioNodeType,
+} from '@trpg/shared-types';
+import {
+  decodeVttMapState,
+  isRecord,
+  parseJsonWithDecoder,
+} from '@trpg/shared-types/frontend';
 import "./ScenarioEditorPage.css";
 
-const SCENARIO_ASSET_KIND_MAP = "MAP" as ScenarioAssetKind;
-const SCENARIO_ASSET_KIND_SCENE = "SCENE" as ScenarioAssetKind;
-const SCENARIO_ASSET_KIND_TOKEN = "TOKEN" as ScenarioAssetKind;
+const SCENARIO_ASSET_KIND_MAP = ScenarioAssetKind.MAP;
+const SCENARIO_ASSET_KIND_SCENE = ScenarioAssetKind.SCENE;
+const SCENARIO_ASSET_KIND_TOKEN = ScenarioAssetKind.TOKEN;
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ScenarioEditorPageProps {
@@ -219,7 +227,7 @@ function createBlankNode(title = '새 장면'): NodeForm {
   const id = makeLocalId('node');
   return {
     id,
-    nodeType: 'story' as ScenarioNodeType,
+    nodeType: ScenarioNodeType.STORY,
     title,
     sceneText: '',
     imageUrl: '',
@@ -372,7 +380,7 @@ function createEmptyForm(): ScenarioFormState {
     difficulty: 'easy',
     startLevel: 1,
     recommendedEndLevel: null,
-    license: 'original' as ScenarioLicense,
+    license: ScenarioLicense.ORIGINAL,
     attribution: '',
     startNodeId: startNode.id,
     npcs: [],
@@ -405,26 +413,79 @@ function scenarioLevelFromInput(value: string): number | null {
   return Math.min(20, Math.max(1, level));
 }
 
+function valueAsPositiveInteger(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'number' || typeof value === 'string'
+    ? Number(value)
+    : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.round(parsed);
+}
+
+function valueAsClampedInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
 function valueAsImportance(value: unknown): ClueForm['importance'] {
   return value === 'core' || value === 'optional' ? value : 'supporting';
 }
 
+function valueAsScenarioLicense(value: unknown, fallback: ScenarioLicense = ScenarioLicense.ORIGINAL): ScenarioLicense {
+  if (value === ScenarioLicense.ORIGINAL) {
+    return ScenarioLicense.ORIGINAL;
+  }
+  if (value === ScenarioLicense.CC_BY_4_0) {
+    return ScenarioLicense.CC_BY_4_0;
+  }
+  if (value === ScenarioLicense.OTHER_FREE) {
+    return ScenarioLicense.OTHER_FREE;
+  }
+  return fallback;
+}
+
+function valueAsScenarioNodeType(value: unknown, fallback: ScenarioNodeType = ScenarioNodeType.STORY): ScenarioNodeType {
+  if (value === ScenarioNodeType.STORY) {
+    return ScenarioNodeType.STORY;
+  }
+  if (value === ScenarioNodeType.EXPLORATION) {
+    return ScenarioNodeType.EXPLORATION;
+  }
+  if (value === ScenarioNodeType.COMBAT) {
+    return ScenarioNodeType.COMBAT;
+  }
+  return fallback;
+}
+
+function valueAsRevealModeValue(value: unknown, fallback: RevealMode | null = 'PLAYER_ACTION'): RevealMode | null {
+  if (
+    value === 'AUTO_REVEAL' ||
+    value === 'PLAYER_ACTION' ||
+    value === 'CHECK_SUCCESS' ||
+    value === 'CHECK_PARTIAL' ||
+    value === 'POST_COMBAT' ||
+    value === 'GM_APPROVAL'
+  ) {
+    return value;
+  }
+  return fallback;
+}
+
 function valueAsRevealMode(clue: Record<string, unknown>): RevealMode {
   const revealPolicy = clue.revealPolicy;
-  const mode =
-    revealPolicy && typeof revealPolicy === 'object'
-      ? valueAsString((revealPolicy as Record<string, unknown>).mode)
-      : '';
-  if (
-    mode === 'AUTO_REVEAL' ||
-    mode === 'PLAYER_ACTION' ||
-    mode === 'CHECK_SUCCESS' ||
-    mode === 'CHECK_PARTIAL' ||
-    mode === 'POST_COMBAT' ||
-    mode === 'GM_APPROVAL'
-  ) {
-    return mode;
-  }
+  const mode = isRecord(revealPolicy) ? valueAsString(revealPolicy.mode) : '';
+  const normalizedMode = valueAsRevealModeValue(mode, null);
+  if (normalizedMode) return normalizedMode;
   if (mode === 'on_node_visit') return 'AUTO_REVEAL';
   if (mode === 'manual') return 'GM_APPROVAL';
   if (mode === 'conditional') return 'PLAYER_ACTION';
@@ -452,7 +513,11 @@ function valueAsTransitionConditionType(value: unknown): TransitionConditionType
   return 'ALWAYS';
 }
 
-function mapTransitionRequirement(requirement: Record<string, unknown>): TransitionRequirementForm {
+function mapTransitionRequirement(value: unknown): TransitionRequirementForm | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const requirement = value;
   return {
     id: valueAsString(requirement.id, makeLocalId('transition_req')),
     type: valueAsTransitionConditionType(requirement.type),
@@ -467,16 +532,18 @@ function isAutoTransitionConditionText(value: string): boolean {
 }
 
 function mapTransitionConditionRule(value: unknown, condition: string): TransitionConditionRuleForm {
-  if (!value || typeof value !== 'object') {
+  if (!isRecord(value)) {
     return isAutoTransitionConditionText(condition)
       ? createDefaultTransitionRule()
       : { logic: 'ALL', requirements: [createTransitionRequirement('GM_APPROVAL')] };
   }
-  const rule = value as Record<string, unknown>;
+  const rule = value;
   const rawRequirements = Array.isArray(rule.requirements) ? rule.requirements : [];
   const requirements = rawRequirements
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-    .map(mapTransitionRequirement);
+    .flatMap((requirement) => {
+      const mapped = mapTransitionRequirement(requirement);
+      return mapped ? [mapped] : [];
+    });
   return {
     logic: valueAsTransitionConditionLogic(rule.logic),
     requirements: requirements.length ? requirements : [createTransitionRequirement('ALWAYS')],
@@ -532,51 +599,58 @@ function mapClue(clue: Record<string, unknown>): ClueForm {
 }
 
 function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
-  if (!value || typeof value !== 'object') {
+  if (!isRecord(value)) {
     return null;
   }
 
-  const candidate = value as Partial<VttMapStateDto>;
-  const gridSize = Number(candidate.gridSize) || 64;
-  const width = Number(candidate.width) || 1280;
-  const height = Number(candidate.height) || 832;
+  const candidate = value;
+  const gridSize = valueAsPositiveInteger(candidate.gridSize, 64);
+  const width = valueAsPositiveInteger(candidate.width, 1280);
+  const height = valueAsPositiveInteger(candidate.height, 832);
   const startingPositions =
     Array.isArray(candidate.startingPositions) && candidate.startingPositions.length > 0
       ? candidate.startingPositions
       : createDefaultStartingPositions(gridSize, width, height);
 
-  return ensureMapStartingPositions({
-    id: candidate.id || `map:${nodeId}`,
-    scenarioNodeId: candidate.scenarioNodeId ?? nodeId,
-    imageUrl: candidate.imageUrl ?? null,
-    gridType: candidate.gridType === 'hex' ? 'hex' : 'square',
-    gridSize,
-    width,
-    height,
-    tokens: Array.isArray(candidate.tokens) ? candidate.tokens : [],
-    encounterScaling:
-      candidate.encounterScaling && typeof candidate.encounterScaling === 'object'
+  try {
+    return ensureMapStartingPositions(decodeVttMapState({
+      id: typeof candidate.id === 'string' ? candidate.id : `map:${nodeId}`,
+      scenarioNodeId: typeof candidate.scenarioNodeId === 'string' ? candidate.scenarioNodeId : nodeId,
+      imageUrl: typeof candidate.imageUrl === 'string' ? candidate.imageUrl : null,
+      gridType: candidate.gridType === 'hex' ? 'hex' : 'square',
+      gridSize,
+      width,
+      height,
+      tokens: Array.isArray(candidate.tokens) ? candidate.tokens : [],
+      encounterScaling: isRecord(candidate.encounterScaling)
         ? {
             enabled: candidate.encounterScaling.enabled === true,
-            basePartySize:
-              typeof candidate.encounterScaling.basePartySize === 'number'
-                ? Math.min(12, Math.max(1, Math.trunc(candidate.encounterScaling.basePartySize)))
-                : 4,
-            minMonsterCount:
-              typeof candidate.encounterScaling.minMonsterCount === 'number'
-                ? Math.min(80, Math.max(0, Math.trunc(candidate.encounterScaling.minMonsterCount)))
-                : 1,
+            basePartySize: valueAsClampedInteger(
+              candidate.encounterScaling.basePartySize,
+              4,
+              1,
+              12,
+            ),
+            minMonsterCount: valueAsClampedInteger(
+              candidate.encounterScaling.minMonsterCount,
+              1,
+              0,
+              80,
+            ),
             mode: 'by_party_ratio',
           }
         : null,
-    fogRects: Array.isArray(candidate.fogRects) ? candidate.fogRects : [],
-    startingPositions,
-    terrainCells: Array.isArray(candidate.terrainCells) ? candidate.terrainCells : [],
-    wallCells: Array.isArray(candidate.wallCells) ? candidate.wallCells : [],
-    doorCells: Array.isArray(candidate.doorCells) ? candidate.doorCells : [],
-    objectCells: Array.isArray(candidate.objectCells) ? candidate.objectCells : [],
-    updatedAt: candidate.updatedAt ?? new Date().toISOString(),
-  });
+      fogRects: Array.isArray(candidate.fogRects) ? candidate.fogRects : [],
+      startingPositions,
+      terrainCells: Array.isArray(candidate.terrainCells) ? candidate.terrainCells : [],
+      wallCells: Array.isArray(candidate.wallCells) ? candidate.wallCells : [],
+      doorCells: Array.isArray(candidate.doorCells) ? candidate.doorCells : [],
+      objectCells: Array.isArray(candidate.objectCells) ? candidate.objectCells : [],
+      updatedAt: typeof candidate.updatedAt === 'string' ? candidate.updatedAt : new Date().toISOString(),
+    }));
+  } catch {
+    return null;
+  }
 }
 
 function mapScenarioNpcs(scenario: ScenarioDetail): NpcForm[] {
@@ -585,21 +659,21 @@ function mapScenarioNpcs(scenario: ScenarioDetail): NpcForm[] {
     ? scenarioNpcs
     : scenario.nodes.flatMap((node) => {
         const meta = node.nodeMeta;
-        if (!meta || typeof meta !== 'object') {
+        if (!isRecord(meta)) {
           return [];
         }
 
-        const npcs = (meta as Record<string, unknown>).npcs;
+        const npcs = meta.npcs;
         return Array.isArray(npcs) ? npcs : [];
       });
 
   const deduped = new Map<string, NpcForm>();
   sourceNpcs.forEach((npc) => {
-    if (!npc || typeof npc !== 'object') {
+    if (!isRecord(npc)) {
       return;
     }
 
-    const mappedNpc = mapNpc(npc as Record<string, unknown>);
+    const mappedNpc = mapNpc(npc);
     if (!deduped.has(mappedNpc.id)) {
       deduped.set(mappedNpc.id, mappedNpc);
     }
@@ -608,46 +682,34 @@ function mapScenarioNpcs(scenario: ScenarioDetail): NpcForm[] {
   return Array.from(deduped.values());
 }
 
-function mapNodeNpcIds(nodeMeta: Record<string, unknown> | null): string[] {
-  if (!nodeMeta || typeof nodeMeta !== 'object' || !Array.isArray(nodeMeta.npcs)) {
+function mapNodeNpcIds(nodeMeta: ScenarioNodeMetaDto | null): string[] {
+  if (!nodeMeta?.npcs?.length) {
     return [];
   }
 
   return Array.from(
     new Set(
       nodeMeta.npcs
-        .map((npc) =>
-          npc && typeof npc === 'object' ? valueAsString((npc as Record<string, unknown>).id) : ''
-        )
-        .filter(Boolean),
+        .map((npc) => valueAsString(npc.id))
+        .filter((npcId) => npcId.length > 0),
     ),
   );
 }
 
-function mapNodeIsEnding(nodeMeta: Record<string, unknown> | null): boolean {
-  if (!nodeMeta || typeof nodeMeta !== 'object') {
-    return false;
-  }
-
-  return nodeMeta.isEndingNode === true || nodeMeta.endBehavior === 'SESSION_COMPLETE';
+function mapNodeIsEnding(nodeMeta: ScenarioNodeMetaDto | null): boolean {
+  return nodeMeta?.isEndingNode === true || nodeMeta?.endBehavior === 'SESSION_COMPLETE';
 }
 
-function mapNodeGmNotes(nodeMeta: Record<string, unknown> | null): string {
-  return nodeMeta && typeof nodeMeta.gmNotes === 'string' ? nodeMeta.gmNotes : '';
+function mapNodeGmNotes(nodeMeta: ScenarioNodeMetaDto | null): string {
+  return nodeMeta?.gmNotes ?? '';
 }
 
-function mapNodeRuleRefs(nodeMeta: Record<string, unknown> | null): ScenarioRuleRefs {
-  const ruleRefs =
-    nodeMeta?.ruleRefs && typeof nodeMeta.ruleRefs === 'object'
-      ? (nodeMeta.ruleRefs as Record<string, unknown>)
-      : {};
-  const ids = (value: unknown) =>
-    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
-
+function mapNodeRuleRefs(nodeMeta: ScenarioNodeMetaDto | null): ScenarioRuleRefs {
+  const ruleRefs = nodeMeta?.ruleRefs;
   return {
-    spellIds: ids(ruleRefs.spellIds),
-    conditionIds: ids(ruleRefs.conditionIds),
-    terrainEffectIds: ids(ruleRefs.terrainEffectIds),
+    spellIds: ruleRefs?.spellIds ?? [],
+    conditionIds: ruleRefs?.conditionIds ?? [],
+    terrainEffectIds: ruleRefs?.terrainEffectIds ?? [],
   };
 }
 
@@ -687,6 +749,10 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   };
 }
 
+function serializeVttMap(map: VttMapStateDto | null): VttMapStateDto | null {
+  return map ? { ...map } : null;
+}
+
 // 폼의 노드 배열을 API 저장 형식으로 직렬화합니다.
 function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
   const npcById = new Map(scenarioNpcs.map((npc) => [npc.id, npc]));
@@ -697,7 +763,7 @@ function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
     title: node.title.trim(),
     sceneText: node.sceneText.trim(),
     imageUrl: node.imageUrl || null,
-    vttMap: node.vttMap as unknown as Record<string, unknown> | null,
+    vttMap: serializeVttMap(node.vttMap),
     checkOptions: node.checkGuides
       .filter((guide) => guide.label.trim() || guide.skill.trim())
       .map((guide) => ({
@@ -725,7 +791,7 @@ function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
         text: clue.text.trim(),
         revelation: clue.revelation.trim(),
         source: clue.source.trim(),
-        pointsToNodeId: clue.pointsToNodeId || null,
+        pointsToNodeId: clue.pointsToNodeId || undefined,
         importance: clue.importance,
         revealPolicy: { mode: clue.revealMode },
         handoutText: clue.handoutText.trim(),
@@ -733,6 +799,19 @@ function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
       })),
   }));
 }
+
+const dirtyScenarioNodeKeys = [
+  "id",
+  "nodeType",
+  "title",
+  "sceneText",
+  "imageUrl",
+  "vttMap",
+  "checkOptions",
+  "nodeMeta",
+  "transitions",
+  "clues",
+] as const satisfies ReadonlyArray<keyof ReturnType<typeof serializeNodes>[number]>;
 
 function serializeTransitionConditionRule(rule: TransitionConditionRuleForm) {
   const requirements = rule.requirements.map((requirement) => ({
@@ -752,21 +831,24 @@ function serializeTransitionConditionRule(rule: TransitionConditionRuleForm) {
 function buildNodeMetaFromFeaturedNpcs(
   node: NodeForm,
   scenarioNpcById: Map<string, NpcForm>,
-): Record<string, unknown> | null {
+): ScenarioNodeMetaDto | null {
   const featuredNpcIds = new Set(node.npcIds.filter((npcId) => scenarioNpcById.has(npcId)));
   const tokenByNpcId = new Map(
-    (node.vttMap?.tokens ?? [])
-      .filter((token) => token.npcId && scenarioNpcById.has(token.npcId))
-      .map((token) => {
-        featuredNpcIds.add(token.npcId as string);
-        return [token.npcId as string, token] as const;
-      }),
+    (node.vttMap?.tokens ?? []).flatMap((token) => {
+      const npcId = typeof token.npcId === 'string' ? token.npcId : null;
+      if (!npcId || !scenarioNpcById.has(npcId)) {
+        return [];
+      }
+      featuredNpcIds.add(npcId);
+      return [[npcId, token] as const];
+    }),
   );
 
-  const featuredNpcs = Array.from(featuredNpcIds).map((npcId) => {
-    const npc = scenarioNpcById.get(npcId)!;
+  const featuredNpcs = Array.from(featuredNpcIds).flatMap((npcId) => {
+    const npc = scenarioNpcById.get(npcId);
+    if (!npc) return [];
     const token = tokenByNpcId.get(npcId);
-    return {
+    return [{
       id: npc.id,
       name: token?.name?.trim() || npc.name.trim() || npc.shortDescription.trim() || 'NPC',
       shortDescription: npc.shortDescription.trim() || undefined,
@@ -774,10 +856,10 @@ function buildNodeMetaFromFeaturedNpcs(
       disposition: token?.isHostile ? 'hostile' : npc.disposition,
       isVisible: npc.isVisible && token?.hidden !== true,
       imageUrl: (token?.imageUrl ?? npc.imageUrl.trim()) || undefined,
-    };
+    }];
   });
 
-  const meta: Record<string, unknown> = {};
+  const meta: ScenarioNodeMetaDto = {};
   if (featuredNpcs.length) {
     meta.npcs = featuredNpcs;
   }
@@ -811,8 +893,8 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
     description: form.description || null,
     ruleSetId: form.ruleSetId || null,
     difficulty: form.difficulty || null,
-    startLevel: form.startLevel as number,
-    recommendedEndLevel: form.recommendedEndLevel,
+    startLevel: valueAsScenarioLevel(form.startLevel) ?? 1,
+    recommendedEndLevel: valueAsScenarioLevel(form.recommendedEndLevel),
     license: form.license,
     attribution: form.attribution || null,
     startNodeId: startNode?.id ?? null,
@@ -838,9 +920,9 @@ function getDirtyScenarioSections(
   savedSnapshot: string | null,
 ): string[] {
   if (!savedSnapshot) return ["새 draft"];
-  let saved: CreateScenarioDto & UpdateScenarioDto;
+  let saved: DirtyScenarioSnapshot;
   try {
-    saved = JSON.parse(savedSnapshot) as CreateScenarioDto & UpdateScenarioDto;
+    saved = parseJsonWithDecoder(savedSnapshot, decodeDirtyScenarioSnapshot, "scenario draft snapshot");
   } catch {
     return ["저장 상태 확인 필요"];
   }
@@ -856,7 +938,7 @@ function getDirtyScenarioSections(
     "license",
     "attribution",
     "startNodeId",
-  ] as const;
+  ] as const satisfies ReadonlyArray<keyof DirtyScenarioSnapshot>;
   if (metadataKeys.some((key) => JSON.stringify(current[key]) !== JSON.stringify(saved[key]))) {
     sections.push("기본 정보");
   }
@@ -872,10 +954,10 @@ function getDirtyScenarioSections(
       sections.push(`${nodeId}: 추가`);
       continue;
     }
-    const changed = Object.keys(node).filter(
+    const changed = dirtyScenarioNodeKeys.filter(
       (key) =>
-        JSON.stringify(node[key as keyof typeof node]) !==
-        JSON.stringify(previous[key as keyof typeof previous]),
+        JSON.stringify(node[key]) !==
+        JSON.stringify(previous[key]),
     );
     if (changed.length) sections.push(`${nodeId}: ${changed.join(", ")}`);
     savedNodes.delete(nodeId);
@@ -884,6 +966,68 @@ function getDirtyScenarioSections(
     sections.push(`${removedNodeId}: 삭제`);
   }
   return sections;
+}
+
+function decodeDirtyScenarioSnapshot(value: unknown): DirtyScenarioSnapshot {
+  if (!isRecord(value)) {
+    throw new Error("scenario draft snapshot must be an object.");
+  }
+  return {
+    title: readOptionalDirtyValue(value, "title"),
+    description: readOptionalDirtyValue(value, "description"),
+    ruleSetId: readOptionalDirtyValue(value, "ruleSetId"),
+    difficulty: readOptionalDirtyValue(value, "difficulty"),
+    startLevel: readOptionalDirtyValue(value, "startLevel"),
+    recommendedEndLevel: readOptionalDirtyValue(value, "recommendedEndLevel"),
+    license: readOptionalDirtyValue(value, "license"),
+    attribution: readOptionalDirtyValue(value, "attribution"),
+    startNodeId: readOptionalDirtyValue(value, "startNodeId"),
+    npcs: readOptionalDirtyRecordArray(value, "npcs"),
+    nodes: readOptionalDirtyRecordArray(value, "nodes").map(decodeDirtyScenarioNode),
+  };
+}
+
+function readOptionalDirtyValue(record: Record<string, unknown>, key: string): unknown {
+  const value = record[key];
+  return value === undefined ? null : value;
+}
+
+function readOptionalDirtyString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`scenario draft snapshot ${key} must be a string.`);
+  }
+  return value;
+}
+
+function readOptionalDirtyRecordArray(record: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
+  const value = record[key];
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`scenario draft snapshot ${key} must be an array.`);
+  }
+  return value.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`scenario draft snapshot ${key}[${index}] must be an object.`);
+    }
+    return item;
+  });
+}
+
+function decodeDirtyScenarioNode(record: Record<string, unknown>): DirtyScenarioNode {
+  return {
+    id: readOptionalDirtyString(record, "id"),
+    nodeType: readOptionalDirtyValue(record, "nodeType"),
+    title: readOptionalDirtyValue(record, "title"),
+    sceneText: readOptionalDirtyValue(record, "sceneText"),
+    imageUrl: readOptionalDirtyValue(record, "imageUrl"),
+    vttMap: readOptionalDirtyValue(record, "vttMap"),
+    checkOptions: readOptionalDirtyValue(record, "checkOptions"),
+    nodeMeta: readOptionalDirtyValue(record, "nodeMeta"),
+    transitions: readOptionalDirtyValue(record, "transitions"),
+    clues: readOptionalDirtyValue(record, "clues"),
+  };
 }
 
 function syncNpcIntoMap(map: VttMapStateDto | null, npc: NpcForm): VttMapStateDto | null {
@@ -956,7 +1100,8 @@ function validateScenarioForm(form: ScenarioFormState): string[] {
   const reachable = new Set<string>();
   const queue = startNodeId ? [startNodeId] : [];
   while (queue.length) {
-    const nodeId = queue.shift()!;
+    const nodeId = queue.shift();
+    if (!nodeId) continue;
     if (reachable.has(nodeId)) continue;
     reachable.add(nodeId);
     const node = form.nodes.find((candidate) => candidate.id === nodeId);
@@ -976,7 +1121,7 @@ function validateScenarioForm(form: ScenarioFormState): string[] {
       }
     });
     if (
-      node.nodeType === ('combat' as ScenarioNodeType) &&
+      node.nodeType === ScenarioNodeType.COMBAT &&
       !(node.vttMap?.tokens ?? []).some((token) => token.monster || token.isHostile)
     ) {
       issues.push(`전투 노드에 적 몬스터가 없습니다: ${node.title || node.id}`);
@@ -1170,17 +1315,16 @@ function buildGraphLayout(nodes: NodeForm[], startNodeId: string): {
   const layoutById = new Map(graphNodes.map((item) => [item.node.id, item]));
   const edges = graphNodes.flatMap((from) =>
     from.node.links
-      .map((link) => {
+      .flatMap((link) => {
         const to = layoutById.get(link.nextNodeId);
-        if (!to) return null;
-        return {
+        if (!to) return [];
+        return [{
           id: link.id,
           label: link.label || link.condition,
           from,
           to,
-        };
+        }];
       })
-      .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge))
   );
   const maxDepth = Math.max(0, ...graphNodes.map((item) => depthByNode.get(item.node.id) ?? 0));
   const maxY = Math.max(0, ...graphNodes.map((item) => item.y - GRAPH_PADDING));
@@ -1280,16 +1424,15 @@ export function ScenarioEditorPage({
         if (!ignore) {
           setItemOptions(
             [...catalog.equipmentItems, ...catalog.magicItems]
-              .map((item) => {
+              .flatMap((item) => {
                 const id = typeof item.id === 'string' ? item.id : '';
                 const nameKo = typeof item.nameKo === 'string' ? item.nameKo : '';
                 const nameEn = typeof item.nameEn === 'string' ? item.nameEn : '';
                 const label = [nameKo || nameEn || id, nameKo && nameEn ? nameEn : null]
-                  .filter(Boolean)
+                  .flatMap((part) => part ? [part] : [])
                   .join(' / ');
-                return id ? { id, label } : null;
+                return id ? [{ id, label }] : [];
               })
-              .filter((item): item is BattleMapOption => Boolean(item))
           );
         }
       })
@@ -2146,7 +2289,7 @@ export function ScenarioEditorPage({
                 id="scenario-license"
                 value={form.license}
                 onChange={(event) =>
-                  updateField('license', event.target.value as ScenarioFormState['license'])
+                  updateField('license', valueAsScenarioLicense(event.target.value, form.license))
                 }
               >
                 <option value="original">Original</option>
@@ -2629,7 +2772,7 @@ function NodeDetailEditor({
               onChange={(event) =>
                 updateNode(node.id, (current) => ({
                   ...current,
-                  nodeType: event.target.value as ScenarioNodeType,
+                  nodeType: valueAsScenarioNodeType(event.target.value, current.nodeType),
                 }))
               }
             >
@@ -3308,7 +3451,7 @@ function ScenarioNodeCollections({
                                       entryIndex === requirementIndex
                                         ? {
                                             ...entry,
-                                            type: event.target.value as TransitionConditionType,
+                                            type: valueAsTransitionConditionType(event.target.value),
                                             targetId: '',
                                             flagKey: '',
                                             flagValue: '',
@@ -3640,7 +3783,7 @@ function ScenarioNodeCollections({
                       ...current,
                       clues: current.clues.map((item, itemIndex) =>
                         itemIndex === index
-                          ? { ...item, importance: event.target.value as ClueForm['importance'] }
+                          ? { ...item, importance: valueAsImportance(event.target.value) }
                           : item
                       ),
                     }))
@@ -3689,7 +3832,7 @@ function ScenarioNodeCollections({
                   ...current,
                   clues: current.clues.map((item, itemIndex) =>
                     itemIndex === index
-                      ? { ...item, revealMode: event.target.value as RevealMode }
+                      ? { ...item, revealMode: valueAsRevealModeValue(event.target.value, item.revealMode) ?? item.revealMode }
                       : item
                   ),
                 }))
@@ -3813,7 +3956,7 @@ function ScenarioNodeCollections({
                   <select
                     value={npc.disposition}
                     onChange={(event) =>
-                      updateNpcAt(index, { disposition: event.target.value as NpcDisposition })
+                      updateNpcAt(index, { disposition: valueAsNpcDisposition(event.target.value) })
                     }
                   >
                     <option value="friendly">Friendly</option>
@@ -3930,3 +4073,20 @@ function NodeCollection({
     </section>
   );
 }
+type DirtyScenarioNode = Partial<Record<(typeof dirtyScenarioNodeKeys)[number], unknown>> & {
+  id?: string;
+};
+
+type DirtyScenarioSnapshot = {
+  title?: unknown;
+  description?: unknown;
+  ruleSetId?: unknown;
+  difficulty?: unknown;
+  startLevel?: unknown;
+  recommendedEndLevel?: unknown;
+  license?: unknown;
+  attribution?: unknown;
+  startNodeId?: unknown;
+  npcs: Array<Record<string, unknown>>;
+  nodes: DirtyScenarioNode[];
+};

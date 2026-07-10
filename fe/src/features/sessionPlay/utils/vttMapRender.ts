@@ -2,7 +2,11 @@ import type { VttMapStateDto } from '@trpg/shared-types';
 
 export function shouldLogMapMovePerf() {
   if (!import.meta.env.DEV || typeof window === 'undefined') return false;
-  return window.localStorage.getItem('trpg:debug:battle-map-perf') === '1';
+  try {
+    return window.localStorage.getItem('trpg:debug:battle-map-perf') === '1';
+  } catch {
+    return false;
+  }
 }
 
 export function logMapMovePerf(label: string, startedAt: number, detail = '') {

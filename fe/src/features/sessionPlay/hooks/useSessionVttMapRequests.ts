@@ -56,11 +56,11 @@ export function useSessionVttMapRequests(params: UseSessionVttMapRequestsParams)
       const previousMap = currentMap ?? latestConfirmedMapRef.current;
       const optimisticUpdatedAt = new Date().toISOString();
       const optimisticMap = applyOptimisticTokenMove(previousMap, token.id, to, optimisticUpdatedAt);
-      if (optimisticMap) {
+      if (optimisticMap && previousMap) {
         pendingOptimisticTokenMoveRef.current = {
           tokenId: token.id,
           optimisticUpdatedAt,
-          previousMap: previousMap as VttMapStateDto,
+          previousMap,
         };
         setMap(optimisticMap);
       }

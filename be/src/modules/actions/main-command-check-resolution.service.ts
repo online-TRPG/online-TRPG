@@ -8,11 +8,14 @@ import {
 } from "@trpg/shared-types";
 import { randomUUID } from "node:crypto";
 import { MainCommandCheckEffectParserService } from "./main-command-check-effect-parser.service";
-import { MainCommandCheckResultNarrationService } from "./main-command-check-result-narration.service";
+import {
+  MainCommandCheckResultNarrationService,
+  type SanitizedMainCommandDiceResult,
+} from "./main-command-check-result-narration.service";
 
 export type PreparedMainCommandCheckResult = {
   effect: MainCommandNarrativeCheckEffectDto;
-  checkDiceResult: Record<string, unknown> | null;
+  checkDiceResult: SanitizedMainCommandDiceResult | null;
   checkRollSummary: string | null;
   result: {
     status: MainCommandStatus;

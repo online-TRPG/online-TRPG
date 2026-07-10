@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import type { P6CharacterTransferRequestFlag } from "./campaign-archive-runtime.service";
+import {
+  P6_CHARACTER_TRANSFER_REQUESTS_FLAG,
+  type P6CharacterTransferRequestFlag,
+} from "./campaign-archive-runtime.service";
 
 @Injectable()
 export class SessionCharacterTransferRequestStoreService {
@@ -18,6 +21,14 @@ export class SessionCharacterTransferRequestStoreService {
     ) ?? null;
   }
 
+  findByIdWithIndex(
+    requests: P6CharacterTransferRequestFlag[],
+    requestId: string,
+  ): { request: P6CharacterTransferRequestFlag; requestIndex: number } | null {
+    const requestIndex = requests.findIndex((request) => request.requestId === requestId);
+    return requestIndex >= 0 ? { request: requests[requestIndex], requestIndex } : null;
+  }
+
   append(
     flags: Record<string, unknown>,
     requests: P6CharacterTransferRequestFlag[],
@@ -25,7 +36,7 @@ export class SessionCharacterTransferRequestStoreService {
   ): Record<string, unknown> {
     return {
       ...flags,
-      p6CharacterTransferRequests: [...requests, request],
+      [P6_CHARACTER_TRANSFER_REQUESTS_FLAG]: [...requests, request],
     };
   }
 
@@ -39,7 +50,7 @@ export class SessionCharacterTransferRequestStoreService {
     nextRequests[requestIndex] = request;
     return {
       ...flags,
-      p6CharacterTransferRequests: nextRequests,
+      [P6_CHARACTER_TRANSFER_REQUESTS_FLAG]: nextRequests,
     };
   }
 }

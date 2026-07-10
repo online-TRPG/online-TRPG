@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { CombatResponseDto, VttMapStateDto } from '@trpg/shared-types';
-import type { PlayerScenarioView, StoredUser } from '../../../types/session';
+import type { PlayerScenarioView, SessionSnapshot, StoredUser } from '../../../types/session';
 import { createHumanGmMessage, updateHumanGmSessionNode } from '../../../services/humanGmApi';
 import { getPlayerScenario } from '../../../services/scenarioApi';
 import { getVttMap } from '../../../services/vttMapApi';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
+import { readVttMapFromSessionFlags } from '../utils/sessionStateFlags';
 
 type GmMessagePayload = {
   content: string;
@@ -31,14 +32,8 @@ type UseHumanGmSceneActionsParams = {
   onCombatActionLog: (message: string, turnLogId?: string | null) => void;
 };
 
-function extractSnapshotMap(snapshot: unknown): VttMapStateDto | null {
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  const state = (snapshot as { state?: unknown }).state;
-  if (!state || typeof state !== 'object') return null;
-  const flags = (state as { flags?: unknown }).flags;
-  if (!flags || typeof flags !== 'object') return null;
-  const nextMap = (flags as { vttMap?: unknown }).vttMap;
-  return nextMap && typeof nextMap === 'object' ? (nextMap as VttMapStateDto) : null;
+function extractSnapshotMap(snapshot: SessionSnapshot): VttMapStateDto | null {
+  return readVttMapFromSessionFlags(snapshot.state.flags);
 }
 
 export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
@@ -62,7 +57,7 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
   const [isGmNodeMovePending, setGmNodeMovePending] = useState(false);
 
   const applySnapshotMap = useCallback(
-    (snapshot: unknown): boolean => {
+    (snapshot: SessionSnapshot): boolean => {
       const nextMap = extractSnapshotMap(snapshot);
       if (!nextMap) return false;
       latestConfirmedMapRef.current = nextMap;

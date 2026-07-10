@@ -182,8 +182,10 @@ export class CombatMovementService {
       .filter((cell) => this.cellGridPoints(map, cell).some((cellPoint) =>
         cellPoint.x === gridPoint.x && cellPoint.y === gridPoint.y,
       ))
-      .map((cell) => this.extractTerrainEffectId(cell))
-      .filter((terrainEffectId): terrainEffectId is string => terrainEffectId !== null);
+      .flatMap((cell) => {
+        const terrainEffectId = this.extractTerrainEffectId(cell);
+        return terrainEffectId ? [terrainEffectId] : [];
+      });
   }
 
   assertCombatMovementPathOpen(
@@ -249,7 +251,10 @@ export class CombatMovementService {
     ];
 
     while (queue.length) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
       const targetDistance = this.getChebyshevDistance(
         current.column,
         current.row,

@@ -84,9 +84,9 @@ export class SessionVttCombatMovementSpendService {
   private async loadCharacterSpeedBySessionCharacterId(movementSpends: VttCombatMovementSpend[]): Promise<Map<string, number>> {
     const sessionCharacterIds = Array.from(
       new Set(
-        movementSpends
-          .map((spend) => spend.sessionCharacterId)
-          .filter((id): id is string => Boolean(id)),
+        movementSpends.flatMap((spend) =>
+          spend.sessionCharacterId ? [spend.sessionCharacterId] : [],
+        ),
       ),
     );
     const sessionCharacters = sessionCharacterIds.length

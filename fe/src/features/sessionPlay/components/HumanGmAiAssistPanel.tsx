@@ -45,6 +45,10 @@ function getGmAiAssistTypeLabel(assistType: string) {
   return gmAiAssistTypeOptions.find((option) => option.value === assistType)?.label ?? assistType;
 }
 
+function toGmAiAssistType(value: string): GmAiAssistType | null {
+  return gmAiAssistTypeOptions.find((option) => option.value === value)?.value ?? null;
+}
+
 export function HumanGmAiAssistPanel({
   nodeId,
   className,
@@ -102,7 +106,11 @@ export function HumanGmAiAssistPanel({
   }
 
   return (
-    <section className={['human-gm-ai-assist-panel', className].filter(Boolean).join(' ')}>
+    <section
+      className={['human-gm-ai-assist-panel', className]
+        .flatMap((value) => (value ? [value] : []))
+        .join(' ')}
+    >
       <span className="human-gm-ai-assist-eyebrow">AI 보조 제안</span>
       <div className="human-gm-ai-assist-compose">
         <select
@@ -111,8 +119,11 @@ export function HumanGmAiAssistPanel({
           disabled={isPending}
           aria-label="AI 보조 제안 유형"
           onChange={(event) => {
-            setAssistType(event.target.value as GmAiAssistType);
-            setTarget('');
+            const nextAssistType = toGmAiAssistType(event.target.value);
+            if (nextAssistType) {
+              setAssistType(nextAssistType);
+              setTarget('');
+            }
           }}
         >
           {gmAiAssistTypeOptions.map((option) => (

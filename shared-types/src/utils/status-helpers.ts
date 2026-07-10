@@ -7,10 +7,14 @@ import {
   SessionStatus,
 } from "../constants/enums";
 
+function isOneOf<T extends string>(value: string, values: readonly T[]): value is T {
+  return values.some((candidate) => candidate === value);
+}
+
 export function normalizeSessionStatus(value: unknown): SessionStatus {
   const normalized = typeof value === "string" ? value.toLowerCase() : value;
-  return Object.values(SessionStatus).includes(normalized as SessionStatus)
-    ? (normalized as SessionStatus)
+  return typeof normalized === "string" && isOneOf(normalized, Object.values(SessionStatus))
+    ? normalized
     : SessionStatus.RECRUITING;
 }
 
@@ -58,4 +62,3 @@ export function isMainCommandCheckRequiredStatus(status: MainCommandStatus | str
 export function isMainCommandImpossibleStatus(status: MainCommandStatus | string | null | undefined): boolean {
   return status === MainCommandStatus.IMPOSSIBLE;
 }
-

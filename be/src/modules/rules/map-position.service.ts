@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 
 const FEET_PER_GRID = 5;
 
@@ -53,14 +54,10 @@ export class MapPositionService {
 
     const gridType = value.gridType === "hex" ? "hex" : "square";
     const tokens = Array.isArray(value.tokens)
-      ? value.tokens
-          .map((token) => this.toRuntimeToken(token, gridSize))
-          .filter((token): token is RuleMapRuntimeToken => token !== null)
+      ? value.tokens.flatMap((token) => this.toRuntimeTokenEntry(token, gridSize))
       : [];
     const objectCells = Array.isArray(value.objectCells)
-      ? value.objectCells
-          .map((cell) => this.toRuntimeObjectCell(cell, gridSize))
-          .filter((cell): cell is RuleMapRuntimeObjectCell => cell !== null)
+      ? value.objectCells.flatMap((cell) => this.toRuntimeObjectCellEntry(cell, gridSize))
       : [];
 
     return { gridType, gridSize, tokens, objectCells };
@@ -247,27 +244,37 @@ export class MapPositionService {
       width: this.toPositiveNumber(value.width) ?? fallbackSize,
       height: this.toPositiveNumber(value.height) ?? fallbackSize,
       description: typeof value.description === "string" ? value.description : null,
-      hiddenItemIds: Array.isArray(value.hiddenItemIds)
-        ? value.hiddenItemIds.filter((itemId): itemId is string => typeof itemId === "string")
-        : [],
+      hiddenItemIds: Array.isArray(value.hiddenItemIds) ? this.decodeStringArray(value.hiddenItemIds) : [],
     };
   }
 
-  private parseJsonRecord(value: string | null | undefined): Record<string, unknown> | null {
-    if (!value) {
-      return null;
-    }
+  private toRuntimeTokenEntry(value: unknown, fallbackSize: number): RuleMapRuntimeToken[] {
+    const token = this.toRuntimeToken(value, fallbackSize);
+    return token ? [token] : [];
+  }
 
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return this.isRecord(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
+  private toRuntimeObjectCellEntry(value: unknown, fallbackSize: number): RuleMapRuntimeObjectCell[] {
+    const cell = this.toRuntimeObjectCell(value, fallbackSize);
+    return cell ? [cell] : [];
+  }
+
+  private decodeStringArray(value: readonly unknown[]): string[] {
+    return value.flatMap((item) => (typeof item === "string" ? [item] : []));
+  }
+
+  private parseJsonRecord(value: string | null | undefined): Record<string, unknown> | null {
+    return parseJsonOrThrow(value, null, (parsed) => this.decodeRecord(parsed), "gameState.flagsJson");
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  private decodeRecord(value: unknown): Record<string, unknown> {
+    if (!this.isRecord(value)) {
+      throw new Error("map flags must be an object.");
+    }
+    return value;
   }
 
   private toFiniteNumber(value: unknown): number | null {

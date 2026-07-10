@@ -1,23 +1,251 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import {
   CampaignArchiveResponseDto,
+  CampaignArchivePublicRevisionLineageDto,
   CampaignArchiveSnapshotDto,
   CharacterTransferResponseDto,
+  JsonObject,
+  decodeJsonObject,
+  isRecord,
+  parseJsonWithDecoder,
 } from "@trpg/shared-types";
+import {
+  parseJsonOrFallback,
+} from "../../common/utils/json-runtime";
+import {
+  CAMPAIGN_CALENDAR_FLAGS_KEY,
+  type CampaignDowntimeStatus,
+} from "../rules/campaign-calendar-runtime.service";
+import { ECONOMY_FLAGS_KEY } from "../rules/economy-state-runtime.service";
 
 export type P6CharacterTransferRequestFlag = CharacterTransferResponseDto & {
   note: string | null;
   approvedByUserId?: string | null;
 };
 
+export const P6_CAMPAIGN_ARCHIVE_FLAG = "p6CampaignArchive";
+export const P6_CHARACTER_TRANSFER_REQUESTS_FLAG = "p6CharacterTransferRequests";
+
+type ArchiveCalendarSummary = {
+  activeTaskCount: number;
+  pausedTaskCount: number;
+  completedTaskCount: number;
+  taskIds: string[];
+};
+
+type ArchiveDowntimeSummaryTask = {
+  id: string;
+  status: CampaignDowntimeStatus;
+};
+
+type ArchiveCharacterEntry = CampaignArchiveResponseDto["characters"][number];
+
+type ArchiveEconomySummary = {
+  hasEconomyState: boolean;
+  partyStashItemCount: number;
+  walletCount: number;
+  shopCount: number;
+  craftingProgressCount: number;
+  downtimeCompletionCount: number;
+};
+
+type ArchiveInventorySummary = {
+  totalItemCount: number;
+  characterInventoryCounts: Record<string, number>;
+};
+
+type ArchiveInventorySummaryItem = {
+  quantity: number;
+};
+
+type ArchiveCombatSummary = {
+  combatCount: number;
+  turnLogCount: number;
+  nodeVisitCount: number;
+};
+
+function decodeTransferInventoryItems(value: unknown): JsonObject[] {
+  if (!Array.isArray(value)) {
+    throw new Error("transfer inventory must be an array.");
+  }
+  return value.map((item, index) => decodeJsonObject(item, `transfer inventory[${index}]`));
+}
+
+function decodeArchiveInventorySummaryItems(value: unknown): ArchiveInventorySummaryItem[] {
+  if (!Array.isArray(value)) {
+    throw new Error("archive inventory must be an array.");
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item)) {
+      return [];
+    }
+    return [{ quantity: readArchiveInventoryQuantity(item.quantity) }];
+  });
+}
+
+function readArchiveInventoryQuantity(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : 1;
+}
+
+function decodeArchiveDowntimeSummaryTasks(value: unknown): ArchiveDowntimeSummaryTask[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((task) => {
+    if (!isRecord(task) || typeof task.id !== "string" || !isArchiveDowntimeStatus(task.status)) {
+      return [];
+    }
+    return [{ id: task.id, status: task.status }];
+  });
+}
+
+function isArchiveDowntimeStatus(value: unknown): value is CampaignDowntimeStatus {
+  return value === "active" || value === "paused" || value === "completed";
+}
+
+function decodeArchiveCharacterEntries(value: unknown): ArchiveCharacterEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+    const sessionCharacterId = readNonEmptyString(entry.sessionCharacterId);
+    const characterId = readNonEmptyString(entry.characterId);
+    const userId = readNonEmptyString(entry.userId);
+    if (!sessionCharacterId || !characterId || !userId) {
+      return [];
+    }
+    return [{
+      sessionCharacterId,
+      characterId,
+      userId,
+      name: typeof entry.name === "string" ? entry.name : "Unknown",
+      className: typeof entry.className === "string" ? entry.className : "unknown",
+      subclassName: typeof entry.subclassName === "string" ? entry.subclassName : null,
+      level: readArchiveCharacterLevel(entry.level),
+      status: typeof entry.status === "string" ? entry.status : "ACTIVE",
+    }];
+  });
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+function readArchiveCharacterLevel(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : 1;
+}
+
+function summarizeArchiveEconomyState(value: unknown): ArchiveEconomySummary {
+  if (!isRecord(value)) {
+    return {
+      hasEconomyState: false,
+      partyStashItemCount: 0,
+      walletCount: 0,
+      shopCount: 0,
+      craftingProgressCount: 0,
+      downtimeCompletionCount: 0,
+    };
+  }
+
+  return {
+    hasEconomyState: true,
+    partyStashItemCount: countArrayValues(value.partyStash, isArchiveEconomyInventoryItem),
+    walletCount: countRecordValues(value.walletsBySessionCharacterId, isArchiveCurrencyWallet),
+    shopCount: countRecordValues(value.shopStatesById, isArchiveShopState),
+    craftingProgressCount: countRecordValues(value.craftingProgressById, isArchiveCraftingProgress),
+    downtimeCompletionCount: countRecordValues(value.downtimeCompletionsById, isArchiveEconomyDowntimeCompletion),
+  };
+}
+
+function countArrayValues(value: unknown, predicate: (entry: unknown) => boolean): number {
+  return Array.isArray(value) ? value.filter(predicate).length : 0;
+}
+
+function countRecordValues(value: unknown, predicate: (entry: unknown) => boolean): number {
+  return isRecord(value) ? Object.values(value).filter(predicate).length : 0;
+}
+
+function isArchiveEconomyInventoryItem(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.itemDefinitionId === "string" && isPositiveInteger(value.quantity);
+}
+
+function isArchiveCurrencyWallet(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return ["cp", "sp", "ep", "gp", "pp"].every((key) => {
+    const amount = value[key];
+    return amount === undefined || isNonNegativeFiniteNumber(amount);
+  });
+}
+
+function isArchiveShopState(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return typeof value.shopId === "string" && Array.isArray(value.inventory);
+}
+
+function isArchiveCraftingProgress(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.craftingId === "string" &&
+    typeof value.recipeId === "string" &&
+    typeof value.sessionCharacterId === "string" &&
+    typeof value.outputItemDefinitionId === "string" &&
+    isPositiveInteger(value.outputQuantity) &&
+    isNonNegativeFiniteNumber(value.completedHours) &&
+    isPositiveFiniteNumber(value.requiredHours) &&
+    (value.status === "in_progress" || value.status === "completed")
+  );
+}
+
+function isArchiveEconomyDowntimeCompletion(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.downtimeTaskId === "string" &&
+    typeof value.downtimeType === "string" &&
+    typeof value.sessionCharacterId === "string" &&
+    typeof value.title === "string" &&
+    isNonNegativeFiniteNumber(value.costGp) &&
+    typeof value.completedAt === "string"
+  );
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function decodeStringArray(value: readonly unknown[]): string[] {
+  return value.flatMap((item) => (typeof item === "string" ? [item] : []));
+}
+
 @Injectable()
 export class CampaignArchiveRuntimeService {
   parseCampaignArchive(flags: Record<string, unknown>): CampaignArchiveResponseDto | null {
-    const archive = flags.p6CampaignArchive;
-    if (!archive || typeof archive !== "object") {
+    const archive = flags[P6_CAMPAIGN_ARCHIVE_FLAG];
+    if (!isRecord(archive)) {
       return null;
     }
-    const candidate = archive as Record<string, unknown>;
+    const candidate = archive;
     if (
       typeof candidate.archiveId !== "string" ||
       typeof candidate.sessionId !== "string" ||
@@ -46,23 +274,9 @@ export class CampaignArchiveRuntimeService {
       allowCharacterTransfer: candidate.allowCharacterTransfer !== false,
       finalNodeId: typeof candidate.finalNodeId === "string" ? candidate.finalNodeId : null,
       finalRewardIds: Array.isArray(candidate.finalRewardIds)
-        ? candidate.finalRewardIds.filter((id): id is string => typeof id === "string").slice(0, 20)
+        ? decodeStringArray(candidate.finalRewardIds).slice(0, 20)
         : [],
-      characters: Array.isArray(candidate.characters)
-        ? candidate.characters
-            .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-            .map((entry) => ({
-              sessionCharacterId: typeof entry.sessionCharacterId === "string" ? entry.sessionCharacterId : "",
-              characterId: typeof entry.characterId === "string" ? entry.characterId : "",
-              userId: typeof entry.userId === "string" ? entry.userId : "",
-              name: typeof entry.name === "string" ? entry.name : "Unknown",
-              className: typeof entry.className === "string" ? entry.className : "unknown",
-              subclassName: typeof entry.subclassName === "string" ? entry.subclassName : null,
-              level: typeof entry.level === "number" ? entry.level : 1,
-              status: typeof entry.status === "string" ? entry.status : "ACTIVE",
-            }))
-            .filter((entry) => entry.sessionCharacterId && entry.characterId && entry.userId)
-        : [],
+      characters: decodeArchiveCharacterEntries(candidate.characters),
       analytics: {
         turnLogCount: this.getNumberProperty(candidate.analytics, "turnLogCount"),
         combatCount: this.getNumberProperty(candidate.analytics, "combatCount"),
@@ -92,28 +306,8 @@ export class CampaignArchiveRuntimeService {
     nodeVisitCount: number;
     scenarioAttribution: string | null;
   }): CampaignArchiveSnapshotDto {
-    const calendar = params.flags.campaignCalendar && typeof params.flags.campaignCalendar === "object"
-      ? (params.flags.campaignCalendar as Record<string, unknown>)
-      : {};
-    const downtimeTasks = Array.isArray(calendar.downtimeTasks)
-      ? calendar.downtimeTasks.filter((task): task is Record<string, unknown> => Boolean(task) && typeof task === "object")
-      : [];
-    const economy = params.flags.economy && typeof params.flags.economy === "object"
-      ? (params.flags.economy as Record<string, unknown>)
-      : null;
-    const partyStash = Array.isArray(economy?.partyStash) ? economy.partyStash : [];
-    const wallets = economy?.walletsBySessionCharacterId && typeof economy.walletsBySessionCharacterId === "object"
-      ? (economy.walletsBySessionCharacterId as Record<string, unknown>)
-      : {};
-    const shops = economy?.shopStatesById && typeof economy.shopStatesById === "object"
-      ? (economy.shopStatesById as Record<string, unknown>)
-      : {};
-    const crafting = economy?.craftingProgressById && typeof economy.craftingProgressById === "object"
-      ? (economy.craftingProgressById as Record<string, unknown>)
-      : {};
-    const downtimeCompletions = economy?.downtimeCompletionsById && typeof economy.downtimeCompletionsById === "object"
-      ? (economy.downtimeCompletionsById as Record<string, unknown>)
-      : {};
+    const calendarSummary = this.summarizeArchiveCalendarFlags(params.flags);
+    const economySummary = this.summarizeArchiveEconomyFlags(params.flags);
     const characterInventoryCounts = Object.fromEntries(
       params.sessionCharacters.map((entry) => [
         entry.id,
@@ -124,23 +318,8 @@ export class CampaignArchiveRuntimeService {
     return {
       stateVersion: params.stateVersion,
       currentNodeId: params.currentNodeId,
-      downtime: {
-        activeTaskCount: downtimeTasks.filter((task) => task.status === "active").length,
-        pausedTaskCount: downtimeTasks.filter((task) => task.status === "paused").length,
-        completedTaskCount: downtimeTasks.filter((task) => task.status === "completed").length,
-        taskIds: downtimeTasks
-          .map((task) => task.id)
-          .filter((id): id is string => typeof id === "string")
-          .slice(0, 50),
-      },
-      economy: {
-        hasEconomyState: Boolean(economy),
-        partyStashItemCount: partyStash.length,
-        walletCount: Object.keys(wallets).length,
-        shopCount: Object.keys(shops).length,
-        craftingProgressCount: Object.keys(crafting).length,
-        downtimeCompletionCount: Object.keys(downtimeCompletions).length,
-      },
+      downtime: calendarSummary,
+      economy: economySummary,
       inventory: {
         totalItemCount: Object.values(characterInventoryCounts).reduce((sum, count) => sum + count, 0),
         characterInventoryCounts,
@@ -155,38 +334,43 @@ export class CampaignArchiveRuntimeService {
   }
 
   parseCharacterTransferRequests(flags: Record<string, unknown>): P6CharacterTransferRequestFlag[] {
-    const requests = Array.isArray(flags.p6CharacterTransferRequests) ? flags.p6CharacterTransferRequests : [];
-    return requests
-      .filter((request): request is Record<string, unknown> => Boolean(request) && typeof request === "object")
-      .filter((request) =>
-        typeof request.requestId === "string" &&
-        typeof request.targetSessionId === "string" &&
-        typeof request.sourceSessionId === "string" &&
-        typeof request.sourceSessionCharacterId === "string" &&
-        typeof request.requestedByUserId === "string" &&
-        (request.status === "requested" || request.status === "approved" || request.status === "rejected") &&
-        (request.mode === "clone" || request.mode === "transfer") &&
-        typeof request.createdAt === "string",
-      )
-      .map((request) => ({
-        requestId: request.requestId as string,
-        targetSessionId: request.targetSessionId as string,
-        sourceSessionId: request.sourceSessionId as string,
-        sourceSessionCharacterId: request.sourceSessionCharacterId as string,
-        requestedByUserId: request.requestedByUserId as string,
-        status: request.status as "requested" | "approved" | "rejected",
-        mode: request.mode as "clone" | "transfer",
+    const value = flags[P6_CHARACTER_TRANSFER_REQUESTS_FLAG];
+    const requests = Array.isArray(value) ? value : [];
+    return requests.flatMap((request) => {
+      if (
+        !isRecord(request) ||
+        typeof request.requestId !== "string" ||
+        typeof request.targetSessionId !== "string" ||
+        typeof request.sourceSessionId !== "string" ||
+        typeof request.sourceSessionCharacterId !== "string" ||
+        typeof request.requestedByUserId !== "string" ||
+        (request.status !== "requested" && request.status !== "approved" && request.status !== "rejected") ||
+        (request.mode !== "clone" && request.mode !== "transfer") ||
+        typeof request.createdAt !== "string"
+      ) {
+        return [];
+      }
+
+      return [{
+        requestId: request.requestId,
+        targetSessionId: request.targetSessionId,
+        sourceSessionId: request.sourceSessionId,
+        sourceSessionCharacterId: request.sourceSessionCharacterId,
+        requestedByUserId: request.requestedByUserId,
+        status: request.status,
+        mode: request.mode,
         targetSessionCharacterId:
           typeof request.targetSessionCharacterId === "string" ? request.targetSessionCharacterId : null,
         sourceDisposition:
           request.sourceDisposition === "copied" || request.sourceDisposition === "retired_after_transfer"
             ? request.sourceDisposition
             : null,
-        createdAt: request.createdAt as string,
+        createdAt: request.createdAt,
         resolvedAt: typeof request.resolvedAt === "string" ? request.resolvedAt : null,
         note: typeof request.note === "string" ? request.note : null,
         approvedByUserId: typeof request.approvedByUserId === "string" ? request.approvedByUserId : null,
-      }));
+      }];
+    });
   }
 
   ensureCharacterTransferPolicy(params: {
@@ -226,24 +410,15 @@ export class CampaignArchiveRuntimeService {
     if (!inventoryJson) {
       return "[]";
     }
-    let parsed: unknown;
+    let inventory: JsonObject[];
     try {
-      parsed = JSON.parse(inventoryJson) as unknown;
+      inventory = parseJsonWithDecoder(inventoryJson, decodeTransferInventoryItems, "transfer inventory");
     } catch {
       throw new ConflictException("이관 가능한 캐릭터 inventory 형식이 아닙니다.");
     }
-    if (!Array.isArray(parsed)) {
-      throw new ConflictException("이관 가능한 캐릭터 inventory 형식이 아닙니다.");
-    }
-    if (parsed.length > 100) {
+    if (inventory.length > 100) {
       throw new ConflictException("캐릭터 이관 inventory는 100개 이하의 개인 소지품만 허용됩니다.");
     }
-    const inventory = parsed.map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        throw new ConflictException("이관 가능한 캐릭터 inventory 형식이 아닙니다.");
-      }
-      return item as Record<string, unknown>;
-    });
 
     for (const item of inventory) {
       if (this.isCampaignBoundTransferItem(item)) {
@@ -272,109 +447,127 @@ export class CampaignArchiveRuntimeService {
   }
 
   countCompletedDowntimeTasks(flags: Record<string, unknown>): number {
-    const calendar = flags.campaignCalendar;
-    if (!calendar || typeof calendar !== "object") {
-      return 0;
-    }
-    const tasks = (calendar as Record<string, unknown>).downtimeTasks;
-    if (!Array.isArray(tasks)) {
-      return 0;
-    }
-    return tasks.filter((task) => Boolean(task) && typeof task === "object" && (task as Record<string, unknown>).status === "completed").length;
+    return this.summarizeArchiveCalendarFlags(flags).completedTaskCount;
+  }
+
+  private summarizeArchiveCalendarFlags(flags: Record<string, unknown>): ArchiveCalendarSummary {
+    const calendar = isRecord(flags[CAMPAIGN_CALENDAR_FLAGS_KEY]) ? flags[CAMPAIGN_CALENDAR_FLAGS_KEY] : {};
+    const downtimeTasks = decodeArchiveDowntimeSummaryTasks(calendar.downtimeTasks);
+
+    return {
+      activeTaskCount: downtimeTasks.filter((task) => task.status === "active").length,
+      pausedTaskCount: downtimeTasks.filter((task) => task.status === "paused").length,
+      completedTaskCount: downtimeTasks.filter((task) => task.status === "completed").length,
+      taskIds: downtimeTasks.map((task) => task.id).slice(0, 50),
+    };
+  }
+
+  private summarizeArchiveEconomyFlags(flags: Record<string, unknown>): ArchiveEconomySummary {
+    return summarizeArchiveEconomyState(flags[ECONOMY_FLAGS_KEY]);
   }
 
   private parseCampaignArchiveSnapshot(
     value: unknown,
-    fallbackCombat: { turnLogCount: number; combatCount: number; nodeVisitCount: number },
+    fallbackCombat: ArchiveCombatSummary,
   ): CampaignArchiveSnapshotDto {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (!isRecord(value)) {
       return {
         stateVersion: 0,
         currentNodeId: null,
-        downtime: { activeTaskCount: 0, pausedTaskCount: 0, completedTaskCount: 0, taskIds: [] },
-        economy: {
-          hasEconomyState: false,
-          partyStashItemCount: 0,
-          walletCount: 0,
-          shopCount: 0,
-          craftingProgressCount: 0,
-          downtimeCompletionCount: 0,
-        },
-        inventory: { totalItemCount: 0, characterInventoryCounts: {} },
+        downtime: this.emptyArchiveCalendarSummary(),
+        economy: this.emptyArchiveEconomySummary(),
+        inventory: this.emptyArchiveInventorySummary(),
         combat: fallbackCombat,
         publicRevisionLineage: null,
       };
     }
-    const candidate = value as Record<string, unknown>;
-    const downtime = candidate.downtime && typeof candidate.downtime === "object"
-      ? (candidate.downtime as Record<string, unknown>)
-      : {};
-    const economy = candidate.economy && typeof candidate.economy === "object"
-      ? (candidate.economy as Record<string, unknown>)
-      : {};
-    const inventory = candidate.inventory && typeof candidate.inventory === "object"
-      ? (candidate.inventory as Record<string, unknown>)
-      : {};
-    const combat = candidate.combat && typeof candidate.combat === "object"
-      ? (candidate.combat as Record<string, unknown>)
-      : {};
-    const inventoryCounts = inventory.characterInventoryCounts && typeof inventory.characterInventoryCounts === "object"
-      ? Object.fromEntries(
-          Object.entries(inventory.characterInventoryCounts as Record<string, unknown>)
-            .filter(([key, count]) => key && typeof count === "number" && Number.isFinite(count)),
-        ) as Record<string, number>
-      : {};
+    const candidate = value;
 
     return {
       stateVersion: this.getNumberProperty(candidate, "stateVersion"),
       currentNodeId: typeof candidate.currentNodeId === "string" ? candidate.currentNodeId : null,
-      downtime: {
-        activeTaskCount: this.getNumberProperty(downtime, "activeTaskCount"),
-        pausedTaskCount: this.getNumberProperty(downtime, "pausedTaskCount"),
-        completedTaskCount: this.getNumberProperty(downtime, "completedTaskCount"),
-        taskIds: Array.isArray(downtime.taskIds)
-          ? downtime.taskIds.filter((id): id is string => typeof id === "string").slice(0, 50)
-          : [],
-      },
-      economy: {
-        hasEconomyState: economy.hasEconomyState === true,
-        partyStashItemCount: this.getNumberProperty(economy, "partyStashItemCount"),
-        walletCount: this.getNumberProperty(economy, "walletCount"),
-        shopCount: this.getNumberProperty(economy, "shopCount"),
-        craftingProgressCount: this.getNumberProperty(economy, "craftingProgressCount"),
-        downtimeCompletionCount: this.getNumberProperty(economy, "downtimeCompletionCount"),
-      },
-      inventory: {
-        totalItemCount: this.getNumberProperty(inventory, "totalItemCount"),
-        characterInventoryCounts: inventoryCounts,
-      },
-      combat: {
-        combatCount: this.getNumberProperty(combat, "combatCount") || fallbackCombat.combatCount,
-        turnLogCount: this.getNumberProperty(combat, "turnLogCount") || fallbackCombat.turnLogCount,
-        nodeVisitCount: this.getNumberProperty(combat, "nodeVisitCount") || fallbackCombat.nodeVisitCount,
-      },
-      publicRevisionLineage:
-        candidate.publicRevisionLineage && typeof candidate.publicRevisionLineage === "object" && !Array.isArray(candidate.publicRevisionLineage)
-          ? (candidate.publicRevisionLineage as Record<string, unknown>)
-          : null,
+      downtime: this.parseArchiveCalendarSummary(candidate.downtime),
+      economy: this.parseArchiveEconomySummary(candidate.economy),
+      inventory: this.parseArchiveInventorySummary(candidate.inventory),
+      combat: this.parseArchiveCombatSummary(candidate.combat, fallbackCombat),
+      publicRevisionLineage: this.normalizePublicRevisionLineage(candidate.publicRevisionLineage),
     };
   }
 
-  private countArchiveInventoryItems(inventoryJson: string | null | undefined): number {
-    const items = this.parseJson<unknown[]>(inventoryJson, []);
-    if (!Array.isArray(items)) {
-      return 0;
-    }
-    return items.reduce<number>((sum, item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return sum;
-      }
-      const quantity = (item as Record<string, unknown>).quantity;
-      return sum + (typeof quantity === "number" && Number.isFinite(quantity) ? Math.max(0, Math.trunc(quantity)) : 1);
-    }, 0);
+  private parseArchiveCalendarSummary(value: unknown): ArchiveCalendarSummary {
+    const downtime = isRecord(value) ? value : {};
+    return {
+      activeTaskCount: this.getNumberProperty(downtime, "activeTaskCount"),
+      pausedTaskCount: this.getNumberProperty(downtime, "pausedTaskCount"),
+      completedTaskCount: this.getNumberProperty(downtime, "completedTaskCount"),
+      taskIds: Array.isArray(downtime.taskIds)
+        ? decodeStringArray(downtime.taskIds).slice(0, 50)
+        : [],
+    };
   }
 
-  private extractPublicRevisionLineage(attribution: string | null): Record<string, unknown> | null {
+  private parseArchiveEconomySummary(value: unknown): ArchiveEconomySummary {
+    const economy = isRecord(value) ? value : {};
+    return {
+      hasEconomyState: economy.hasEconomyState === true,
+      partyStashItemCount: this.getNumberProperty(economy, "partyStashItemCount"),
+      walletCount: this.getNumberProperty(economy, "walletCount"),
+      shopCount: this.getNumberProperty(economy, "shopCount"),
+      craftingProgressCount: this.getNumberProperty(economy, "craftingProgressCount"),
+      downtimeCompletionCount: this.getNumberProperty(economy, "downtimeCompletionCount"),
+    };
+  }
+
+  private parseArchiveInventorySummary(value: unknown): ArchiveInventorySummary {
+    const inventory = isRecord(value) ? value : {};
+    const characterInventoryCounts: Record<string, number> = {};
+    if (isRecord(inventory.characterInventoryCounts)) {
+      for (const [key, count] of Object.entries(inventory.characterInventoryCounts)) {
+        if (key && this.isNonNegativeInteger(count)) {
+          characterInventoryCounts[key] = count;
+        }
+      }
+    }
+    return {
+      totalItemCount: this.getNumberProperty(inventory, "totalItemCount"),
+      characterInventoryCounts,
+    };
+  }
+
+  private parseArchiveCombatSummary(value: unknown, fallbackCombat: ArchiveCombatSummary): ArchiveCombatSummary {
+    const combat = isRecord(value) ? value : {};
+    return {
+      combatCount: this.getNumberProperty(combat, "combatCount") || fallbackCombat.combatCount,
+      turnLogCount: this.getNumberProperty(combat, "turnLogCount") || fallbackCombat.turnLogCount,
+      nodeVisitCount: this.getNumberProperty(combat, "nodeVisitCount") || fallbackCombat.nodeVisitCount,
+    };
+  }
+
+  private emptyArchiveCalendarSummary(): ArchiveCalendarSummary {
+    return { activeTaskCount: 0, pausedTaskCount: 0, completedTaskCount: 0, taskIds: [] };
+  }
+
+  private emptyArchiveEconomySummary(): ArchiveEconomySummary {
+    return {
+      hasEconomyState: false,
+      partyStashItemCount: 0,
+      walletCount: 0,
+      shopCount: 0,
+      craftingProgressCount: 0,
+      downtimeCompletionCount: 0,
+    };
+  }
+
+  private emptyArchiveInventorySummary(): ArchiveInventorySummary {
+    return { totalItemCount: 0, characterInventoryCounts: {} };
+  }
+
+  private countArchiveInventoryItems(inventoryJson: string | null | undefined): number {
+    const items = parseJsonOrFallback<ArchiveInventorySummaryItem[]>(inventoryJson, [], decodeArchiveInventorySummaryItems);
+    return items.reduce<number>((sum, item) => sum + item.quantity, 0);
+  }
+
+  private extractPublicRevisionLineage(attribution: string | null): CampaignArchivePublicRevisionLineageDto | null {
     if (!attribution) {
       return null;
     }
@@ -383,14 +576,31 @@ export class CampaignArchiveRuntimeService {
     if (markerIndex < 0) {
       return null;
     }
-    try {
-      const parsed = JSON.parse(attribution.slice(markerIndex + marker.length).trim()) as Record<string, unknown>;
-      return parsed.lineage && typeof parsed.lineage === "object" && !Array.isArray(parsed.lineage)
-        ? (parsed.lineage as Record<string, unknown>)
-        : null;
-    } catch {
+    return parseJsonOrFallback(
+      attribution.slice(markerIndex + marker.length).trim(),
+      null,
+      (value) => this.decodePublicRevisionLineageMetadata(value),
+    );
+  }
+
+  private decodePublicRevisionLineageMetadata(value: unknown): CampaignArchivePublicRevisionLineageDto | null {
+    if (!isRecord(value)) {
+      throw new Error("public revision metadata must be an object.");
+    }
+    return this.normalizePublicRevisionLineage(value.lineage);
+  }
+
+  private normalizePublicRevisionLineage(value: unknown): CampaignArchivePublicRevisionLineageDto | null {
+    if (!isRecord(value)) {
       return null;
     }
+    return {
+      sourceScenarioId: typeof value.sourceScenarioId === "string" ? value.sourceScenarioId : null,
+      sourceRevisionId: typeof value.sourceRevisionId === "string" ? value.sourceRevisionId : null,
+      forkedFromScenarioId: typeof value.forkedFromScenarioId === "string" ? value.forkedFromScenarioId : null,
+      forkedAt: typeof value.forkedAt === "string" ? value.forkedAt : null,
+      forkedByUserId: typeof value.forkedByUserId === "string" ? value.forkedByUserId : null,
+    };
   }
 
   private isCharacterLevelInScenarioRange(
@@ -422,7 +632,7 @@ export class CampaignArchiveRuntimeService {
     return { minLevel, maxLevel };
   }
 
-  private isCampaignBoundTransferItem(item: Record<string, unknown>): boolean {
+  private isCampaignBoundTransferItem(item: JsonObject): boolean {
     const stringFlags = [
       item.ownerScope,
       item.scope,
@@ -432,10 +642,10 @@ export class CampaignArchiveRuntimeService {
       item.itemType,
       item.useEffect,
     ]
-      .filter((value): value is string => typeof value === "string")
+      .flatMap((value) => (typeof value === "string" ? [value] : []))
       .map((value) => value.toLowerCase());
     const tags = [...(Array.isArray(item.tags) ? item.tags : []), ...(Array.isArray(item.properties) ? item.properties : [])]
-      .filter((value): value is string => typeof value === "string")
+      .flatMap((value) => (typeof value === "string" ? [value] : []))
       .map((value) => value.toLowerCase());
     const blockedMarkers = [
       "campaign",
@@ -470,21 +680,14 @@ export class CampaignArchiveRuntimeService {
   }
 
   private getNumberProperty(source: unknown, property: string): number {
-    if (!source || typeof source !== "object") {
+    if (!isRecord(source)) {
       return 0;
     }
-    const value = (source as Record<string, unknown>)[property];
-    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+    const value = source[property];
+    return this.isNonNegativeInteger(value) ? value : 0;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+  private isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0;
   }
 }

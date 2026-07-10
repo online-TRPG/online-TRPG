@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { isRecord } from "@trpg/shared-types";
 
 export const PENDING_READY_ACTIONS_FLAG = "pendingReadyActions";
 export const TRIGGERED_READY_ACTIONS_FLAG = "triggeredReadyActions";
@@ -117,6 +118,70 @@ export type TriggeredReadyAction = {
 
 @Injectable()
 export class ReadyActionService {
+  readPendingReadyActionsFromFlags(flags: unknown): PendingReadyAction[] {
+    if (!isRecord(flags)) {
+      return [];
+    }
+    return this.readPendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+  }
+
+  readPendingReadyActions(value: unknown): PendingReadyAction[] {
+    return Array.isArray(value)
+      ? value.flatMap((candidate) => (this.isPendingReadyAction(candidate) ? [candidate] : []))
+      : [];
+  }
+
+  readTriggeredReadyActionsFromFlags(flags: unknown): TriggeredReadyAction[] {
+    if (!isRecord(flags)) {
+      return [];
+    }
+    return this.readTriggeredReadyActions(flags[TRIGGERED_READY_ACTIONS_FLAG]);
+  }
+
+  readTriggeredReadyActions(value: unknown): TriggeredReadyAction[] {
+    return Array.isArray(value)
+      ? value.flatMap((candidate) => (this.isTriggeredReadyAction(candidate) ? [candidate] : []))
+      : [];
+  }
+
+  isPendingReadyAction(value: unknown): value is PendingReadyAction {
+    if (!isRecord(value)) {
+      return false;
+    }
+    return (
+      typeof value.id === "string" &&
+      value.type === "ready_action" &&
+      typeof value.actorParticipantId === "string" &&
+      typeof value.actorUserId === "string" &&
+      typeof value.combatId === "string" &&
+      this.isFiniteNumber(value.roundNo) &&
+      this.isFiniteNumber(value.turnNo) &&
+      this.isReadyActionTrigger(value.trigger) &&
+      this.isReadyHeldAction(value.heldAction) &&
+      (value.originalCost === "action" || value.originalCost === "bonus_action") &&
+      value.consumesReaction === true &&
+      this.isFiniteNumber(value.expiresAtRound) &&
+      this.isFiniteNumber(value.expiresAtTurn) &&
+      typeof value.createdAt === "string"
+    );
+  }
+
+  isTriggeredReadyAction(value: unknown): value is TriggeredReadyAction {
+    if (!isRecord(value)) {
+      return false;
+    }
+    return (
+      typeof value.id === "string" &&
+      value.type === "triggered_ready_action" &&
+      value.status === "pending_response" &&
+      this.isFiniteNumber(value.triggeredAtRound) &&
+      this.isFiniteNumber(value.triggeredAtTurn) &&
+      this.isPendingReadyAction(value.pending) &&
+      this.isReadyTriggerEvent(value.triggerEvent) &&
+      typeof value.createdAt === "string"
+    );
+  }
+
   createPendingReadyAction(input: ReadyActionInput): ReadyActionResolution {
     if (!input.reactionAvailable) {
       return { accepted: false, rejectedReason: "reaction_unavailable" };
@@ -261,5 +326,88 @@ export class ReadyActionService {
       return Boolean(action.targetPoint);
     }
     return true;
+  }
+
+  private isReadyActionTrigger(value: unknown): boolean {
+    if (!isRecord(value)) {
+      return false;
+    }
+    return (
+      this.isReadyActionTriggerType(value.type) &&
+      (value.sourceParticipantId === undefined ||
+        value.sourceParticipantId === null ||
+        typeof value.sourceParticipantId === "string") &&
+      (value.targetParticipantId === undefined ||
+        value.targetParticipantId === null ||
+        typeof value.targetParticipantId === "string") &&
+      (value.rangeFt === undefined || value.rangeFt === null || this.isFiniteNumber(value.rangeFt)) &&
+      (value.tags === undefined ||
+        (Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === "string")))
+    );
+  }
+
+  private isReadyTriggerEvent(value: unknown): boolean {
+    if (!isRecord(value)) {
+      return false;
+    }
+    return (
+      this.isReadyActionTriggerType(value.type) &&
+      (value.sourceParticipantId === undefined ||
+        value.sourceParticipantId === null ||
+        typeof value.sourceParticipantId === "string") &&
+      (value.targetParticipantId === undefined ||
+        value.targetParticipantId === null ||
+        typeof value.targetParticipantId === "string") &&
+      (value.distanceFt === undefined || value.distanceFt === null || this.isFiniteNumber(value.distanceFt)) &&
+      (value.tags === undefined ||
+        (Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === "string"))) &&
+      this.isFiniteNumber(value.roundNo) &&
+      this.isFiniteNumber(value.turnNo)
+    );
+  }
+
+  private isReadyActionTriggerType(value: unknown): value is ReadyActionTriggerType {
+    return (
+      value === "creature_enters_range" ||
+      value === "creature_leaves_range" ||
+      value === "ally_attacked" ||
+      value === "enemy_casts_spell" ||
+      value === "turn_start" ||
+      value === "turn_end" ||
+      value === "manual"
+    );
+  }
+
+  private isReadyHeldAction(value: unknown): boolean {
+    if (!isRecord(value)) {
+      return false;
+    }
+    const typeOk =
+      value.type === "attack" ||
+      value.type === "cast_spell" ||
+      value.type === "move" ||
+      value.type === "interact" ||
+      value.type === "custom";
+    return (
+      typeOk &&
+      (value.actionId === undefined || value.actionId === null || typeof value.actionId === "string") &&
+      (value.spellId === undefined || value.spellId === null || typeof value.spellId === "string") &&
+      (value.targetParticipantId === undefined ||
+        value.targetParticipantId === null ||
+        typeof value.targetParticipantId === "string") &&
+      (value.targetPoint === undefined || value.targetPoint === null || this.isMapPointRecord(value.targetPoint)) &&
+      (value.path === undefined ||
+        value.path === null ||
+        (Array.isArray(value.path) && value.path.every((point) => this.isMapPointRecord(point)))) &&
+      (value.description === undefined || value.description === null || typeof value.description === "string")
+    );
+  }
+
+  private isMapPointRecord(value: unknown): boolean {
+    return isRecord(value) && this.isFiniteNumber(value.x) && this.isFiniteNumber(value.y);
+  }
+
+  private isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
   }
 }

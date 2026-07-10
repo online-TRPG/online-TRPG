@@ -99,6 +99,11 @@ export class SessionCampaignArchiveBuilderService {
   }
 
   private normalizeRewardIds(rewardIds: string[] | undefined): string[] {
-    return Array.from(new Set((rewardIds ?? []).map((id) => id.trim()).filter(Boolean))).slice(0, 20);
+    return Array.from(
+      new Set((rewardIds ?? []).flatMap((id) => {
+        const trimmed = id.trim();
+        return trimmed ? [trimmed] : [];
+      })),
+    ).slice(0, 20);
   }
 }

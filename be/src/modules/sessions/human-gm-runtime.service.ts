@@ -25,9 +25,19 @@ import {
   UpdateSessionNodeDto,
   VTT_CHECK_DC_MAX,
   VTT_CHECK_DC_MIN,
+  decodeLenientScenarioTransitionArray,
+  decodeScenarioTransitionArray,
+  decodeJsonObject,
+  isRecord,
 } from "@trpg/shared-types";
 import { randomUUID } from "crypto";
+import {
+  parseJsonOrFallback,
+  parseJsonOrThrow,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { mapSessionCharacter } from "../../common/mappers/domain.mapper";
+import { ConditionRuntimeService, type ConditionStateEntry } from "../rules/condition-runtime.service";
 import { SessionHumanGmMessageStoreService } from "./session-human-gm-message-store.service";
 import type { SessionsService } from "./sessions.service";
 
@@ -36,15 +46,15 @@ type HumanGmOverrideLogResult = Awaited<ReturnType<HumanGmRuntime["createHumanGm
 
 @Injectable()
 export class HumanGmRuntimeService {
+  private readonly conditionRuntime = new ConditionRuntimeService();
+
   constructor(private readonly sessionHumanGmMessageStore: SessionHumanGmMessageStoreService) {}
 
   async createHumanGmMessage(runtime: HumanGmRuntime, userId: string, sessionId: string, dto: HumanGmMessageDto): Promise<SessionSnapshotDto> {
     const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
     const { state, sessionScenario } = await runtime.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = runtime.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    let gmTurnLog: HumanGmOverrideLogResult | null = null;
-
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const gmMessageId = randomUUID();
     const messageType = dto.asNpc ? "npc" : "gm";
     const speakerName = dto.speakerName?.trim() || null;
@@ -57,7 +67,7 @@ export class HumanGmRuntimeService {
       authorUserId: userId,
     });
 
-    await runtime.prisma.$transaction(async (tx) => {
+    const gmTurnLog = await runtime.prisma.$transaction(async (tx) => {
       if (session.status === PrismaSessionStatus.RECRUITING) {
         await runtime.ensureSessionScenarioNodeSnapshot(tx, sessionScenario.id, sessionScenario.scenarioId);
         if (state.currentNodeId) {
@@ -80,7 +90,7 @@ export class HumanGmRuntimeService {
           status: session.status === PrismaSessionStatus.RECRUITING ? PrismaSessionStatus.PLAYING : session.status,
         },
       });
-      gmTurnLog = await runtime.createHumanGmOverrideTurnLog({
+      return runtime.createHumanGmOverrideTurnLog({
         tx,
         kind: dto.asNpc ? "npc_dialogue" : "scene_text",
         sessionId: resolvedSessionId,
@@ -104,7 +114,7 @@ export class HumanGmRuntimeService {
     });
 
     const snapshot = await runtime.buildSnapshot(resolvedSessionId);
-    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    const emittedGmTurnLog = gmTurnLog;
     if (emittedGmTurnLog) {
       runtime.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
       if (emittedGmTurnLog.stateDiff) {
@@ -145,7 +155,7 @@ export class HumanGmRuntimeService {
         select: { id: true, key: true },
       }),
     ]);
-    const itemDefinitionLookupIds = [dto.itemDefinitionId, catalogItem?.id, catalogItem?.key].filter((value): value is string => Boolean(value));
+    const itemDefinitionLookupIds = compactPresentStrings([dto.itemDefinitionId, catalogItem?.id, catalogItem?.key]);
     const itemDefinition = await runtime.prisma.itemDefinition.findFirst({
       where: {
         OR: [{ id: { in: itemDefinitionLookupIds } }, { name: { equals: dto.itemDefinitionId, mode: "insensitive" } }],
@@ -388,7 +398,7 @@ export class HumanGmRuntimeService {
 
     const conditionId = dto.conditionId.trim();
     const operation = dto.operation ?? "add";
-    const currentConditions = runtime.parseJson<unknown[]>(target.conditionsJson, []);
+    const currentConditions = this.parseHumanGmConditionEntries(target.conditionsJson);
     const nextConditions =
       operation === "add" ? this.addHumanGmCondition(currentConditions, conditionId) : this.removeHumanGmCondition(currentConditions, conditionId);
     const conditionLabel = this.getHumanGmConditionLabel(conditionId);
@@ -396,6 +406,15 @@ export class HumanGmRuntimeService {
       operation === "add"
         ? `GM이 ${target.nameSnapshot}에게 ${conditionLabel} 상태를 적용했습니다.`
         : `GM이 ${target.nameSnapshot}에게서 ${conditionLabel} 상태를 제거했습니다.`;
+    const statePatch = decodeJsonObject({
+      combatParticipants: [
+        {
+          combatParticipantId: target.id,
+          tokenId: target.tokenId,
+          conditions: nextConditions,
+        },
+      ],
+    }, "humanGm.setCondition.statePatch");
 
     const gmTurnLog = await runtime.prisma.$transaction(async (tx) => {
       await tx.combatParticipant.update({
@@ -410,15 +429,7 @@ export class HumanGmRuntimeService {
         gmUserId: userId,
         targetId: target.id,
         publicNarration,
-        statePatch: {
-          combatParticipants: [
-            {
-              combatParticipantId: target.id,
-              tokenId: target.tokenId,
-              conditions: nextConditions,
-            },
-          ],
-        },
+        statePatch,
         metadata: {
           operation,
           conditionId,
@@ -463,7 +474,7 @@ export class HumanGmRuntimeService {
     const nextHp = runtime.clampNumber(dto.currentHp, 0, maximumHp);
     const previousHp = target.currentHp ?? maximumHp;
     const nextIsAlive = nextHp > 0;
-    const currentConditions = runtime.parseJson<unknown[]>(target.conditionsJson, []);
+    const currentConditions = this.parseHumanGmConditionEntries(target.conditionsJson);
     const publicNarration = `GM이 ${target.nameSnapshot}의 HP를 ${previousHp}에서 ${nextHp}(으)로 조정했습니다.`;
 
     const gmTurnLog = await runtime.prisma.$transaction(async (tx) => {
@@ -543,14 +554,12 @@ export class HumanGmRuntimeService {
     }
     const currentNode = await runtime.getSessionScenarioNodeEntityOrThrow(activeScenario.id, currentState.currentNodeId);
     this.ensureReachableSessionNodeTarget(runtime, currentNode, targetNode.nodeId);
-    const flags = runtime.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(currentState?.flagsJson, {}, "gameState.flagsJson");
     const targetDefaultMap = runtime.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
     const targetRuntimeMap = targetDefaultMap
       ? await runtime.applyScenarioStartingPositions(resolvedSessionId, runtime.normalizeVttMap(targetDefaultMap, targetNode.nodeId))
       : null;
-    let gmTurnLog: HumanGmOverrideLogResult | null = null;
-
-    await runtime.prisma.$transaction(async (tx) => {
+    const gmTurnLog = await runtime.prisma.$transaction(async (tx) => {
       await runtime.lockSessionRuntime(tx, resolvedSessionId);
       await tx.session.update({
         where: { id: resolvedSessionId },
@@ -573,7 +582,7 @@ export class HumanGmRuntimeService {
         sessionScenarioId: activeScenario.id,
         nodeId: targetNode.nodeId,
       });
-      gmTurnLog = await runtime.createHumanGmOverrideTurnLog({
+      return runtime.createHumanGmOverrideTurnLog({
         tx,
         kind: "node_move",
         sessionId: resolvedSessionId,
@@ -593,7 +602,7 @@ export class HumanGmRuntimeService {
     });
 
     const snapshot = await runtime.buildSnapshot(resolvedSessionId);
-    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    const emittedGmTurnLog = gmTurnLog;
     if (emittedGmTurnLog) {
       runtime.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
       if (emittedGmTurnLog.stateDiff) {
@@ -612,16 +621,16 @@ export class HumanGmRuntimeService {
     if (!currentNodeId) return [];
 
     const currentNode = await runtime.getSessionScenarioNodeEntityOrThrow(activeScenario.id, currentNodeId);
-    const transitions = runtime.parseJson<Record<string, unknown>[]>(currentNode.transitionsJson, []);
+    const transitions = parseJsonOrFallback(currentNode.transitionsJson, [], decodeLenientScenarioTransitionArray);
     const transitionStubs = transitions
       .map((transition) => {
-        const nodeId = runtime.getStringProperty(transition, "nextNodeId");
+        const nodeId = transition.nextNodeId;
         return nodeId
           ? {
               nodeId,
-              label: runtime.getStringProperty(transition, "label"),
-              condition: runtime.getStringProperty(transition, "condition"),
-              note: runtime.getStringProperty(transition, "note"),
+              label: transition.label ?? null,
+              condition: transition.condition ?? null,
+              note: transition.note ?? null,
               isFallback: false,
             }
           : null;
@@ -777,9 +786,7 @@ export class HumanGmRuntimeService {
       }
 
       const existingTokenIds = new Set(
-        combat.participants
-          .map((participant) => participant.tokenId)
-          .filter((tokenId): tokenId is string => Boolean(tokenId)),
+        compactPresentStrings(combat.participants.map((participant) => participant.tokenId)),
       );
       let nextTurnOrder =
         Math.max(0, ...combat.participants.map((participant) => participant.turnOrder)) + 1;
@@ -829,15 +836,15 @@ export class HumanGmRuntimeService {
     });
   }
 
-  private addHumanGmCondition(currentConditions: unknown[], conditionId: string): unknown[] {
+  private addHumanGmCondition(currentConditions: ConditionStateEntry[], conditionId: string): ConditionStateEntry[] {
     const normalized = this.normalizeHumanGmConditionId(conditionId);
     if (
       currentConditions.some((condition) => {
         if (typeof condition === "string") {
           return this.normalizeHumanGmConditionId(condition) === normalized;
         }
-        if (condition && typeof condition === "object" && !Array.isArray(condition)) {
-          const structuredId = (condition as { conditionId?: unknown }).conditionId;
+        if (isRecord(condition)) {
+          const structuredId = condition.conditionId;
           return typeof structuredId === "string" && this.normalizeHumanGmConditionId(structuredId) === normalized;
         }
         return false;
@@ -849,17 +856,42 @@ export class HumanGmRuntimeService {
     return [...currentConditions, conditionId];
   }
 
-  private removeHumanGmCondition(currentConditions: unknown[], conditionId: string): unknown[] {
+  private removeHumanGmCondition(currentConditions: ConditionStateEntry[], conditionId: string): ConditionStateEntry[] {
     const normalized = this.normalizeHumanGmConditionId(conditionId);
     return currentConditions.filter((condition) => {
       if (typeof condition === "string") {
         return this.normalizeHumanGmConditionId(condition) !== normalized;
       }
-      if (condition && typeof condition === "object" && !Array.isArray(condition)) {
-        const structuredId = (condition as { conditionId?: unknown }).conditionId;
+      if (isRecord(condition)) {
+        const structuredId = condition.conditionId;
         return typeof structuredId !== "string" || this.normalizeHumanGmConditionId(structuredId) !== normalized;
       }
       return true;
+    });
+  }
+
+  private parseHumanGmConditionEntries(value: string | null | undefined): ConditionStateEntry[] {
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeHumanGmConditionEntries(parsed),
+      "sessionCharacter.conditionsJson",
+    );
+  }
+
+  private decodeHumanGmConditionEntries(value: unknown): ConditionStateEntry[] {
+    if (!Array.isArray(value)) {
+      throw new Error("conditions must be an array.");
+    }
+    return value.map((entry, index) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+      const [condition] = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]));
+      if (!condition) {
+        throw new Error(`conditions[${index}] is invalid.`);
+      }
+      return condition;
     });
   }
 
@@ -912,7 +944,7 @@ export class HumanGmRuntimeService {
       }>;
     },
     changedParticipantId: string,
-    nextConditions: unknown[],
+    nextConditions: ConditionStateEntry[],
   ): CombatResponseDto {
     const aliveParticipants = combat.participants.filter((participant) => participant.isAlive !== false);
     const currentTurnIndex = combat.currentParticipantId ? aliveParticipants.findIndex((participant) => participant.id === combat.currentParticipantId) : -1;
@@ -921,17 +953,17 @@ export class HumanGmRuntimeService {
     return {
       combatId: combat.id,
       sessionId: combat.sessionId,
-      status: combat.status as CombatStatus,
+      status: this.toSharedCombatStatus(combat.status),
       roundNo: combat.roundNo,
       turnNo: combat.turnNo,
       roundTurnNo: currentTurnIndex >= 0 ? currentTurnIndex + 1 : 0,
       currentEntityId: combat.currentParticipantId ?? null,
       participants: combat.participants.map((participant) => {
         const conditionEntries =
-          participant.id === changedParticipantId ? nextConditions : runtime.parseJson<unknown[]>(participant.conditionsJson ?? "[]", []);
+          participant.id === changedParticipantId ? nextConditions : this.parseHumanGmConditionEntries(participant.conditionsJson);
         return {
           sessionEntityId: participant.id,
-          entityType: (participant.entityType ?? CombatEntityType.MONSTER) as CombatEntityType,
+          entityType: this.toSharedCombatEntityType(participant.entityType ?? CombatEntityType.MONSTER),
           sessionCharacterId: participant.sessionCharacterId ?? null,
           tokenId: participant.tokenId ?? null,
           name: participant.nameSnapshot,
@@ -965,24 +997,24 @@ export class HumanGmRuntimeService {
     };
   }
 
-  private toHumanGmCombatConditionTags(conditionEntries: unknown[]): string[] {
+  private toHumanGmCombatConditionTags(conditionEntries: ConditionStateEntry[]): string[] {
     const tags = conditionEntries.flatMap((condition) => {
       if (typeof condition === "string") {
         return [condition];
       }
-      if (!condition || typeof condition !== "object" || Array.isArray(condition)) {
+      if (!isRecord(condition)) {
         return [];
       }
-      const record = condition as { conditionId?: unknown; tags?: unknown };
-      return [
+      const record = condition;
+      return compactPresentStrings([
         typeof record.conditionId === "string" ? record.conditionId : null,
-        ...(Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === "string") : []),
-      ].filter((tag): tag is string => Boolean(tag));
+        ...(Array.isArray(record.tags) ? decodeStringArray(record.tags) : []),
+      ]);
     });
     return Array.from(new Set(tags));
   }
 
-  private toHumanGmCombatConcentration(runtime: HumanGmRuntime, conditionEntries: unknown[]) {
+  private toHumanGmCombatConcentration(runtime: HumanGmRuntime, conditionEntries: ConditionStateEntry[]) {
     const conditions = runtime.conditionRuntime.parseConditionsJson(JSON.stringify(conditionEntries));
     const concentrationState = runtime.concentrationRuntime.readActiveConcentration(conditions);
     return concentrationState
@@ -1002,10 +1034,14 @@ export class HumanGmRuntimeService {
     currentNode: { transitionsJson: string; fallbackNodeId: string | null },
     targetNodeId: string,
   ): void {
-    const transitions = runtime.parseJson<Record<string, unknown>[]>(currentNode.transitionsJson, []);
+    const transitions = parseJsonOrThrow(
+      currentNode.transitionsJson,
+      [],
+      decodeScenarioTransitionArray,
+      "scenarioNode.transitionsJson",
+    );
     const explicitTargetIds = transitions
-      .map((transition) => runtime.getStringProperty(transition, "nextNodeId"))
-      .filter((nodeId): nodeId is string => Boolean(nodeId));
+      .flatMap((transition) => (transition.nextNodeId ? [transition.nextNodeId] : []));
     const allowedTargetIds = [...explicitTargetIds, ...(currentNode.fallbackNodeId ? [currentNode.fallbackNodeId] : [])];
 
     if (!allowedTargetIds.includes(targetNodeId)) {
@@ -1018,4 +1054,35 @@ export class HumanGmRuntimeService {
     if (nodeType === ScenarioNodeType.EXPLORATION) return PrismaGamePhase.EXPLORATION;
     return PrismaGamePhase.DIALOGUE;
   }
+
+  private toSharedCombatStatus(value: unknown): CombatStatus {
+    switch (value) {
+      case PrismaCombatStatus.ACTIVE:
+        return CombatStatus.ACTIVE;
+      case PrismaCombatStatus.ENDED:
+        return CombatStatus.ENDED;
+      default:
+        return CombatStatus.ACTIVE;
+    }
+  }
+
+  private toSharedCombatEntityType(value: unknown): CombatEntityType {
+    switch (value) {
+      case PrismaCombatEntityType.PLAYER_CHARACTER:
+        return CombatEntityType.PLAYER_CHARACTER;
+      case PrismaCombatEntityType.NPC:
+        return CombatEntityType.NPC;
+      case PrismaCombatEntityType.MONSTER:
+      default:
+        return CombatEntityType.MONSTER;
+    }
+  }
+}
+
+function decodeStringArray(value: readonly unknown[]): string[] {
+  return value.flatMap((item) => (typeof item === "string" ? [item] : []));
+}
+
+function compactPresentStrings(value: readonly unknown[]): string[] {
+  return value.flatMap((item) => (typeof item === "string" && item ? [item] : []));
 }

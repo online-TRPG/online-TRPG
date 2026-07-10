@@ -34,6 +34,7 @@ import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { useExplorationNodeSurfacePresentation } from '../hooks/useExplorationNodeSurfacePresentation';
+import type { InventoryItemWithEquipmentDisplayState } from '../hooks/useInventoryItemActions';
 import {
   getContextActions,
   hasObjectEvents,
@@ -95,6 +96,14 @@ type ExplorationGmMapAction =
   | 'reveal_all_fog'
   | typeof VTT_MAP_INTERACTION_KINDS.TRIGGER_OBJECT;
 
+function readClampedInteger(value: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
 interface ExplorationNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
   scenarioTitle?: string | null;
@@ -120,7 +129,7 @@ interface ExplorationNodeSurfaceProps {
     interaction: VttMapInteractionDto
   ) => Promise<VttMapInteractionResponseDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
-  onEquipInventoryItem?: (item: InventoryItemDto) => void;
+  onEquipInventoryItem?: (item: InventoryItemWithEquipmentDisplayState) => void;
   onDropInventoryItem?: (item: InventoryItemDto, point: { x: number; y: number }) => void | Promise<void>;
   onPickupMapObject?: (
     objectId: string,
@@ -992,14 +1001,11 @@ export function ExplorationNodeSurface({
                     value={clampedShortRestHitDiceToSpend}
                     disabled={isBusy || !restTargetCharacterId}
                     aria-label={explorationPresentation.shortRestHitDiceAriaLabel}
-                    onChange={(event) => {
-                      const nextValue = Number(event.target.value);
-                      setShortRestHitDiceToSpend(
-                        Number.isInteger(nextValue)
-                          ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
-                          : 0,
-                      );
-                    }}
+                    onChange={(event) =>
+                      setShortRestHitDiceToSpend((current) =>
+                        readClampedInteger(event.target.value, current, 0, restHitDiceMaximum),
+                      )
+                    }
                   />
                 </label>
                 <button
@@ -1183,10 +1189,10 @@ export function ExplorationNodeSurface({
                     : isShield
                       ? equipmentDisplayState === 'equipped'
                       : isArmor;
-                  const equipmentActionItem = {
+                  const equipmentActionItem: InventoryItemWithEquipmentDisplayState = {
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
-                  } as InventoryItemDto;
+                  };
                   const itemDisplayName = getUserFacingItemName(item);
                   return (
                     <article
@@ -1391,13 +1397,12 @@ export function ExplorationNodeSurface({
                   max={HUMAN_GM_INVENTORY_QUANTITY_MAX}
                   value={gmItemQuantity}
                   onChange={(event) =>
-                    setGmItemQuantity(
-                      Math.min(
+                    setGmItemQuantity((current) =>
+                      readClampedInteger(
+                        event.target.value,
+                        current,
+                        HUMAN_GM_INVENTORY_QUANTITY_MIN,
                         HUMAN_GM_INVENTORY_QUANTITY_MAX,
-                        Math.max(
-                          HUMAN_GM_INVENTORY_QUANTITY_MIN,
-                          Number.parseInt(event.target.value, 10) || HUMAN_GM_INVENTORY_QUANTITY_MIN
-                        )
                       )
                     )
                   }

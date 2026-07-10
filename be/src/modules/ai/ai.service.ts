@@ -25,8 +25,10 @@ import {
   AiTraceResponseDto,
   AiTraceStatus,
   HumanGmAiAssistSuggestionDto,
+  isRecord,
 } from "@trpg/shared-types";
 import { randomUUID } from "node:crypto";
+import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -61,6 +63,13 @@ type HarnessResponse =
 // NPC 대사 생성 실패가 캐릭터의 행동 선언처럼 보이지 않도록, 재입력을 부탁하는 중립 대사로 통일합니다.
 const NPC_DIALOGUE_FALLBACK_DIALOGUE =
   "잠시만요. 다시 한 번 말해 줄래요?";
+
+function decodeAiTraceFallbackFlag(value: unknown): boolean {
+  if (!isRecord(value)) {
+    throw new Error("ai trace response must be an object.");
+  }
+  return value.fallback === true;
+}
 
 interface PersistTraceParams {
   sessionId: string;
@@ -373,8 +382,8 @@ export class AiService {
       id: row.id,
       sessionId: row.sessionId,
       userId: row.userId,
-      kind: row.kind as AiTraceKind,
-      status: row.status as AiTraceStatus,
+      kind: toSharedAiTraceKind(row.kind),
+      status: toSharedAiTraceStatus(row.status),
       latencyMs: row.latencyMs,
       provider: row.provider,
       model: row.model,
@@ -408,11 +417,7 @@ export class AiService {
     const fallbackCount = traces.filter((trace) => {
       if (trace.failureType?.includes("fallback")) return true;
       if (!trace.responseJson) return false;
-      try {
-        return (JSON.parse(trace.responseJson) as { fallback?: unknown }).fallback === true;
-      } catch {
-        return false;
-      }
+      return parseJsonOrFallback(trace.responseJson, false, decodeAiTraceFallbackFlag);
     }).length;
     const interpreterTimeoutRate = rate(
       interpreters.filter((trace) => trace.status === PrismaAiTraceStatus.TIMEOUT).length,
@@ -578,13 +583,13 @@ export class AiService {
       dto.targetId ? `Target id/name: ${dto.targetId}` : null,
       dto.suggestedActionId ? `Suggested action id: ${dto.suggestedActionId}` : null,
       "Return a concise Korean suggestion that the GM can review before applying. Do not reveal hidden facts or mutate state.",
-    ].filter(Boolean).join("\n");
+    ].flatMap((line) => line ? [line] : []).join("\n");
   }
 
   private formatHumanGmAssistContent(content: string, suggestions?: string[]): string {
     const suggestionLines = (suggestions ?? [])
       .map((suggestion) => suggestion.trim())
-      .filter(Boolean)
+      .flatMap((suggestion) => suggestion ? [suggestion] : [])
       .slice(0, 3);
     const trimmedContent = content.trim();
     if (!suggestionLines.length) {
@@ -760,4 +765,34 @@ export class AiService {
       );
     }
   }
+}
+
+function toSharedAiTraceKind(value: PrismaAiTraceKind): AiTraceKind {
+  switch (value) {
+    case PrismaAiTraceKind.NARRATION:
+      return AiTraceKind.NARRATION;
+    case PrismaAiTraceKind.HINT:
+      return AiTraceKind.HINT;
+    case PrismaAiTraceKind.SUMMARY:
+      return AiTraceKind.SUMMARY;
+    case PrismaAiTraceKind.NPC_DIALOGUE:
+      return AiTraceKind.NPC_DIALOGUE;
+    case PrismaAiTraceKind.INTERPRETER:
+      return AiTraceKind.INTERPRETER;
+    case PrismaAiTraceKind.ACTOR:
+      return AiTraceKind.ACTOR;
+  }
+  throw new Error(`Unsupported AI trace kind: ${value}`);
+}
+
+function toSharedAiTraceStatus(value: PrismaAiTraceStatus): AiTraceStatus {
+  switch (value) {
+    case PrismaAiTraceStatus.SUCCESS:
+      return AiTraceStatus.SUCCESS;
+    case PrismaAiTraceStatus.TIMEOUT:
+      return AiTraceStatus.TIMEOUT;
+    case PrismaAiTraceStatus.ERROR:
+      return AiTraceStatus.ERROR;
+  }
+  throw new Error(`Unsupported AI trace status: ${value}`);
 }

@@ -19,6 +19,8 @@ export * from "./types/api-envelope";
 export * from "./types/domain/models";
 export * from "./utils/inventory-display";
 export * from "./utils/main-command-response";
+export * from "./utils/api-decoders";
+export * from "./utils/runtime-guards";
 export * from "./utils/status-helpers";
 
 export {

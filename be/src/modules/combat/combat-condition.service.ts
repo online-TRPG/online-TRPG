@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
-import type { ConditionInstance } from "../rules/condition-runtime.service";
+import type { ConditionInstance, ConditionStateEntry } from "../rules/condition-runtime.service";
 
 type CombatConditionParticipant = {
   id: string;
@@ -134,7 +135,7 @@ export class CombatConditionService {
     return this.parseConditions(sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]");
   }
 
-  combatConditionTags(entries: unknown[]): string[] {
+  combatConditionTags(entries: ConditionStateEntry[]): string[] {
     return Array.from(new Set(entries.flatMap((entry) => this.conditionEntryTags(entry))));
   }
 
@@ -143,7 +144,7 @@ export class CombatConditionService {
     return tags.some((tag) => COMBAT_INCAPACITATING_CONDITION_TAGS.has(tag));
   }
 
-  conditionEntryTags(entry: unknown): string[] {
+  conditionEntryTags(entry: ConditionStateEntry): string[] {
     return this.conditionRuntime.toConditionTags(JSON.stringify([entry]));
   }
 
@@ -165,7 +166,7 @@ export class CombatConditionService {
     participant.conditionsJson = conditionsJson;
   }
 
-  async readCombatConditionEntries(participant: CombatConditionParticipant): Promise<unknown[]> {
+  async readCombatConditionEntries(participant: CombatConditionParticipant): Promise<ConditionStateEntry[]> {
     const raw = participant.sessionCharacterId
       ? (await this.prisma.sessionCharacter.findUnique({
           where: { id: participant.sessionCharacterId },
@@ -177,7 +178,7 @@ export class CombatConditionService {
 
   async writeCombatConditionEntries(
     participant: CombatConditionParticipant,
-    conditions: unknown[],
+    conditions: ConditionStateEntry[],
   ): Promise<void> {
     const conditionsJson = JSON.stringify(conditions);
     await this.prisma.combatParticipant.update({
@@ -202,26 +203,33 @@ export class CombatConditionService {
   }
 
   private parseConditions(value: string): string[] {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed)
-        ? parsed.flatMap((entry) =>
-            typeof entry === "string"
-              ? [entry]
-              : this.conditionEntryTags(entry),
-          )
-        : [];
-    } catch {
-      return [];
-    }
+    return this.parseConditionEntries(value).flatMap((entry) =>
+      typeof entry === "string" ? [entry] : this.conditionEntryTags(entry),
+    );
   }
 
-  private parseConditionEntries(value: string): unknown[] {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+  private parseConditionEntries(value: string): ConditionStateEntry[] {
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeConditionEntries(parsed),
+      "sessionCharacter.conditionsJson",
+    );
+  }
+
+  private decodeConditionEntries(value: unknown): ConditionStateEntry[] {
+    if (!Array.isArray(value)) {
+      throw new Error("conditions must be an array.");
     }
+    return value.map((entry, index) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+      const [condition] = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]));
+      if (!condition) {
+        throw new Error(`conditions[${index}] is invalid.`);
+      }
+      return condition;
+    });
   }
 }

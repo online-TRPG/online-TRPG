@@ -7,10 +7,16 @@ import { useAuth } from '../hooks/useAuth';
 import { useLogs } from '../hooks/useLogs';
 import { useSession } from '../hooks/useSession';
 import type { ClassDefinitionResponseDto, RaceResponseDto } from '@trpg/shared-types';
+import { decodeUserResponse, isRecord } from '@trpg/shared-types/frontend';
 import { getOAuthUrl } from '../services/authApi';
 import { listClassDefinitions, listRaces } from '../services/catalogApi';
 import { listAvailableScenarios } from '../services/scenarioApi';
 import { getSessionDetail } from '../services/sessionApi';
+import {
+  clearStoredOAuthProvider,
+  loadStoredOAuthProvider,
+  saveStoredOAuthProvider,
+} from '../services/storage';
 import { AccountPage } from '../pages/AccountPage';
 import { CharacterPage } from '../pages/CharacterPage';
 import { LobbyPage } from '../pages/LobbyPage';
@@ -110,6 +116,61 @@ type CharacterPageState = {
   };
 };
 
+function readPublicProfileState(value: unknown): { profilePreview?: User | null } | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (value.profilePreview === undefined || value.profilePreview === null) {
+    return { profilePreview: null };
+  }
+  try {
+    return { profilePreview: decodeUserResponse(value.profilePreview) };
+  } catch {
+    return null;
+  }
+}
+
+function readSessionDiscoverState(value: unknown): { initialSection?: 'public' | 'my' } | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return value.initialSection === 'public' || value.initialSection === 'my'
+    ? { initialSection: value.initialSection }
+    : null;
+}
+
+function readSessionCreateState(value: unknown): { initialScenarioId?: string | null } | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return value.initialScenarioId === null || typeof value.initialScenarioId === 'string'
+    ? { initialScenarioId: value.initialScenarioId }
+    : null;
+}
+
+function readCharacterPageState(value: unknown): CharacterPageState | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (value.characterCreateReturn === undefined) {
+    return {};
+  }
+  if (!isRecord(value.characterCreateReturn)) {
+    return null;
+  }
+  const returnState = value.characterCreateReturn;
+  if (typeof returnState.path !== 'string' || typeof returnState.sessionTitle !== 'string') {
+    return null;
+  }
+  return {
+    characterCreateReturn: {
+      path: returnState.path,
+      sessionTitle: returnState.sessionTitle,
+      autoOpenCreate: returnState.autoOpenCreate === true,
+    },
+  };
+}
+
 function viewFromPathname(pathname: string): MainView | null {
   if (pathname === '/play') {
     return 'gameroom';
@@ -178,10 +239,10 @@ export function App() {
   const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const gameroomId = gameroomMatch?.[1] ?? null;
   const previousPathnameRef = useRef<string | null>(null);
-  const publicProfileState = location.state as { profilePreview?: User | null } | null;
-  const sessionDiscoverState = location.state as { initialSection?: 'public' | 'my' } | null;
-  const sessionCreateState = location.state as { initialScenarioId?: string | null } | null;
-  const characterPageState = location.state as CharacterPageState | null;
+  const publicProfileState = readPublicProfileState(location.state);
+  const sessionDiscoverState = readSessionDiscoverState(location.state);
+  const sessionCreateState = readSessionCreateState(location.state);
+  const characterPageState = readCharacterPageState(location.state);
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
   const scenarioEditAutoStartPublish = new URLSearchParams(location.search).get('publish') === '1';
@@ -267,10 +328,10 @@ export function App() {
     if (url.pathname !== '/oauth/callback') return;
 
     const code = url.searchParams.get('code');
-    const provider = localStorage.getItem('trpg.oauthProvider') as 'kakao' | 'discord' | null;
+    const provider = loadStoredOAuthProvider();
 
     if (code && provider) {
-      localStorage.removeItem('trpg.oauthProvider');
+      clearStoredOAuthProvider();
       navigate('/', { replace: true });
       void auth.handleOAuthCallback(provider, code);
     }
@@ -291,7 +352,7 @@ export function App() {
 
     function handlePointerDown(event: MouseEvent) {
       if (!accountMenuRef.current) return;
-      if (accountMenuRef.current.contains(event.target as Node)) return;
+      if (event.target instanceof Node && accountMenuRef.current.contains(event.target)) return;
       setIsAccountMenuOpen(false);
     }
 
@@ -341,11 +402,11 @@ export function App() {
     const redirectUri = `${window.location.origin}/oauth/callback`;
 
     try {
-      localStorage.setItem('trpg.oauthProvider', provider);
+      saveStoredOAuthProvider(provider);
       const { authUrl } = await getOAuthUrl(provider, redirectUri);
       window.location.href = authUrl;
     } catch {
-      localStorage.removeItem('trpg.oauthProvider');
+      clearStoredOAuthProvider();
     }
   }
 
@@ -595,7 +656,12 @@ export function App() {
             sessionReturnTitle={characterPageState?.characterCreateReturn?.sessionTitle ?? null}
             onReturnToSession={
               characterPageState?.characterCreateReturn?.path
-                ? () => guardedNavigate(characterPageState.characterCreateReturn!.path)
+                ? () => {
+                    const returnPath = characterPageState.characterCreateReturn?.path;
+                    if (returnPath) {
+                      guardedNavigate(returnPath);
+                    }
+                  }
                 : undefined
             }
           />

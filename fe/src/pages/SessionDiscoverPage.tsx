@@ -9,7 +9,7 @@
  * 5) JSX: 좌측 사이드바, 필터 바, 세션 카드 목록, 페이지네이션, 초대 코드 모달, 상세 모달
  */
 import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
-import { GmMode, SessionStatus, isAiGmMode, isBlockingSessionStatus as isBlockingSharedSessionStatus } from "@trpg/shared-types/frontend";
+import { SessionStatus, isAiGmMode, isBlockingSessionStatus as isBlockingSharedSessionStatus } from "@trpg/shared-types/frontend";
 import { Icon } from "../components/Icon";
 import { SessionDetailModal } from "../components/SessionDetailModal";
 import sidePanelImage from "../components/Side_Panel.webp";
@@ -44,6 +44,10 @@ type DiscoverSection = "public" | "my";
 // 세션 목록 정렬 기준입니다.
 type SessionSort = "latest" | "title" | "players";
 
+function toSessionSort(value: string): SessionSort | null {
+  return value === "latest" || value === "title" || value === "players" ? value : null;
+}
+
 // 서버 세션 상태값을 한국어 라벨로 바꿉니다.
 const STATUS_LABEL: Record<string, string> = {
   [SessionStatus.RECRUITING]: "모집 중",
@@ -58,12 +62,19 @@ const PAGE_TOAST_DURATION_MS = 2600;
 const JOIN_BLOCKED_TOAST_DURATION_MS = 5200;
 const GENERAL_GM_LABEL = "\uC77C\uBC18 GM";
 const AI_GM_LABEL = "AI GM";
+const ALL_FILTER = "all";
+const GM_FILTER_OPTIONS = [AI_GM_LABEL, GENERAL_GM_LABEL] as const;
+const THEME_FILTER_OPTIONS = [...new Set(sessionVisualPresets.map((preset) => preset.theme))];
 const JOIN_BLOCKED_NOTICE =
   "\uD604\uC7AC \uB2E4\uB978 \uBAA8\uC9D1 \uC911\uC778 \uC138\uC158\uC5D0 \uC774\uBBF8 \uCC38\uC5EC \uD588\uC2B5\uB2C8\uB2E4.\n\uBAA8\uC9D1\uC744 \uB05D\uB0B4\uAC70\uB098 \uB098\uAC04 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.";
 
 // GM 모드 값에 따라 일반 GM/AI GM 라벨을 반환합니다.
 function getGmModeLabel(gmMode?: string | null): string {
-  return isAiGmMode(gmMode as GmMode | null | undefined) ? AI_GM_LABEL : GENERAL_GM_LABEL;
+  return isAiGmMode(gmMode) ? AI_GM_LABEL : GENERAL_GM_LABEL;
+}
+
+function readFilterValue(value: string, options: readonly string[]): string | null {
+  return value === ALL_FILTER || options.includes(value) ? value : null;
 }
 
 function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
@@ -84,7 +95,7 @@ function isInviteCodeError(error: string | null): boolean {
 }
 
 function isBlockingSessionStatus(status: string | undefined): boolean {
-  return isBlockingSharedSessionStatus(status as SessionStatus | undefined);
+  return isBlockingSharedSessionStatus(status);
 }
 
 // 페이지 전체에 띄울 에러만 걸러내고 메시지를 정리합니다.
@@ -126,9 +137,9 @@ export function SessionDiscoverPage({
   const [activeSection, setActiveSection] = useState<DiscoverSection>(initialSection);
   const [inviteCode, setInviteCode] = useState("");
   const [query, setQuery] = useState("");
-  const [themeFilter, setThemeFilter] = useState("all");
-  const [gmFilter, setGmFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [themeFilter, setThemeFilter] = useState(ALL_FILTER);
+  const [gmFilter, setGmFilter] = useState(ALL_FILTER);
+  const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
   const [sortOrder, setSortOrder] = useState<SessionSort>("latest");
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteErrorVisible, setInviteErrorVisible] = useState(false);
@@ -200,9 +211,9 @@ export function SessionDiscoverPage({
           .join(" ")
           .toLowerCase()
           .includes(keyword);
-      const matchesTheme = themeFilter === "all" || visual.theme === themeFilter;
-      const matchesGm = gmFilter === "all" || getGmModeLabel(item.gmMode) === gmFilter;
-      const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+      const matchesTheme = themeFilter === ALL_FILTER || visual.theme === themeFilter;
+      const matchesGm = gmFilter === ALL_FILTER || getGmModeLabel(item.gmMode) === gmFilter;
+      const matchesStatus = statusFilter === ALL_FILTER || item.status === statusFilter;
       return matchesKeyword && matchesTheme && matchesGm && matchesStatus;
     });
 
@@ -500,13 +511,16 @@ export function SessionDiscoverPage({
               <select
                 value={themeFilter}
                 onChange={(event) => {
-                  setThemeFilter(event.target.value);
-                  updatePage(0);
+                  const nextThemeFilter = readFilterValue(event.target.value, THEME_FILTER_OPTIONS);
+                  if (nextThemeFilter) {
+                    setThemeFilter(nextThemeFilter);
+                    updatePage(0);
+                  }
                 }}
                 aria-label="테마 필터"
               >
-                <option value="all">모든 테마</option>
-                {[...new Set(sessionVisualPresets.map((preset) => preset.theme))].map((theme) => (
+                <option value={ALL_FILTER}>모든 테마</option>
+                {THEME_FILTER_OPTIONS.map((theme) => (
                   <option key={theme} value={theme}>
                     {theme}
                   </option>
@@ -516,13 +530,16 @@ export function SessionDiscoverPage({
               <select
                 value={gmFilter}
                 onChange={(event) => {
-                  setGmFilter(event.target.value);
-                  updatePage(0);
+                  const nextGmFilter = readFilterValue(event.target.value, GM_FILTER_OPTIONS);
+                  if (nextGmFilter) {
+                    setGmFilter(nextGmFilter);
+                    updatePage(0);
+                  }
                 }}
                 aria-label="GM 필터"
               >
-                <option value="all">모든 GM</option>
-                {[AI_GM_LABEL, GENERAL_GM_LABEL].map((gmLabel) => (
+                <option value={ALL_FILTER}>모든 GM</option>
+                {GM_FILTER_OPTIONS.map((gmLabel) => (
                   <option key={gmLabel} value={gmLabel}>
                     {gmLabel}
                   </option>
@@ -532,12 +549,18 @@ export function SessionDiscoverPage({
               <select
                 value={statusFilter}
                 onChange={(event) => {
-                  setStatusFilter(event.target.value);
-                  updatePage(0);
+                  const nextStatusFilter = readFilterValue(
+                    event.target.value,
+                    Object.keys(STATUS_LABEL)
+                  );
+                  if (nextStatusFilter) {
+                    setStatusFilter(nextStatusFilter);
+                    updatePage(0);
+                  }
                 }}
                 aria-label="상태 필터"
               >
-                <option value="all">모든 상태</option>
+                <option value={ALL_FILTER}>모든 상태</option>
                 {Object.entries(STATUS_LABEL).map(([status, label]) => (
                   <option key={status} value={status}>
                     {label}
@@ -548,8 +571,11 @@ export function SessionDiscoverPage({
               <select
                 value={sortOrder}
                 onChange={(event) => {
-                  setSortOrder(event.target.value as SessionSort);
-                  updatePage(0);
+                  const nextSortOrder = toSessionSort(event.target.value);
+                  if (nextSortOrder) {
+                    setSortOrder(nextSortOrder);
+                    updatePage(0);
+                  }
                 }}
                 aria-label="정렬"
               >

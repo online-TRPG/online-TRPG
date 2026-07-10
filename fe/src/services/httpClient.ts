@@ -1,4 +1,5 @@
 import {
+  decodeApiErrorEnvelope,
   getApiFieldErrorReasons,
   isApiSuccessEnvelope,
 } from '@trpg/shared-types/frontend';
@@ -7,10 +8,15 @@ import type {
   AuthTokenResponseDto,
 } from '@trpg/shared-types';
 import type { StoredUser } from '../types/session';
+import { decodeValidatedAuthTokenResponse } from './authToken';
 import { saveStoredToken } from './storage';
 
-const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
-const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
+function readOptionalEnvString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+const configuredBaseUrl = readOptionalEnvString(import.meta.env.VITE_API_BASE_URL);
+const configuredWsBaseUrl = readOptionalEnvString(import.meta.env.VITE_WS_BASE_URL);
 const localDevBaseUrls = ['http://localhost:8080', 'http://127.0.0.1:8080'];
 const isLocalFrontend =
   import.meta.env.DEV &&
@@ -30,7 +36,6 @@ const fallbackApiBaseUrls = import.meta.env.PROD
           API_BASE_URL,
           ...(isLocalFrontend && !preferredBaseUrl ? localDevBaseUrls.map((url) => `${url}/api/v1`) : []),
         ]
-          .filter((url): url is string => Boolean(url))
           .map((url) => url.replace(/\/$/, ''))
       )
     );
@@ -60,6 +65,14 @@ interface RequestOptions {
   skipAuthRefresh?: boolean;
 }
 
+interface DecodedRequestJsonOptions<T> extends RequestOptions {
+  decode: (value: unknown) => T;
+}
+
+interface VoidRequestJsonOptions extends RequestOptions {
+  decode?: undefined;
+}
+
 function formatApiError(body: ApiErrorEnvelope | null, fallback: string): string {
   const fieldErrorReasons = getApiFieldErrorReasons(body?.data);
   if (fieldErrorReasons.length > 0) return fieldErrorReasons.join('\n');
@@ -72,7 +85,8 @@ async function readApiErrorBody(response: Response): Promise<ApiErrorEnvelope | 
 
   if (contentType.includes('application/json')) {
     try {
-      return (await response.json()) as ApiErrorEnvelope;
+      const body: unknown = await response.json();
+      return decodeApiErrorEnvelope(body);
     } catch {
       return null;
     }
@@ -80,7 +94,7 @@ async function readApiErrorBody(response: Response): Promise<ApiErrorEnvelope | 
 
   try {
     const text = await response.text();
-    return text ? ({ message: text } as ApiErrorEnvelope) : null;
+    return text ? { message: text } : null;
   } catch {
     return null;
   }
@@ -96,11 +110,20 @@ function isMissingRouteResponse(response: Response, body: ApiErrorEnvelope | nul
   return response.status === 404 && /Cannot\s+(GET|POST|PATCH|DELETE)\s+/i.test(message);
 }
 
-function unwrapApiResponse<T>(body: unknown): T {
-  if (isApiSuccessEnvelope<T>(body)) {
+function unwrapApiResponse(body: unknown): unknown {
+  if (isApiSuccessEnvelope(body)) {
     return body.data;
   }
-  return body as T;
+  return body;
+}
+
+function decodeResponseBody<T>(body: unknown, decode: (value: unknown) => T): T {
+  const data = unwrapApiResponse(body);
+  try {
+    return decode(data);
+  } catch {
+    throw new Error('서버 응답 형식이 올바르지 않습니다.');
+  }
 }
 
 function notifyAuthExpired(message: string): void {
@@ -172,11 +195,23 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
     throw new Error(formatApiError(body, '로그인 시간이 만료되었습니다. 다시 로그인해주세요.'));
   }
 
-  const body = (await response.json()) as unknown;
-  return unwrapApiResponse<AuthTokenResponseDto>(body);
+  const body: unknown = await response.json();
+  return decodeResponseBody<AuthTokenResponseDto>(body, decodeValidatedAuthTokenResponse);
 }
 
-export async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function requestJson<T>(
+  path: string,
+  options: DecodedRequestJsonOptions<T>
+): Promise<T>;
+export async function requestJson<T extends void>(
+  path: string,
+  options?: VoidRequestJsonOptions
+): Promise<T>;
+export async function requestJson(path: string, options?: VoidRequestJsonOptions): Promise<void>;
+export async function requestJson<T>(
+  path: string,
+  options: DecodedRequestJsonOptions<T> | VoidRequestJsonOptions = {}
+): Promise<T | void> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -233,10 +268,19 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
         const nextToken = await requestAccessTokenReissue();
         saveStoredToken(nextToken.accessToken);
         notifyAuthTokenReissued(nextToken.accessToken);
-        return requestJson<T>(path, {
+        if (options.decode) {
+          return requestJson(path, {
+            ...options,
+            accessToken: nextToken.accessToken,
+            skipAuthRefresh: true,
+            decode: options.decode,
+          });
+        }
+        return requestJson(path, {
           ...options,
           accessToken: nextToken.accessToken,
           skipAuthRefresh: true,
+          decode: undefined,
         });
       } catch {
         notifyAuthExpired('로그인 시간이 만료되었습니다. 다시 로그인해주세요.');
@@ -248,9 +292,13 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
   }
 
   if (response.status === 204) {
-    return undefined as T;
+    return undefined;
   }
 
-  const body = (await response.json()) as unknown;
-  return unwrapApiResponse<T>(body);
+  if (!options.decode) {
+    await response.text();
+    return undefined;
+  }
+  const body: unknown = await response.json();
+  return decodeResponseBody<T>(body, options.decode);
 }

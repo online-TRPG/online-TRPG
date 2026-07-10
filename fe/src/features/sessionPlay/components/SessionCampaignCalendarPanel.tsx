@@ -68,6 +68,17 @@ const actionLabels: Record<ApplyCampaignCalendarActionDto["actionType"], string>
   complete_downtime: "Downtime 완료",
 };
 
+const calendarActionEntries: ReadonlyArray<readonly [ApplyCampaignCalendarActionDto["actionType"], string]> = [
+  ["propose_schedule", actionLabels.propose_schedule],
+  ["respond_schedule", actionLabels.respond_schedule],
+  ["confirm_schedule", actionLabels.confirm_schedule],
+  ["advance_game_time", actionLabels.advance_game_time],
+  ["start_downtime", actionLabels.start_downtime],
+  ["pause_downtime", actionLabels.pause_downtime],
+  ["resume_downtime", actionLabels.resume_downtime],
+  ["complete_downtime", actionLabels.complete_downtime],
+];
+
 const downtimeTypeLabels: Record<NonNullable<ApplyCampaignCalendarActionDto["downtimeType"]>, string> = {
   crafting: "제작",
   training: "훈련",
@@ -77,6 +88,62 @@ const downtimeTypeLabels: Record<NonNullable<ApplyCampaignCalendarActionDto["dow
   repair: "수리",
   shop_restock: "상점 재입고",
 };
+
+function toCampaignCalendarActionType(value: string): ApplyCampaignCalendarActionDto["actionType"] | null {
+  switch (value) {
+    case "propose_schedule":
+    case "respond_schedule":
+    case "confirm_schedule":
+    case "advance_game_time":
+    case "start_downtime":
+    case "pause_downtime":
+    case "resume_downtime":
+    case "complete_downtime":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function toScheduleAvailability(
+  value: string,
+): NonNullable<ApplyCampaignCalendarActionDto["availability"]> | null {
+  switch (value) {
+    case "available":
+    case "tentative":
+    case "unavailable":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function toDowntimeType(value: string): NonNullable<ApplyCampaignCalendarActionDto["downtimeType"]> | null {
+  switch (value) {
+    case "crafting":
+    case "training":
+    case "research":
+    case "recovery":
+    case "identify":
+    case "repair":
+    case "shop_restock":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function readClampedInteger(value: string, fallback: number, min: number, max = Number.POSITIVE_INFINITY): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function readOptionalOptionId(value: string, allowedIds: readonly string[]): string | null {
+  return value === "" || allowedIds.includes(value) ? value : null;
+}
 
 export function SessionCampaignCalendarPanel({
   calendar,
@@ -116,12 +183,12 @@ export function SessionCampaignCalendarPanel({
     downtimeTasks.find((task) => task.id === downtimeTaskId) ?? downtimeTasks[0] ?? null;
   const availableActionLabels = useMemo(
     () =>
-      Object.entries(actionLabels).filter(
-        ([value]) =>
+      calendarActionEntries.filter(
+        ([action]) =>
           canManageCampaign ||
-          value === "propose_schedule" ||
-          value === "respond_schedule",
-      ) as Array<[ApplyCampaignCalendarActionDto["actionType"], string]>,
+          action === "propose_schedule" ||
+          action === "respond_schedule",
+      ),
     [canManageCampaign],
   );
 
@@ -165,11 +232,11 @@ export function SessionCampaignCalendarPanel({
       requiredTools: requiredTools
         .split(",")
         .map((value) => value.trim())
-        .filter(Boolean),
+        .filter((value) => value.length > 0),
       availableTools: availableTools
         .split(",")
         .map((value) => value.trim())
-        .filter(Boolean),
+        .filter((value) => value.length > 0),
       note: note || undefined,
     };
 
@@ -225,13 +292,32 @@ export function SessionCampaignCalendarPanel({
           </section>
 
           <section className="session-campaign-calendar-form">
-            <select value={actionType} onChange={(event) => setActionType(event.target.value as typeof actionType)}>
+            <select
+              value={actionType}
+              onChange={(event) => {
+                const nextActionType = toCampaignCalendarActionType(event.target.value);
+                if (nextActionType) {
+                  setActionType(nextActionType);
+                }
+              }}
+            >
             {availableActionLabels.map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
             {["respond_schedule", "confirm_schedule"].includes(actionType) ? (
-              <select value={scheduleId} onChange={(event) => setScheduleId(event.target.value)}>
+              <select
+                value={scheduleId}
+                onChange={(event) => {
+                  const nextScheduleId = readOptionalOptionId(
+                    event.target.value,
+                    schedules.map((schedule) => schedule.id)
+                  );
+                  if (nextScheduleId !== null) {
+                    setScheduleId(nextScheduleId);
+                  }
+                }}
+              >
                 <option value="">일정 선택</option>
                 {schedules.map((schedule) => (
                   <option key={schedule.id} value={schedule.id}>{schedule.title ?? schedule.id}</option>
@@ -242,12 +328,26 @@ export function SessionCampaignCalendarPanel({
               <>
                 <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="일정 제목" />
                 <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} />
-                <input type="number" min={1} value={durationMinutes} onChange={(event) => setDurationMinutes(Math.max(1, Number(event.target.value) || 1))} placeholder="분" />
+                <input
+                  type="number"
+                  min={1}
+                  value={durationMinutes}
+                  onChange={(event) => setDurationMinutes((current) => readClampedInteger(event.target.value, current, 1))}
+                  placeholder="분"
+                />
                 <input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} placeholder="Asia/Seoul" />
               </>
             ) : null}
             {actionType === "respond_schedule" ? (
-              <select value={availability} onChange={(event) => setAvailability(event.target.value as typeof availability)}>
+              <select
+                value={availability}
+                onChange={(event) => {
+                  const nextAvailability = toScheduleAvailability(event.target.value);
+                  if (nextAvailability) {
+                    setAvailability(nextAvailability);
+                  }
+                }}
+              >
                 <option value="available">참석 가능</option>
                 <option value="tentative">미정</option>
                 <option value="unavailable">참석 불가</option>
@@ -256,39 +356,93 @@ export function SessionCampaignCalendarPanel({
             {actionType === "advance_game_time" ? (
               <>
                 <input value={inGameDate} onChange={(event) => setInGameDate(event.target.value)} placeholder="게임 내 날짜" />
-                <input type="number" min={0} value={elapsedDays} onChange={(event) => setElapsedDays(Math.max(0, Number(event.target.value) || 0))} placeholder="경과 일수" />
+                <input
+                  type="number"
+                  min={0}
+                  value={elapsedDays}
+                  onChange={(event) => setElapsedDays((current) => readClampedInteger(event.target.value, current, 0))}
+                  placeholder="경과 일수"
+                />
               </>
             ) : null}
             {actionType === "start_downtime" ? (
               <>
-                <select value={sessionCharacterId} onChange={(event) => setSessionCharacterId(event.target.value)}>
+                <select
+                  value={sessionCharacterId}
+                  onChange={(event) => {
+                    const nextSessionCharacterId = readOptionalOptionId(
+                      event.target.value,
+                      characters.map((character) => character.id)
+                    );
+                    if (nextSessionCharacterId !== null) {
+                      setSessionCharacterId(nextSessionCharacterId);
+                    }
+                  }}
+                >
                   <option value="">캐릭터 선택</option>
                   {characters.map((character) => (
                     <option key={character.id} value={character.id}>{character.name}</option>
                   ))}
                 </select>
-                <select value={downtimeType} onChange={(event) => setDowntimeType(event.target.value as typeof downtimeType)}>
+                <select
+                  value={downtimeType}
+                  onChange={(event) => {
+                    const nextDowntimeType = toDowntimeType(event.target.value);
+                    if (nextDowntimeType) {
+                      setDowntimeType(nextDowntimeType);
+                    }
+                  }}
+                >
                   {Object.entries(downtimeTypeLabels).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}
                 </select>
                 <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="작업 제목" />
-                <input type="number" min={0} value={costGp} onChange={(event) => setCostGp(Math.max(0, Number(event.target.value) || 0))} placeholder="비용 gp" />
-                <input type="number" min={0} value={workDaysRequired} onChange={(event) => setWorkDaysRequired(Math.max(0, Number(event.target.value) || 0))} placeholder="필요 일수" />
+                <input
+                  type="number"
+                  min={0}
+                  value={costGp}
+                  onChange={(event) => setCostGp((current) => readClampedInteger(event.target.value, current, 0))}
+                  placeholder="비용 gp"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  value={workDaysRequired}
+                  onChange={(event) => setWorkDaysRequired((current) => readClampedInteger(event.target.value, current, 0))}
+                  placeholder="필요 일수"
+                />
                 <input value={requiredTools} onChange={(event) => setRequiredTools(event.target.value)} placeholder="필요 도구, 쉼표 구분" />
                 <input value={availableTools} onChange={(event) => setAvailableTools(event.target.value)} placeholder="보유/승인 도구, 쉼표 구분" />
               </>
             ) : null}
             {["pause_downtime", "resume_downtime", "complete_downtime"].includes(actionType) ? (
               <>
-                <select value={downtimeTaskId} onChange={(event) => setDowntimeTaskId(event.target.value)}>
+                <select
+                  value={downtimeTaskId}
+                  onChange={(event) => {
+                    const nextDowntimeTaskId = readOptionalOptionId(
+                      event.target.value,
+                      downtimeTasks.map((task) => task.id)
+                    );
+                    if (nextDowntimeTaskId !== null) {
+                      setDowntimeTaskId(nextDowntimeTaskId);
+                    }
+                  }}
+                >
                   <option value="">Downtime 선택</option>
                   {downtimeTasks.map((task) => (
                     <option key={task.id} value={task.id}>{task.title ?? task.id}</option>
                   ))}
                 </select>
                 {actionType === "complete_downtime" ? (
-                  <input type="number" min={0} value={workDaysDelta} onChange={(event) => setWorkDaysDelta(Math.max(0, Number(event.target.value) || 0))} placeholder="완료 일수" />
+                  <input
+                    type="number"
+                    min={0}
+                    value={workDaysDelta}
+                    onChange={(event) => setWorkDaysDelta((current) => readClampedInteger(event.target.value, current, 0))}
+                    placeholder="완료 일수"
+                  />
                 ) : null}
               </>
             ) : null}

@@ -31,6 +31,10 @@ import {
   RegisterUserDto,
   UpdateMeDto,
   UserResponseDto,
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { generateEightDigitPublicId } from "../../common/utils/public-id";
@@ -45,7 +49,7 @@ import {
 } from "../../common/auth/token.utils";
 
 type KakaoTokenResponse = {
-  access_token?: string;
+  access_token: string;
   token_type?: string;
   expires_in?: number;
   refresh_token?: string;
@@ -55,7 +59,7 @@ type KakaoTokenResponse = {
 };
 
 type KakaoUserResponse = {
-  id?: number | string;
+  id: number | string;
   kakao_account?: {
     email?: string;
     is_email_valid?: boolean;
@@ -71,7 +75,7 @@ type KakaoUserResponse = {
 };
 
 type DiscordTokenResponse = {
-  access_token?: string;
+  access_token: string;
   token_type?: string;
   expires_in?: number;
   refresh_token?: string;
@@ -79,7 +83,7 @@ type DiscordTokenResponse = {
 };
 
 type DiscordUserResponse = {
-  id?: string;
+  id: string;
   username?: string;
   global_name?: string | null;
   email?: string | null;
@@ -507,10 +511,7 @@ export class UsersService {
 
     const token = await this.requestKakaoToken(code, redirectUri);
     const kakaoUser = await this.requestKakaoUser(token.accessToken);
-    const providerUserId = String(kakaoUser.id ?? "").trim();
-    if (!providerUserId) {
-      throw new UnauthorizedException("카카오 사용자 식별값을 확인할 수 없습니다.");
-    }
+    const providerUserId = String(kakaoUser.id).trim();
 
     // 카카오는 이메일 동의가 없을 수 있으므로, 로그인 식별은 항상 providerUserId를 기준으로 한다.
     const email = this.getVerifiedKakaoEmail(kakaoUser);
@@ -550,11 +551,11 @@ export class UsersService {
       body,
     });
 
-    const payload = await this.readJson<KakaoTokenResponse>(response);
-    if (!response.ok || !payload.access_token) {
+    if (!response.ok) {
       throw new UnauthorizedException("카카오 토큰 발급에 실패했습니다.");
     }
 
+    const payload = await this.readJson(response, decodeKakaoTokenResponse);
     return { accessToken: payload.access_token };
   }
 
@@ -566,12 +567,11 @@ export class UsersService {
       },
     });
 
-    const payload = await this.readJson<KakaoUserResponse>(response);
     if (!response.ok) {
       throw new UnauthorizedException("카카오 사용자 정보 조회에 실패했습니다.");
     }
 
-    return payload;
+    return this.readJson(response, decodeKakaoUserResponse);
   }
 
   private async discordLogin(dto: OAuthLoginDto): Promise<{ body: LoginResponseDto; refreshToken: string }> {
@@ -583,10 +583,7 @@ export class UsersService {
 
     const token = await this.requestDiscordToken(code, redirectUri);
     const discordUser = await this.requestDiscordUser(token.accessToken);
-    const providerUserId = String(discordUser.id ?? "").trim();
-    if (!providerUserId) {
-      throw new UnauthorizedException("디스코드 사용자 식별값을 확인할 수 없습니다.");
-    }
+    const providerUserId = discordUser.id.trim();
 
     // Discord 이메일은 email scope가 있어도 없거나 미인증일 수 있어 providerUserId를 기본 식별자로 사용한다.
     const email = this.getVerifiedDiscordEmail(discordUser);
@@ -626,11 +623,11 @@ export class UsersService {
       body,
     });
 
-    const payload = await this.readJson<DiscordTokenResponse>(response);
-    if (!response.ok || !payload.access_token) {
+    if (!response.ok) {
       throw new UnauthorizedException("디스코드 토큰 발급에 실패했습니다.");
     }
 
+    const payload = await this.readJson(response, decodeDiscordTokenResponse);
     return { accessToken: payload.access_token };
   }
 
@@ -642,12 +639,11 @@ export class UsersService {
       },
     });
 
-    const payload = await this.readJson<DiscordUserResponse>(response);
     if (!response.ok) {
       throw new UnauthorizedException("디스코드 사용자 정보 조회에 실패했습니다.");
     }
 
-    return payload;
+    return this.readJson(response, decodeDiscordUserResponse);
   }
 
   private async findOrCreateKakaoUser(
@@ -817,11 +813,18 @@ export class UsersService {
     return value;
   }
 
-  private async readJson<T>(response: Response): Promise<T> {
+  private async readJson<T>(response: Response, decode: (value: unknown) => T): Promise<T> {
+    let payload: unknown;
     try {
-      return (await response.json()) as T;
+      payload = await response.json();
     } catch {
       throw new UnauthorizedException("OAuth 응답을 해석할 수 없습니다.");
+    }
+
+    try {
+      return decode(payload);
+    } catch {
+      throw new UnauthorizedException("OAuth 응답 형식이 올바르지 않습니다.");
     }
   }
 
@@ -901,4 +904,135 @@ export class UsersService {
 
     throw new ConflictException("사용자 공개 식별자를 생성하지 못했습니다.");
   }
+}
+
+function decodeKakaoTokenResponse(value: unknown): KakaoTokenResponse {
+  const record = getOAuthRecord(value);
+  const accessToken = record.access_token;
+  if (!isString(accessToken) || !accessToken.trim()) {
+    throw new UnauthorizedException("카카오 토큰 응답 형식이 올바르지 않습니다.");
+  }
+  return {
+    access_token: accessToken.trim(),
+    token_type: readOptionalString(record.token_type),
+    expires_in: readOptionalInteger(record.expires_in),
+    refresh_token: readOptionalString(record.refresh_token),
+    refresh_token_expires_in: readOptionalInteger(record.refresh_token_expires_in),
+    scope: readOptionalString(record.scope),
+    id_token: readOptionalString(record.id_token),
+  };
+}
+
+function decodeKakaoUserResponse(value: unknown): KakaoUserResponse {
+  const record = getOAuthRecord(value);
+  const id = record.id;
+  if (!isNonEmptyString(id) && !isIntegerNumber(id)) {
+    throw new UnauthorizedException("카카오 사용자 응답 형식이 올바르지 않습니다.");
+  }
+  const account = readOptionalRecord(record.kakao_account, "kakao_account");
+  const profile = account ? readOptionalRecord(account.profile, "kakao_account.profile") : undefined;
+  const properties = readOptionalRecord(record.properties, "properties");
+
+  return {
+    id,
+    kakao_account: account
+      ? {
+          email: readOptionalString(account.email),
+          is_email_valid: readOptionalBoolean(account.is_email_valid),
+          is_email_verified: readOptionalBoolean(account.is_email_verified),
+          name: readOptionalString(account.name),
+          profile: profile
+            ? {
+                nickname: readOptionalString(profile.nickname),
+              }
+            : undefined,
+        }
+      : undefined,
+    properties: properties
+      ? {
+          nickname: readOptionalString(properties.nickname),
+        }
+      : undefined,
+  };
+}
+
+function decodeDiscordTokenResponse(value: unknown): DiscordTokenResponse {
+  const record = getOAuthRecord(value);
+  const accessToken = record.access_token;
+  if (!isString(accessToken) || !accessToken.trim()) {
+    throw new UnauthorizedException("디스코드 토큰 응답 형식이 올바르지 않습니다.");
+  }
+  return {
+    access_token: accessToken.trim(),
+    token_type: readOptionalString(record.token_type),
+    expires_in: readOptionalInteger(record.expires_in),
+    refresh_token: readOptionalString(record.refresh_token),
+    scope: readOptionalString(record.scope),
+  };
+}
+
+function decodeDiscordUserResponse(value: unknown): DiscordUserResponse {
+  const record = getOAuthRecord(value);
+  if (!isString(record.id) || !record.id.trim()) {
+    throw new UnauthorizedException("디스코드 사용자 응답 형식이 올바르지 않습니다.");
+  }
+  return {
+    id: record.id,
+    username: readOptionalString(record.username),
+    global_name: readNullableString(record.global_name),
+    email: readNullableString(record.email),
+    verified: readOptionalBoolean(record.verified),
+  };
+}
+
+function getOAuthRecord(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new UnauthorizedException("OAuth 응답 형식이 올바르지 않습니다.");
+  }
+  return value;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isString(value)) {
+    throw new UnauthorizedException("OAuth 응답 문자열 필드 형식이 올바르지 않습니다.");
+  }
+  return value;
+}
+
+function readNullableString(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return readOptionalString(value);
+}
+
+function readOptionalInteger(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isIntegerNumber(value)) {
+    throw new UnauthorizedException("OAuth 응답 숫자 필드 형식이 올바르지 않습니다.");
+  }
+  return value;
+}
+
+function readOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isBoolean(value)) {
+    throw new UnauthorizedException("OAuth 응답 boolean 필드 형식이 올바르지 않습니다.");
+  }
+  return value;
+}
+
+function readOptionalRecord(value: unknown, label: string): Record<string, unknown> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) {
+    throw new UnauthorizedException(`OAuth 응답 ${label} 형식이 올바르지 않습니다.`);
+  }
+  return value;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim().length > 0;
+}
+
+function isIntegerNumber(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value);
 }

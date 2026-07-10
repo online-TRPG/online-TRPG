@@ -106,7 +106,9 @@ export function describeHealth(
 }
 
 function describeConditions(conditions: string[]) {
-  const normalizedConditions = conditions.map(normalizeConditionToken).filter(Boolean);
+  const normalizedConditions = conditions
+    .map(normalizeConditionToken)
+    .filter((condition) => condition.length > 0);
   const stackTexts = describeStackableConditions(normalizedConditions);
   const stateTexts = conditionRules
     .filter((rule) =>

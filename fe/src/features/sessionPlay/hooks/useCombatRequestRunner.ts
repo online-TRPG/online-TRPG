@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { MutableRefObject, Dispatch, SetStateAction } from 'react';
+import { isRecord } from '@trpg/shared-types/frontend';
 import type { CombatReactionPromptDto, CombatResponseDto, VttMapStateDto } from '@trpg/shared-types';
 import type { StoredUser } from '../../../types/session';
 import { getCombat } from '../../../services/combatApi';
@@ -61,8 +62,8 @@ export function useCombatRequestRunner(params: UseCombatRequestRunnerParams) {
       try {
         const result = await request();
         let nextCombat: CombatResponseDto | null = null;
-        if (result && typeof result === 'object' && 'combat' in result) {
-          const maybeCombat = (result as { combat?: unknown }).combat;
+        if (isRecord(result) && 'combat' in result) {
+          const maybeCombat = result.combat;
           nextCombat = isCombatResponseDto(maybeCombat)
             ? maybeCombat
             : await getCombat(user, sessionId);
@@ -73,7 +74,8 @@ export function useCombatRequestRunner(params: UseCombatRequestRunnerParams) {
         }
         setCombat(nextCombat);
         logCombatRequestSucceeded(sessionId, nextCombat);
-        if (isCombatActionResultDto(result)) {
+        const isActionResult = isCombatActionResultDto(result);
+        if (isActionResult) {
           if (result.map) {
             setVttMapIfChanged(result.map, 'combat-action');
             latestConfirmedMapRef.current = result.map;
@@ -89,13 +91,8 @@ export function useCombatRequestRunner(params: UseCombatRequestRunnerParams) {
             applyCombatReactionResult(reactionResult, 'combat-action-reaction');
           }
         }
-        if (result && typeof result === 'object' && !isCombatActionResultDto(result)) {
-          const promptToHandle = getCombatReactionPrompts(
-            result as {
-              pendingReaction?: CombatReactionPromptDto | null;
-              pendingReactions?: CombatReactionPromptDto[] | null;
-            },
-          ).find(
+        if (!isActionResult) {
+          const promptToHandle = getCombatReactionPrompts(result).find(
             (prompt) =>
               isCombatReactionForCurrentUser(prompt, nextCombat) &&
               claimCombatReactionHandling(prompt.id),

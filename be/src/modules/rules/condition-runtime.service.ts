@@ -1,4 +1,8 @@
 import { Injectable } from "@nestjs/common";
+import {
+  parseJsonOrFallback,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
 
 export type ConditionDuration =
   | { type: "instant" }
@@ -26,6 +30,8 @@ export type ConditionInstance = {
   tags: string[];
 };
 
+export type ConditionStateEntry = string | ConditionInstance;
+
 export type ConditionLifecycleResolution = {
   conditions: ConditionInstance[];
   expiredConditions: ConditionInstance[];
@@ -35,21 +41,39 @@ export type ConditionLifecycleResolution = {
 @Injectable()
 export class ConditionRuntimeService {
   parseConditionsJson(value: string | null | undefined): ConditionInstance[] {
-    if (!value) {
-      return [];
-    }
+    return parseJsonOrThrow(
+      value,
+      [],
+      (parsed) => this.decodeConditionInstancesOrThrow(parsed),
+      "sessionCharacter.conditionsJson",
+    );
+  }
 
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed
-        .map((entry) => this.toConditionInstance(entry))
-        .filter((entry): entry is ConditionInstance => entry !== null);
-    } catch {
-      return [];
+  parseConditionsJsonOrFallback(value: string | null | undefined): ConditionInstance[] {
+    return parseJsonOrFallback<ConditionInstance[]>(value, [], (parsed) => this.decodeConditionInstances(parsed));
+  }
+
+  private decodeConditionInstancesOrThrow(value: unknown): ConditionInstance[] {
+    if (!Array.isArray(value)) {
+      throw new Error("conditions must be an array.");
     }
+    return value.map((entry, index) => {
+      const condition = this.toConditionInstance(entry);
+      if (!condition) {
+        throw new Error(`conditions[${index}] is invalid.`);
+      }
+      return condition;
+    });
+  }
+
+  private decodeConditionInstances(value: unknown): ConditionInstance[] {
+    if (!Array.isArray(value)) {
+      throw new Error("conditions must be an array.");
+    }
+    return value.flatMap((entry) => {
+      const condition = this.toConditionInstance(entry);
+      return condition ? [condition] : [];
+    });
   }
 
   toConditionTags(value: string | null | undefined): string[] {
@@ -176,7 +200,12 @@ export class ConditionRuntimeService {
       appliedAtRound: params.appliedAtRound ?? null,
       expiresAtTurn: params.expiresAtTurn ?? null,
       tags: Array.from(
-        new Set((params.tags ?? []).map((tag) => this.normalizeTag(tag)).filter(Boolean)),
+        new Set(
+          (params.tags ?? []).flatMap((tag) => {
+            const normalized = this.normalizeTag(tag);
+            return normalized ? [normalized] : [];
+          }),
+        ),
       ),
     };
   }
@@ -197,10 +226,12 @@ export class ConditionRuntimeService {
       stackPolicy: this.toStackPolicy(value.stackPolicy),
       appliedAtRound: this.toNullableInteger(value.appliedAtRound),
       expiresAtTurn: this.toExpiresAtTurn(value.expiresAtTurn),
-      tags: Array.isArray(value.tags)
-        ? value.tags.filter((tag): tag is string => typeof tag === "string")
-        : [],
+      tags: Array.isArray(value.tags) ? this.decodeStringArray(value.tags) : [],
     });
+  }
+
+  private decodeStringArray(value: readonly unknown[]): string[] {
+    return value.flatMap((item) => (typeof item === "string" ? [item] : []));
   }
 
   private tickConditionAtTurnEnd(
@@ -275,14 +306,21 @@ export class ConditionRuntimeService {
     if (!this.isRecord(value) || typeof value.ability !== "string") {
       return null;
     }
-    if (!["str", "dex", "con", "int", "wis", "cha"].includes(value.ability)) {
+    const ability = this.toSavingThrowAbility(value.ability);
+    if (!ability) {
       return null;
     }
     const dc = this.toNullableInteger(value.dc);
     if (!dc) {
       return null;
     }
-    return { ability: value.ability as NonNullable<ConditionInstance["saveEnds"]>["ability"], dc };
+    return { ability, dc };
+  }
+
+  private toSavingThrowAbility(value: string): NonNullable<ConditionInstance["saveEnds"]>["ability"] | null {
+    return value === "str" || value === "dex" || value === "con" || value === "int" || value === "wis" || value === "cha"
+      ? value
+      : null;
   }
 
   private toStackPolicy(value: unknown): ConditionStackPolicy {

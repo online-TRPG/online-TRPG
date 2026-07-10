@@ -10,6 +10,11 @@ type MapStructureSelection = { kind: MapStructureKind; id: string };
 type StructureBox = { x: number; y: number; width: number; height: number };
 type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
 type ObjectShapeCell = NonNullable<ObjectCell['shapeCells']>[number];
+export type BattleMapEditorStructureSelection =
+  | { kind: 'terrain'; cell: NonNullable<VttMapStateDto['terrainCells']>[number] }
+  | { kind: 'wall'; cell: NonNullable<VttMapStateDto['wallCells']>[number] }
+  | { kind: 'door'; cell: NonNullable<VttMapStateDto['doorCells']>[number] }
+  | { kind: 'object'; cell: NonNullable<VttMapStateDto['objectCells']>[number] };
 
 interface BattleMapEditorStructureLayerProps {
   map: Pick<VttMapStateDto, 'gridSize'>;
@@ -20,14 +25,7 @@ interface BattleMapEditorStructureLayerProps {
   selectedMapStructure: MapStructureSelection | null;
   structureDraft: { kind: MapStructureKind; box: StructureBox } | null;
   getObjectShapeCells: (cell: ObjectCell) => ObjectShapeCell[];
-  onSelectStructure: (
-    kind: MapStructureKind,
-    cell:
-      | NonNullable<VttMapStateDto['terrainCells']>[number]
-      | NonNullable<VttMapStateDto['wallCells']>[number]
-      | NonNullable<VttMapStateDto['doorCells']>[number]
-      | NonNullable<VttMapStateDto['objectCells']>[number]
-  ) => void;
+  onSelectStructure: (selection: BattleMapEditorStructureSelection) => void;
   onBeginObjectExtensionDrag: (
     cell: ObjectCell,
     event: Parameters<NonNullable<ComponentProps<typeof Rect>['onMouseDown']>>[0]
@@ -64,7 +62,7 @@ export function BattleMapEditorStructureLayer({
               dash={visual.dash}
               onClick={(event) => {
                 event.cancelBubble = true;
-                onSelectStructure('terrain', cell);
+                onSelectStructure({ kind: 'terrain', cell });
               }}
             />
             {visual.label ? (
@@ -94,7 +92,7 @@ export function BattleMapEditorStructureLayer({
           strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 1}
           onClick={(event) => {
             event.cancelBubble = true;
-            onSelectStructure('wall', cell);
+            onSelectStructure({ kind: 'wall', cell });
           }}
         />
       ))}
@@ -119,7 +117,7 @@ export function BattleMapEditorStructureLayer({
             strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 2}
             onClick={(event) => {
               event.cancelBubble = true;
-              onSelectStructure('door', cell);
+              onSelectStructure({ kind: 'door', cell });
             }}
           />
         );
@@ -139,7 +137,7 @@ export function BattleMapEditorStructureLayer({
             onMouseDown={(event) => onBeginObjectExtensionDrag(cell, event)}
             onClick={(event) => {
               event.cancelBubble = true;
-              onSelectStructure('object', cell);
+              onSelectStructure({ kind: 'object', cell });
             }}
           />
         ))

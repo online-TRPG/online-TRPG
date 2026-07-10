@@ -14,7 +14,12 @@ export function buildRecentHumanGmAssistLogSnippets(
 ): string[] {
   return logs
     .slice(-limit)
-    .map((log) => [log.title, log.message].filter(Boolean).join(': ').slice(0, maxLength));
+    .map((log) =>
+      [log.title, log.message]
+        .flatMap((value) => (value ? [value] : []))
+        .join(': ')
+        .slice(0, maxLength)
+    );
 }
 
 export function buildHumanGmAssistPublicClueIdSignature(

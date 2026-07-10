@@ -326,6 +326,8 @@ describe("CombatService lifecycle", () => {
       concentrationRuntime,
       combatConditions,
       combatSpells,
+      readyActions,
+      spellSlots,
     );
     prisma.combat.findUniqueOrThrow.mockImplementation(async () => prisma.combat.findFirst());
 

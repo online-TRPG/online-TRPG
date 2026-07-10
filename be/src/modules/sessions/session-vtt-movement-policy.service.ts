@@ -50,7 +50,10 @@ export class SessionVttMovementPolicyService {
     const reachable: Array<MovementNode & { targetDistance: number }> = [];
 
     while (queue.length) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
       const targetDistance = this.getChebyshevDistance(current.column, current.row, targetColumn, targetRow);
       if (current.steps > 0 && targetDistance >= stopWithinCells) {
         reachable.push({ ...current, targetDistance });
@@ -204,7 +207,10 @@ export class SessionVttMovementPolicyService {
     const visited = new Set([`${startColumn}:${startRow}`]);
 
     while (queue.length) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
       if (current.column === endColumn && current.row === endRow) {
         return true;
       }

@@ -3,6 +3,7 @@ import type { RaceAbilityBonus, RaceData } from '../../services/staticSrd';
 import type { CharacterPayload } from '../../hooks/useSession';
 import {
   abilityDisplayLabels,
+  abilityKeys,
   clampAbilitiesToPointBuyRange,
   type AbilityKey,
 } from './characterBuildRules';
@@ -177,9 +178,9 @@ export function getRaceByCharacterFeature(
 function buildRaceAbilityBonusesFromIncreases(
   abilityIncreases: RaceResponseDto['abilityIncreases']
 ): RaceAbilityBonus[] {
-  return (Object.entries(abilityIncreases) as Array<[AbilityKey, number]>)
-    .filter(([, amount]) => amount !== 0)
-    .map(([ability, amount]) => ({ ability, amount }));
+  return abilityKeys
+    .map((ability) => ({ ability, amount: abilityIncreases[ability] }))
+    .filter(({ amount }) => amount !== 0);
 }
 
 export function buildSelectedRaceInfo(
@@ -198,7 +199,7 @@ export function buildSelectedRaceInfo(
       staticRaceInfo?.value,
       staticRaceInfo?.label,
       ...(staticRaceInfo?.ancestryAliases ?? []),
-    ].filter((alias): alias is string => Boolean(alias)),
+    ].flatMap((alias) => alias ? [alias] : []),
     size: selectedRace.size,
     speed: selectedRace.baseSpeed,
     speedRaw: `${selectedRace.baseSpeed} ft.`,
@@ -250,7 +251,7 @@ export function getRaceTraitSummariesForCharacter(
     character?.ancestry,
     ...(character?.features ?? []).map(getRaceLookupValueFromFeature),
   ]
-    .filter((value): value is string => Boolean(value))
+    .flatMap((value) => value ? [value] : [])
     .map(normalizeRaceLookupValue);
 
   const matchingSubraceSummaries = raceInfo.subraceTraitSummaries

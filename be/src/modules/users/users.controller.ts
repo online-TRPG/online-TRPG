@@ -24,6 +24,7 @@ import {
   LoginUserDto,
   OAuthLoginDto,
   OAuthUrlResponseDto,
+  PaginatedResponse,
   ParticipantRole,
   RegisterUserDto,
   SessionListItemResponseDto,
@@ -207,7 +208,7 @@ export class UsersController {
     @Query("role") role?: string,
     @Query("page") page = "0",
     @Query("size") size = "10",
-  ): Promise<ApiResponse<Record<string, unknown>>> {
+  ): Promise<ApiResponse<PaginatedResponse<SessionListItemResponseDto>>> {
     const currentPage = this.toPageNumber(page);
     const pageSize = this.toPageSize(size);
     const result = await this.sessionsService.listMySessions(userId, {
@@ -217,7 +218,7 @@ export class UsersController {
       size: pageSize,
     });
 
-    return apiResponse(
+    return apiResponse<PaginatedResponse<SessionListItemResponseDto>>(
       "SESSION_200",
       "요청이 성공했습니다.",
       this.toSessionPage(result.items, result.totalElements, currentPage, pageSize),
@@ -312,7 +313,7 @@ export class UsersController {
     totalElements: number,
     page: number,
     size: number,
-  ): Record<string, unknown> {
+  ): PaginatedResponse<SessionListItemResponseDto> {
     return {
       content: items,
       page,

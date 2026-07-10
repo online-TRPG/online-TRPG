@@ -60,15 +60,11 @@ function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): str
 }
 
 function formatScenarioLevel(scenario: Scenario): string {
-  const maybeScenarioWithLevels = scenario as Scenario & {
-    startLevel?: number | null;
-    recommendedEndLevel?: number | null;
-  };
   const startLevel =
-    typeof maybeScenarioWithLevels.startLevel === "number" ? maybeScenarioWithLevels.startLevel : 1;
+    typeof scenario.startLevel === "number" ? scenario.startLevel : 1;
   const endLevel =
-    typeof maybeScenarioWithLevels.recommendedEndLevel === "number"
-      ? maybeScenarioWithLevels.recommendedEndLevel
+    typeof scenario.recommendedEndLevel === "number"
+      ? scenario.recommendedEndLevel
       : null;
   return endLevel && endLevel !== startLevel ? `LV ${startLevel}-${endLevel}` : `LV ${startLevel}`;
 }
@@ -99,6 +95,8 @@ function isScenarioModerationOperator(role: string | undefined): boolean {
 
 type ScenarioCardTone = "provided" | "public" | "mine" | "reported" | "hidden" | "inactive" | "removed";
 type ScenarioStatusFilter = "all" | ScenarioCardTone;
+const MIN_SCENARIO_LEVEL_FILTER = 1;
+const MAX_SCENARIO_LEVEL_FILTER = 20;
 
 function getScenarioCardState(
   scenario: Scenario,
@@ -132,14 +130,44 @@ function buildPublicScenarioQuery(
   publicMinLevel: string,
   publicMaxLevel: string,
 ): ScenarioQueryDto {
+  const minLevel = readOptionalScenarioLevelFilter(publicMinLevel);
+  const maxLevel = readOptionalScenarioLevelFilter(publicMaxLevel);
+
   return {
     search: searchTerm.trim() || undefined,
     sort: publicSort,
     tag: publicTag.trim() || undefined,
-    minLevel: publicMinLevel ? Number(publicMinLevel) : undefined,
-    maxLevel: publicMaxLevel ? Number(publicMaxLevel) : undefined,
+    minLevel,
+    maxLevel,
     limit: 50,
   };
+}
+
+function readOptionalScenarioLevelFilter(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Number(trimmed);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < MIN_SCENARIO_LEVEL_FILTER ||
+    parsed > MAX_SCENARIO_LEVEL_FILTER
+  ) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function toPublicScenarioSort(value: string): NonNullable<ScenarioQueryDto["sort"]> | null {
+  switch (value) {
+    case "recommended":
+    case "latest":
+    case "level":
+      return value;
+    default:
+      return null;
+  }
 }
 
 function getScenarioStatusFilterOptions(
@@ -360,7 +388,7 @@ export function ScenarioPage({
         clues: node.clues.map((clue) => ({
           ...clue,
           id: makeCloneId("clue"),
-          pointsToNodeId: remapNodeReference(clue.pointsToNodeId, nodeIdMap),
+          pointsToNodeId: remapNodeReference(clue.pointsToNodeId, nodeIdMap) ?? undefined,
         })),
       }));
       const startNodeId = remapNodeReference(source.startNodeId, nodeIdMap);
@@ -696,7 +724,15 @@ export function ScenarioPage({
             {activeLibrary === "public" ? (
               <>
                 <div className="scenario-public-filters" aria-label="공개 시나리오 필터">
-                  <select value={publicSort} onChange={(event) => setPublicSort(event.target.value as typeof publicSort)}>
+                  <select
+                    value={publicSort}
+                    onChange={(event) => {
+                      const nextSort = toPublicScenarioSort(event.target.value);
+                      if (nextSort) {
+                        setPublicSort(nextSort);
+                      }
+                    }}
+                  >
                     <option value="recommended">추천순</option>
                     <option value="latest">최신순</option>
                     <option value="level">레벨순</option>

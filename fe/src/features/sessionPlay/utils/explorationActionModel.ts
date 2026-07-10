@@ -1,5 +1,5 @@
 import { VTT_MAP_INTERACTION_KINDS } from '@trpg/shared-types/frontend';
-import type { SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
+import { MainCommandIntent, type SubmitMainCommandDto } from '@trpg/shared-types';
 import type { GameIconName } from '../../../components/GameIcon';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 
@@ -31,12 +31,7 @@ export type ExplorationActionButton = {
 
 export type ExplorationLocalAction = NonNullable<ExplorationActionButton['localAction']>;
 
-const ExplorationMainCommandIntent = {
-  TALK_TO_NPC: 'TALK_TO_NPC' as SubmitMainCommandDto['intent'],
-  OBSERVE_AREA: 'OBSERVE_AREA' as SubmitMainCommandDto['intent'],
-  INVESTIGATE_OBJECT: 'INVESTIGATE_OBJECT' as SubmitMainCommandDto['intent'],
-  INTERACT_OBJECT: 'INTERACT_OBJECT' as SubmitMainCommandDto['intent'],
-};
+const ExplorationMainCommandIntent = MainCommandIntent;
 
 const explorationActionIconNames: Partial<Record<string, GameIconName>> = {
   관찰: 'game-icons:eye-target',
@@ -223,7 +218,6 @@ export function getContextActions(
   }
 
   if (selection.kind === 'object') {
-    const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
     const canDisarmHazard = isGmView
       ? isArmedHazardSelection(selection)
       : isDetectedArmedHazardSelection(selection);
@@ -249,7 +243,7 @@ export function getContextActions(
           `${targetLabel}을 조사합니다.`
         );
     const breakActions: ExplorationActionButton[] =
-      objectCell.canBreak && !objectCell.broken
+      selection.cell.canBreak && !selection.cell.broken
         ? [
             {
               label: '부수기',

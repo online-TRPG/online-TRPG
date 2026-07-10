@@ -32,6 +32,14 @@ interface SessionCreatePageProps {
   ) => void | Promise<void>;
 }
 
+function readClampedInteger(value: string, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 function RobotIcon() {
   return (
@@ -212,10 +220,9 @@ export function SessionCreatePage({
                   max={4}
                   value={maxPlayers}
                   step={1}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setMaxPlayers(Number.isFinite(next) ? Math.min(4, Math.max(1, next)) : 1);
-                  }}
+                  onChange={(event) =>
+                    setMaxPlayers(readClampedInteger(event.target.value, maxPlayers, 1, 4))
+                  }
                 />
               </div>
 

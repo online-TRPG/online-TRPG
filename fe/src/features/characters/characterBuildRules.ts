@@ -388,7 +388,7 @@ function normalizeComputedStat(value: number) {
 }
 
 export function normalizeIntegerValue(value: number, min = 0) {
-  return Math.max(min, Math.round(Number(value) || 0));
+  return Math.max(min, Math.round(Number.isFinite(value) ? value : 0));
 }
 
 export function clampAbilitiesToPointBuyRange(
@@ -433,11 +433,11 @@ export function buildPointBuyState(
     wis: POINT_BUY_COST[bases.wis] ?? null,
     cha: POINT_BUY_COST[bases.cha] ?? null,
   };
-  const totalCost = (Object.values(costs) as Array<number | null>).reduce<number>(
-    (sum, cost) => sum + (cost ?? 0),
+  const totalCost = abilityKeys.reduce<number>(
+    (sum, ability) => sum + (costs[ability] ?? 0),
     0
   );
-  const hasInvalid = Object.values(costs).some((cost) => cost === null);
+  const hasInvalid = abilityKeys.some((ability) => costs[ability] === null);
   const remaining = POINT_BUY_TOTAL - totalCost;
 
   return {
@@ -563,7 +563,7 @@ export function formatStat(value: number) {
 }
 
 export function normalizeLevel(value: number) {
-  return Math.max(1, Number(value) || 1);
+  return Math.max(1, Number.isFinite(value) ? value : 1);
 }
 
 export function getProficiencyBonusForLevel(level: number) {
@@ -576,7 +576,12 @@ export function getProficiencyBonusForLevel(level: number) {
 }
 
 export function getHitDieAverage(hitDie: string | null | undefined) {
-  return hitDieAverages[hitDie as HitDie] ?? null;
+  const normalizedHitDie = normalizeHitDie(hitDie);
+  return normalizedHitDie ? hitDieAverages[normalizedHitDie] : null;
+}
+
+function normalizeHitDie(hitDie: string | null | undefined): HitDie | null {
+  return hitDie === 'd6' || hitDie === 'd8' || hitDie === 'd10' || hitDie === 'd12' ? hitDie : null;
 }
 
 export function deriveLevelStats(params: {

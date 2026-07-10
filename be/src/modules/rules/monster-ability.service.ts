@@ -90,8 +90,10 @@ export class MonsterAbilityService {
 
     return this.ruleCatalog
       .listMonsterAbilities(monsterId)
-      .map((entry) => this.toExecutableAction(entry))
-      .filter((action): action is ExecutableMonsterAction => Boolean(action));
+      .flatMap((entry) => {
+        const action = this.toExecutableAction(entry);
+        return action ? [action] : [];
+      });
   }
 
   chooseAction(
@@ -270,8 +272,10 @@ export class MonsterAbilityService {
   private readPrefixedTags(tags: string[], prefix: string): string[] {
     return tags
       .filter((tag) => tag.startsWith(prefix))
-      .map((tag) => tag.slice(prefix.length))
-      .filter(Boolean);
+      .flatMap((tag) => {
+        const value = tag.slice(prefix.length);
+        return value ? [value] : [];
+      });
   }
 
   private readStringTag(tags: string[], prefix: string): string | null {

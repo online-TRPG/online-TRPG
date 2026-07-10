@@ -1,4 +1,5 @@
 import { PrismaClient, ScenarioLicense } from "@prisma/client";
+import { parseUnknownJsonOrFallback } from "../../common/utils/json-runtime";
 
 export const DEFAULT_SCENARIO_ID = "scenario_goblin_cave";
 export const DEFAULT_START_NODE_ID = "node_cave_entrance";
@@ -3423,12 +3424,8 @@ const nodeScreenTestSequence: Array<{
   },
 ];
 
-function parseJson<T>(value: string, fallback: T): T {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
+function parseJson(value: string, fallback: unknown): unknown {
+  return parseUnknownJsonOrFallback(value, fallback);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -3436,7 +3433,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function hasHostileToken(node: SourceScenarioNode): boolean {
-  const parsed = parseJson<unknown>(node.checkOptionsJson, null);
+  const parsed = parseJson(node.checkOptionsJson, null);
   if (!isRecord(parsed) || !isRecord(parsed.vttMap) || !Array.isArray(parsed.vttMap.tokens)) {
     return false;
   }
@@ -3498,7 +3495,7 @@ function rebaseCheckOptionsForClonedNode(
   nextNodeId: string,
   nodeType: NodeScreenTestType,
 ): string {
-  const parsed = parseJson<unknown>(sourceCheckOptionsJson, []);
+  const parsed = parseJson(sourceCheckOptionsJson, []);
 
   if (Array.isArray(parsed)) {
     return JSON.stringify({

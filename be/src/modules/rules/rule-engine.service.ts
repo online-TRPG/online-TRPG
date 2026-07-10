@@ -726,7 +726,7 @@ export class RuleEngineService {
 
     const expertiseSelections = Array.from(
       new Set(input.selections.map((selection) => this.normalizeFeatureToken(selection))),
-    ).filter(Boolean);
+    ).filter((selection) => selection.length > 0);
     const proficientSkills = this.toFeatureTokenSet(input.proficientSkills);
     const rejectedProduced: ExpertiseProduced = {
       expertiseSelections: [],
@@ -790,7 +790,7 @@ export class RuleEngineService {
     const selectedEnemy = this.normalizeFeatureToken(input.selectedEnemy);
     const humanoidRaceSelections = Array.from(
       new Set((input.humanoidRaceSelections ?? []).map((race) => this.normalizeFeatureToken(race))),
-    ).filter(Boolean);
+    ).filter((race) => race.length > 0);
     const rejectedProduced: FavoredEnemyProduced = {
       selectedEnemy: null,
       humanoidRaceSelections: [],
@@ -904,7 +904,7 @@ export class RuleEngineService {
   applyCunningAction(input: CunningActionInput): RuleHookResult<CunningActionProduced> {
     this.assertInteger(input.rogueLevel, "rogueLevel");
 
-    const declaredAction = this.normalizeToken(input.declaredCunningAction);
+    const declaredAction = this.parseCunningAction(this.normalizeToken(input.declaredCunningAction));
     const rejectedProduced: CunningActionProduced = {
       bonusActionSpent: false,
       grantedActionType: null,
@@ -928,7 +928,7 @@ export class RuleEngineService {
       );
     }
 
-    if (!["dash", "disengage", "hide"].includes(declaredAction)) {
+    if (!declaredAction) {
       return this.rejected(
         RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
         rejectedProduced,
@@ -941,10 +941,14 @@ export class RuleEngineService {
       RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
       {
         bonusActionSpent: true,
-        grantedActionType: declaredAction as CunningActionProduced["grantedActionType"],
+        grantedActionType: declaredAction,
       },
       "class_feature_applied",
     );
+  }
+
+  private parseCunningAction(value: string): NonNullable<CunningActionProduced["grantedActionType"]> | null {
+    return value === "dash" || value === "disengage" || value === "hide" ? value : null;
   }
 
   applyFrenzy(input: FrenzyInput): RuleHookResult<FrenzyProduced> {

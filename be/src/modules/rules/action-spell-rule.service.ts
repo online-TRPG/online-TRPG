@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, DiceAdvantageState, DiceRollResponseDto } from "@trpg/shared-types";
+import { ActionOutcome, DiceAdvantageState, DiceRollResponseDto, isRecord } from "@trpg/shared-types";
 import {
   normalizeSrdCharacterClassKey,
   resolveAbilityModifier,
@@ -11,6 +11,7 @@ import { ParsedCommand } from "./command-parser.service";
 import {
   ConditionInstance,
   ConditionRuntimeService,
+  type ConditionStateEntry,
 } from "./condition-runtime.service";
 import { DiceService } from "./dice.service";
 import { RuleCatalogService } from "./rule-catalog.service";
@@ -19,6 +20,10 @@ import { RuleEngineService } from "./rule-engine.service";
 import { RuleHookResult, SavingThrowAbility } from "./rule-engine.types";
 import { SpellScalingResult, SpellScalingRule, SpellScalingService } from "./spell-scaling.service";
 import type { ActionResolution, ActionRuntimeEffect, CharacterStatePatch, RuleRuntimeContext, SessionCharacterForRules } from "./action-rule.service";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
 
 const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
 const FIRE_BOLT_SPELL_ID = "spell.fire_bolt";
@@ -31,19 +36,47 @@ const DETECT_MAGIC_SPELL_ID = "spell.detect_magic";
 const MASS_HEAL_SPELL_ID = "spell.mass_heal";
 const TRUE_RESURRECTION_SPELL_ID = "spell.true_resurrection";
 
+type DamageProfile = {
+  targetImmunities: string[];
+  targetResistances: string[];
+  targetVulnerabilities: string[];
+};
+
+type ConcentrationDamageCheckResult = {
+  diceResult: DiceRollResponseDto;
+  ruleResult: RuleHookResult<unknown> | null;
+  conditions: ConditionStateEntry[];
+  removedConditions: ConditionStateEntry[];
+  concentrationState: unknown;
+  concentrationMaintained: boolean;
+} | null;
+
+type CharacterSpellInventory = {
+  cantrips?: string[];
+  spells?: string[];
+  preparedSpells?: string[];
+};
+
+type SpellScalingDurationUnit = Extract<SpellScalingRule, { mode: "duration" }>["unit"];
+
 export type ActionSpellRuleRuntime = {
-  createActionUnavailableResolution: (...args: any[]) => any;
-  createTargetStatePatch: (...args: any[]) => any;
-  hasActionAvailable: (...args: any[]) => any;
-  hasCondition: (...args: any[]) => any;
-  normalizeRuleToken: (...args: any[]) => any;
-  requireTarget: (...args: any[]) => any;
-  resolveConcentrationDamageCheck: (...args: any[]) => any;
-  resolveDamageProfile: (...args: any[]) => any;
-  resolveSpellTargetList: (...args: any[]) => any;
-  selectNaturalD20: (...args: any[]) => any;
-  toAoeDamageTarget: (...args: any[]) => any;
-  parseJson: <T>(value: string | null | undefined, fallback: T) => T;
+  createActionUnavailableResolution: (type: string, payload: Record<string, unknown>) => ActionResolution;
+  createTargetStatePatch: (
+    target: SessionCharacterForRules,
+    change: Omit<CharacterStatePatch, "sessionCharacterId" | "combatParticipantId">,
+  ) => CharacterStatePatch;
+  hasActionAvailable: (runtimeContext: RuleRuntimeContext) => boolean;
+  hasCondition: (character: SessionCharacterForRules, conditionName: string) => boolean;
+  normalizeRuleToken: (value: string) => string;
+  requireTarget: (targetToken: string, sessionCharacters: SessionCharacterForRules[]) => SessionCharacterForRules;
+  resolveConcentrationDamageCheck: (
+    target: SessionCharacterForRules,
+    finalDamage: number,
+  ) => ConcentrationDamageCheckResult;
+  resolveDamageProfile: (target: SessionCharacterForRules) => DamageProfile;
+  resolveSpellTargetList: (targetToken: string, sessionCharacters: SessionCharacterForRules[]) => SessionCharacterForRules[];
+  selectNaturalD20: (diceResult: DiceRollResponseDto) => number;
+  toAoeDamageTarget: (target: SessionCharacterForRules, saveAbility: SavingThrowAbility) => AoeDamageTarget;
 };
 
 @Injectable()
@@ -57,66 +90,6 @@ export class ActionSpellRuleService {
     private readonly spellScaling: SpellScalingService = new SpellScalingService(),
   ) {}
 
-  private runtime!: ActionSpellRuleRuntime;
-
-  private withRuntime<T>(runtime: ActionSpellRuleRuntime, fn: () => T): T {
-    const previous = this.runtime;
-    this.runtime = runtime;
-    try {
-      return fn();
-    } finally {
-      this.runtime = previous;
-    }
-  }
-
-  private createActionUnavailableResolution(...args: any[]): any {
-    return this.runtime.createActionUnavailableResolution(...args);
-  }
-
-  private createTargetStatePatch(...args: any[]): any {
-    return this.runtime.createTargetStatePatch(...args);
-  }
-
-  private hasActionAvailable(...args: any[]): any {
-    return this.runtime.hasActionAvailable(...args);
-  }
-
-  private hasCondition(...args: any[]): any {
-    return this.runtime.hasCondition(...args);
-  }
-
-  private normalizeRuleToken(...args: any[]): any {
-    return this.runtime.normalizeRuleToken(...args);
-  }
-
-  private requireTarget(...args: any[]): any {
-    return this.runtime.requireTarget(...args);
-  }
-
-  private resolveConcentrationDamageCheck(...args: any[]): any {
-    return this.runtime.resolveConcentrationDamageCheck(...args);
-  }
-
-  private resolveDamageProfile(...args: any[]): any {
-    return this.runtime.resolveDamageProfile(...args);
-  }
-
-  private resolveSpellTargetList(...args: any[]): any {
-    return this.runtime.resolveSpellTargetList(...args);
-  }
-
-  private selectNaturalD20(...args: any[]): any {
-    return this.runtime.selectNaturalD20(...args);
-  }
-
-  private toAoeDamageTarget(...args: any[]): any {
-    return this.runtime.toAoeDamageTarget(...args);
-  }
-
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    return this.runtime.parseJson(value, fallback);
-  }
-
   resolveCastSpell(
     runtime: ActionSpellRuleRuntime,
     command: Extract<ParsedCommand, { type: "cast_spell" }>,
@@ -124,17 +97,18 @@ export class ActionSpellRuleService {
     sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    return this.withRuntime(runtime, () => this.resolveCastSpellImpl(command, actor, sessionCharacters, runtimeContext));
+    return this.resolveCastSpellImpl(runtime, command, actor, sessionCharacters, runtimeContext);
   }
 
   private resolveCastSpellImpl(
+    runtime: ActionSpellRuleRuntime,
     command: Extract<ParsedCommand, { type: "cast_spell" }>,
     actor: SessionCharacterForRules,
     sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    if (!this.hasActionAvailable(runtimeContext)) {
-      return this.createActionUnavailableResolution("cast_spell", {
+    if (!runtime.hasActionAvailable(runtimeContext)) {
+      return runtime.createActionUnavailableResolution("cast_spell", {
         spellId: command.spellId,
         target: command.target,
         targetDistanceFt: command.targetDistanceFt,
@@ -146,7 +120,7 @@ export class ActionSpellRuleService {
     const spellDamageDice = this.resolveSpellDamageDice(spellDefinition, actor.character.level);
     const spellLevel = spellDefinition ? this.resolveSpellLevel(spellDefinition) : 0;
     const slotLevel = command.slotLevel ?? spellLevel;
-    const spellKnowledgeRejection = this.resolveSpellKnowledgeRejection(actor, command.spellId, spellLevel);
+    const spellKnowledgeRejection = this.resolveSpellKnowledgeRejection(runtime, actor, command.spellId, spellLevel);
     if (spellKnowledgeRejection) {
       return {
         structuredAction: {
@@ -190,8 +164,9 @@ export class ActionSpellRuleService {
     }
     if (command.spellId === SLEEP_SPELL_ID) {
       return this.resolveSleepSpell({
+        runtime,
         command,
-        targets: this.resolveSpellTargetList(command.target, sessionCharacters),
+        targets: runtime.resolveSpellTargetList(command.target, sessionCharacters),
         spellDefinition,
         spellLevel,
         slotLevel,
@@ -201,8 +176,9 @@ export class ActionSpellRuleService {
 
     if (command.spellId === LIGHT_SPELL_ID) {
       return this.resolveLightSpell({
+        runtime,
         command,
-        target: this.requireTarget(command.target, sessionCharacters),
+        target: runtime.requireTarget(command.target, sessionCharacters),
         spellDefinition,
         spellLevel,
         slotLevel,
@@ -212,6 +188,7 @@ export class ActionSpellRuleService {
 
     if (command.spellId === DETECT_MAGIC_SPELL_ID) {
       return this.resolveDetectMagicSpell({
+        runtime,
         command,
         actor,
         spellDefinition,
@@ -221,17 +198,34 @@ export class ActionSpellRuleService {
       });
     }
 
-    const target = this.requireTarget(command.target, sessionCharacters);
+    const target = runtime.requireTarget(command.target, sessionCharacters);
     const targetArmorClass = target.character.armorClass;
 
     if (
       command.spellId === MASS_HEAL_SPELL_ID ||
       command.spellId === TRUE_RESURRECTION_SPELL_ID
     ) {
+      if (!spellDefinition) {
+        return {
+          structuredAction: {
+            type: "cast_spell",
+            spellId: command.spellId,
+            slotLevel,
+            target: command.target,
+            targetDistanceFt: command.targetDistanceFt,
+            rejectedReason: "unsupported_spell",
+          },
+          diceResult: null,
+          outcome: ActionOutcome.IMPOSSIBLE,
+          narration: this.createSpellRejectedNarration("unsupported_spell"),
+          stateChanges: [],
+        };
+      }
+      const restorativeSpellDefinition = spellDefinition;
       return this.resolveP6RestorativeSpell({
         command,
         target,
-        spellDefinition: spellDefinition!,
+        spellDefinition: restorativeSpellDefinition,
         spellLevel,
         slotLevel,
         spellScaling,
@@ -240,6 +234,7 @@ export class ActionSpellRuleService {
 
     if (command.spellId === MAGIC_MISSILE_SPELL_ID) {
       return this.resolveMagicMissile({
+        runtime,
         command,
         target,
         spellDefinition,
@@ -279,6 +274,7 @@ export class ActionSpellRuleService {
 
     if (spellDefinition?.save && spellDefinition.damage) {
       return this.resolveSavingThrowDamageSpell({
+        runtime,
         command,
         actor,
         target,
@@ -299,6 +295,7 @@ export class ActionSpellRuleService {
       )
     ) {
       return this.resolveSpellAttackDamage({
+        runtime,
         command,
         actor,
         target,
@@ -314,6 +311,7 @@ export class ActionSpellRuleService {
 
     if (spellDefinition && !spellDefinition.damage) {
       return this.resolveGenericEffectSpell({
+        runtime,
         command,
         actor,
         target,
@@ -349,7 +347,7 @@ export class ActionSpellRuleService {
       targetDistanceFt: command.targetDistanceFt,
       componentAvailability: this.resolveDefaultComponentAvailability(),
       spellAttackRollResult: null,
-      targetIsUndead: this.hasCondition(target, "undead"),
+      targetIsUndead: runtime.hasCondition(target, "undead"),
     });
 
     if (!precheckResult.accepted && precheckResult.rejectedReason !== "spell_attack_roll_required") {
@@ -374,7 +372,7 @@ export class ActionSpellRuleService {
     const modifier = actor.character.proficiencyBonus;
     const attackRoll = this.diceService.roll(`1d20+${modifier}`, DiceAdvantageState.NORMAL);
     const attackRuleResult = this.ruleEngine.resolveAttackRoll({
-      naturalD20: this.selectNaturalD20(attackRoll),
+      naturalD20: runtime.selectNaturalD20(attackRoll),
       attackBonus: modifier,
       targetArmorClass,
       advantageState: "normal",
@@ -386,7 +384,7 @@ export class ActionSpellRuleService {
       targetDistanceFt: command.targetDistanceFt,
       componentAvailability: this.resolveDefaultComponentAvailability(),
       spellAttackRollResult: attackRuleResult.produced,
-      targetIsUndead: this.hasCondition(target, "undead"),
+      targetIsUndead: runtime.hasCondition(target, "undead"),
     });
     const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult, spellRuleResult];
     const stateChanges: CharacterStatePatch[] = [];
@@ -398,7 +396,7 @@ export class ActionSpellRuleService {
       const damageRuleResult = this.ruleEngine.applyDamageModifiers({
         baseDamage: damageRoll.total,
         damageType: spellDamageType,
-        ...this.resolveDamageProfile(target),
+        ...runtime.resolveDamageProfile(target),
       });
       ruleResults.push(damageRuleResult);
       finalDamage = damageRuleResult.produced.finalDamage;
@@ -449,17 +447,18 @@ export class ActionSpellRuleService {
     sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    return this.withRuntime(runtime, () => this.resolveCastAreaSpellImpl(command, actor, sessionCharacters, runtimeContext));
+    return this.resolveCastAreaSpellImpl(runtime, command, actor, sessionCharacters, runtimeContext);
   }
 
   private resolveCastAreaSpellImpl(
+    runtime: ActionSpellRuleRuntime,
     command: Extract<ParsedCommand, { type: "cast_area_spell" }>,
     actor: SessionCharacterForRules,
     sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    if (!this.hasActionAvailable(runtimeContext)) {
-      return this.createActionUnavailableResolution("cast_area_spell", {
+    if (!runtime.hasActionAvailable(runtimeContext)) {
+      return runtime.createActionUnavailableResolution("cast_area_spell", {
         spellId: command.spellId,
         targetIds: command.targetIds,
       });
@@ -483,7 +482,7 @@ export class ActionSpellRuleService {
 
     const spellLevel = this.resolveSpellLevel(spellDefinition);
     const slotLevel = command.slotLevel ?? spellLevel;
-    const spellKnowledgeRejection = this.resolveSpellKnowledgeRejection(actor, command.spellId, spellLevel);
+    const spellKnowledgeRejection = this.resolveSpellKnowledgeRejection(runtime, actor, command.spellId, spellLevel);
     if (spellKnowledgeRejection) {
       return {
         structuredAction: {
@@ -523,10 +522,11 @@ export class ActionSpellRuleService {
 
     if (!spellDefinition.damage || !spellDefinition.save) {
       return this.resolveGenericAreaEffectSpell({
+        runtime,
         command,
         actor,
         targets: command.targetIds.map((targetId) =>
-          this.requireTarget(targetId, sessionCharacters),
+          runtime.requireTarget(targetId, sessionCharacters),
         ),
         spellDefinition,
         spellLevel,
@@ -535,13 +535,14 @@ export class ActionSpellRuleService {
       });
     }
 
-    const targets = command.targetIds.map((targetId) => this.requireTarget(targetId, sessionCharacters));
+    const targets = command.targetIds.map((targetId) => runtime.requireTarget(targetId, sessionCharacters));
     const saveAbility = spellDefinition.save.ability;
     const aoeInput = this.aoeDamage.createInputFromSpell({
       spellDefinition,
       saveDc: command.saveDc,
       damageDice: spellScaling?.damageDice ?? spellDefinition.damage.dice,
       damageBonus: this.resolveElementalAffinityDamageBonus(
+        runtime,
         actor,
         spellDefinition.damage.type,
       ),
@@ -549,8 +550,8 @@ export class ActionSpellRuleService {
         spellDefinition.runtimeEffect.tags.includes(
           "half_damage_on_success",
         ) ||
-        (spellLevel === 0 && this.hasPotentCantrip(actor)),
-      targets: targets.map((target) => this.toAoeDamageTarget(target, saveAbility)),
+        (spellLevel === 0 && this.hasPotentCantrip(runtime, actor)),
+      targets: targets.map((target) => runtime.toAoeDamageTarget(target, saveAbility)),
     });
     const aoeResolution = this.aoeDamage.resolveDamage(aoeInput);
     const concentrationChecks = aoeResolution.targetResults.flatMap((targetResult) => {
@@ -561,7 +562,7 @@ export class ActionSpellRuleService {
       if (!target) {
         return [];
       }
-      const concentrationCheck = this.resolveConcentrationDamageCheck(target, targetResult.finalDamage);
+      const concentrationCheck = runtime.resolveConcentrationDamageCheck(target, targetResult.finalDamage);
       return concentrationCheck
         ? [
             {
@@ -618,6 +619,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveSpellAttackDamage(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     actor: SessionCharacterForRules;
     target: SessionCharacterForRules;
@@ -653,7 +655,7 @@ export class ActionSpellRuleService {
     const modifier = params.actor.character.proficiencyBonus;
     const attackRoll = this.diceService.roll(`1d20+${modifier}`, DiceAdvantageState.NORMAL);
     const attackRuleResult = this.ruleEngine.resolveAttackRoll({
-      naturalD20: this.selectNaturalD20(attackRoll),
+      naturalD20: params.runtime.selectNaturalD20(attackRoll),
       attackBonus: modifier,
       targetArmorClass: params.targetArmorClass,
       advantageState: "normal",
@@ -667,13 +669,14 @@ export class ActionSpellRuleService {
       damageRoll = this.diceService.roll(params.spellDamageDice);
       const elementalAffinityBonus =
         this.resolveElementalAffinityDamageBonus(
+          params.runtime,
           params.actor,
           params.spellDamageType,
         );
       const damageRuleResult = this.ruleEngine.applyDamageModifiers({
         baseDamage: damageRoll.total + elementalAffinityBonus,
         damageType: params.spellDamageType,
-        ...this.resolveDamageProfile(params.target),
+        ...params.runtime.resolveDamageProfile(params.target),
       });
       ruleResults.push(damageRuleResult);
       finalDamage = damageRuleResult.produced.finalDamage;
@@ -714,6 +717,7 @@ export class ActionSpellRuleService {
         damageRoll: damageRoll ? { ...damageRoll } : null,
         elementalAffinityBonus:
           this.resolveElementalAffinityDamageBonus(
+            params.runtime,
             params.actor,
             params.spellDamageType,
           ),
@@ -729,6 +733,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveMagicMissile(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     target: SessionCharacterForRules;
     spellDefinition: RuleCatalogEntry | null;
@@ -743,11 +748,13 @@ export class ActionSpellRuleService {
     const damageRuleResult = this.ruleEngine.applyDamageModifiers({
       baseDamage: damageRoll.total,
       damageType: params.spellDamageType,
-      ...this.resolveDamageProfile(params.target),
+      ...params.runtime.resolveDamageProfile(params.target),
     });
     const finalDamage = damageRuleResult.produced.finalDamage;
     const nextHp = Math.max(params.target.currentHp - finalDamage, 0);
-    const concentrationCheck = finalDamage > 0 ? this.resolveConcentrationDamageCheck(params.target, finalDamage) : null;
+    const concentrationCheck = finalDamage > 0
+      ? params.runtime.resolveConcentrationDamageCheck(params.target, finalDamage)
+      : null;
 
     return {
       structuredAction: {
@@ -855,6 +862,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveSleepSpell(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     targets: SessionCharacterForRules[];
     spellDefinition: RuleCatalogEntry | null;
@@ -875,7 +883,7 @@ export class ActionSpellRuleService {
       remainingPool -= target.currentHp;
       sleptTargetIds.push(target.id);
       stateChanges.push(
-        this.createTargetStatePatch(target, {
+        params.runtime.createTargetStatePatch(target, {
           conditions: this.conditionRuntime.applyCondition(
             this.conditionRuntime.parseConditionsJson(target.conditionsJson),
             this.conditionRuntime.createCondition({
@@ -912,6 +920,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveLightSpell(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     target: SessionCharacterForRules;
     spellDefinition: RuleCatalogEntry | null;
@@ -946,12 +955,13 @@ export class ActionSpellRuleService {
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: "Light 주문으로 밝은 빛을 만들었습니다.",
-      stateChanges: [this.createTargetStatePatch(params.target, { conditions: nextConditions })],
+      stateChanges: [params.runtime.createTargetStatePatch(params.target, { conditions: nextConditions })],
       runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
   }
 
   private resolveDetectMagicSpell(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     actor: SessionCharacterForRules;
     spellDefinition: RuleCatalogEntry | null;
@@ -987,7 +997,7 @@ export class ActionSpellRuleService {
       outcome: ActionOutcome.SUCCESS,
       narration: "Detect Magic으로 30ft 안의 마법 존재를 감지하기 시작했습니다.",
       stateChanges: [
-        this.createTargetStatePatch(params.actor, { conditions: nextConditions }),
+        params.runtime.createTargetStatePatch(params.actor, { conditions: nextConditions }),
       ],
       runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
@@ -1045,34 +1055,33 @@ export class ActionSpellRuleService {
   private resolveSpellLevel(spellDefinition: RuleCatalogEntry): number {
     const tag = spellDefinition.runtimeEffect.tags.find((value) => value.startsWith("spell_level:"));
     const level = Number(tag?.slice("spell_level:".length));
-    return Number.isInteger(level) && level >= 0 ? level : 0;
+    return Number.isInteger(level) && level >= 0 && level <= 9 ? level : 0;
   }
 
   private resolveSpellKnowledgeRejection(
+    runtime: ActionSpellRuleRuntime,
     actor: SessionCharacterForRules,
     spellId: string,
     spellLevel: number,
   ): "spell_not_known" | "spell_not_prepared" | null {
-    const spellInventory = this.parseJson<{
-      cantrips?: string[];
-      spells?: string[];
-      preparedSpells?: string[];
-    } | null>(actor.character.spellsJson, null);
+    const spellInventory = this.parseSpellInventory(actor.character.spellsJson);
     if (!spellInventory) {
       return null;
     }
 
-    const knownCantrips = (spellInventory.cantrips ?? []).map((value) => this.normalizeRuleToken(value));
+    const knownCantrips = (spellInventory.cantrips ?? []).map((value) => runtime.normalizeRuleToken(value));
     if (knownCantrips.includes(spellId)) {
       return null;
     }
 
-    const knownSpells = (spellInventory.spells ?? []).map((value) => this.normalizeRuleToken(value));
+    const knownSpells = (spellInventory.spells ?? []).map((value) => runtime.normalizeRuleToken(value));
     if (!knownSpells.includes(spellId)) {
       return "spell_not_known";
     }
 
-    const preparedSpells = Array.isArray(spellInventory.preparedSpells) ? spellInventory.preparedSpells.map((value) => this.normalizeRuleToken(value)) : null;
+    const preparedSpells = Array.isArray(spellInventory.preparedSpells)
+      ? spellInventory.preparedSpells.map((value) => runtime.normalizeRuleToken(value))
+      : null;
     const classKey = normalizeSrdCharacterClassKey(actor.character.className);
     const requiresPreparedSpell = resolvePreparedSpellAbility(classKey) !== null;
     if (spellLevel > 0 && requiresPreparedSpell && preparedSpells && !preparedSpells.includes(spellId)) {
@@ -1083,7 +1092,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveSpellcastingAbilityModifier(actor: SessionCharacterForRules): number {
-    const abilities = this.parseJson<Record<string, number>>(actor.character.abilitiesJson, {});
+    const abilities = this.parseNumberRecord(actor.character.abilitiesJson);
     const classKey = normalizeSrdCharacterClassKey(actor.character.className);
     const abilityKey = resolveSpellcastingAbility(classKey) ?? "int";
     return resolveAbilityModifier(abilities[abilityKey] ?? 10);
@@ -1100,13 +1109,14 @@ export class ActionSpellRuleService {
     const table = spellDefinition.scaling.table ?? {};
     const matchingThreshold = Object.keys(table)
       .map((key) => Number(key))
-      .filter((level) => Number.isInteger(level) && level <= characterLevel)
+      .filter((level) => Number.isInteger(level) && level >= 1 && level <= 20 && level <= characterLevel)
       .sort((left, right) => right - left)[0];
     const scaledDice = matchingThreshold === undefined ? null : table[String(matchingThreshold)];
     return typeof scaledDice === "string" ? scaledDice : spellDefinition.damage.dice;
   }
 
   private resolveSavingThrowDamageSpell(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     actor: SessionCharacterForRules;
     target: SessionCharacterForRules;
@@ -1140,6 +1150,7 @@ export class ActionSpellRuleService {
     }
 
     const damageBonus = this.resolveElementalAffinityDamageBonus(
+      params.runtime,
       params.actor,
       params.spellDamageType,
     );
@@ -1147,7 +1158,24 @@ export class ActionSpellRuleService {
       params.spellDefinition.runtimeEffect.tags.includes(
         "half_damage_on_success",
       ) ||
-      (params.spellLevel === 0 && this.hasPotentCantrip(params.actor));
+      (params.spellLevel === 0 && this.hasPotentCantrip(params.runtime, params.actor));
+    const save = params.spellDefinition.save;
+    if (!save) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: params.command.spellId,
+          target: params.command.target,
+          spellScaling: params.spellScaling,
+          rejectedReason: "missing_spell_save",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration("missing_spell_save"),
+        stateChanges: [],
+      };
+    }
+
     const resolution = this.aoeDamage.resolveDamage({
       sourceId: params.command.spellId,
       damageDice:
@@ -1158,14 +1186,14 @@ export class ActionSpellRuleService {
       damageType: params.spellDamageType,
       damageBonus,
       save: {
-        ability: params.spellDefinition.save!.ability,
+        ability: save.ability,
         dc: this.resolveSpellSaveDc(params.actor),
         halfDamageOnSuccess,
       },
       targets: [
-        this.toAoeDamageTarget(
+        params.runtime.toAoeDamageTarget(
           params.target,
-          params.spellDefinition.save!.ability,
+          save.ability,
         ),
       ],
     });
@@ -1189,7 +1217,7 @@ export class ActionSpellRuleService {
         elementalAffinityBonus: damageBonus,
         potentCantripApplied:
           params.spellLevel === 0 &&
-          this.hasPotentCantrip(params.actor),
+          this.hasPotentCantrip(params.runtime, params.actor),
         savingThrow: targetResult?.savingThrow ?? null,
         finalDamage: targetResult?.finalDamage ?? 0,
       },
@@ -1351,6 +1379,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveGenericEffectSpell(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_spell" }>;
     actor: SessionCharacterForRules;
     target: SessionCharacterForRules;
@@ -1384,6 +1413,7 @@ export class ActionSpellRuleService {
 
     const saveResult = params.spellDefinition.save
       ? this.resolveGenericSpellSave(
+          params.runtime,
           params.actor,
           target,
           params.spellDefinition.save.ability,
@@ -1457,6 +1487,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveGenericAreaEffectSpell(params: {
+    runtime: ActionSpellRuleRuntime;
     command: Extract<ParsedCommand, { type: "cast_area_spell" }>;
     actor: SessionCharacterForRules;
     targets: SessionCharacterForRules[];
@@ -1468,6 +1499,7 @@ export class ActionSpellRuleService {
     const results = params.targets.map((target) => {
       const saveResult = params.spellDefinition.save
         ? this.resolveGenericSpellSave(
+            params.runtime,
             params.actor,
             target,
             params.spellDefinition.save.ability,
@@ -1540,6 +1572,7 @@ export class ActionSpellRuleService {
   }
 
   private resolveGenericSpellSave(
+    runtime: ActionSpellRuleRuntime,
     actor: SessionCharacterForRules,
     target: SessionCharacterForRules,
     ability: SavingThrowAbility,
@@ -1548,7 +1581,7 @@ export class ActionSpellRuleService {
     diceResult: DiceRollResponseDto;
     ruleResult: RuleHookResult<ReturnType<RuleEngineService["resolveSavingThrow"]>["produced"]>;
   } {
-    const profile = this.toAoeDamageTarget(target, ability) as AoeDamageTarget;
+    const profile = runtime.toAoeDamageTarget(target, ability);
     const abilityModifier = profile.abilityModifiers[ability] ?? 0;
     const proficient = profile.proficientSaves?.includes(ability) ?? false;
     const modifier =
@@ -1559,7 +1592,7 @@ export class ActionSpellRuleService {
     );
     const ruleResult = this.ruleEngine.resolveSavingThrow({
       ability,
-      naturalD20: this.selectNaturalD20(diceResult),
+      naturalD20: runtime.selectNaturalD20(diceResult),
       difficultyClass: dc,
       abilityModifier,
       proficiencyBonus: profile.proficiencyBonus,
@@ -1715,48 +1748,40 @@ export class ActionSpellRuleService {
   }
 
   private resolveElementalAffinityDamageBonus(
+    runtime: ActionSpellRuleRuntime,
     actor: SessionCharacterForRules,
     damageType: string,
   ): number {
     if (
-      !this.normalizeRuleToken(actor.character.className).includes(
+      !runtime.normalizeRuleToken(actor.character.className).includes(
         "sorcerer",
       ) ||
       actor.character.level < 6
     ) {
       return 0;
     }
-    const featureIds = this.parseJson<string[]>(
-      actor.character.featuresJson,
-      [],
-    );
+    const featureIds = this.parseStringArray(actor.character.featuresJson);
     const runtimeTags = this.ruleCatalog.resolveRuntimeTags(featureIds);
     if (
       !runtimeTags.includes("trigger:spell_damage_matching_ancestry") ||
       !runtimeTags.includes(
-        `resistance:${this.normalizeRuleToken(damageType)}`,
+        `resistance:${runtime.normalizeRuleToken(damageType)}`,
       )
     ) {
       return 0;
     }
-    const abilities = this.parseJson<Record<string, number>>(
-      actor.character.abilitiesJson,
-      {},
-    );
+    const abilities = this.parseNumberRecord(actor.character.abilitiesJson);
     return Math.max(Math.floor(((abilities.cha ?? 10) - 10) / 2), 0);
   }
 
-  private hasPotentCantrip(actor: SessionCharacterForRules): boolean {
+  private hasPotentCantrip(runtime: ActionSpellRuleRuntime, actor: SessionCharacterForRules): boolean {
     if (
-      !this.normalizeRuleToken(actor.character.className).includes("wizard") ||
+      !runtime.normalizeRuleToken(actor.character.className).includes("wizard") ||
       actor.character.level < 6
     ) {
       return false;
     }
-    const featureIds = this.parseJson<string[]>(
-      actor.character.featuresJson,
-      [],
-    );
+    const featureIds = this.parseStringArray(actor.character.featuresJson);
     return this.ruleCatalog
       .resolveRuntimeTags(featureIds)
       .includes("damage:half_on_success");
@@ -1832,11 +1857,11 @@ export class ActionSpellRuleService {
       case "flat_bonus":
         return typeof table.amount === "number" ? [{ mode, amount: table.amount, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }] : [];
       case "duration":
-        return typeof table.unit === "string" && typeof table.amountPerSlotAbove === "number"
+        return this.isSpellScalingDurationUnit(table.unit) && typeof table.amountPerSlotAbove === "number"
           ? [
               {
                 mode,
-                unit: table.unit as "round" | "minute" | "hour" | "day",
+                unit: table.unit,
                 amountPerSlotAbove: table.amountPerSlotAbove,
                 perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove),
               },
@@ -1849,6 +1874,53 @@ export class ActionSpellRuleService {
 
   private toOptionalPositiveInteger(value: unknown): number | undefined {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  }
+
+  private parseSpellInventory(value: string | null | undefined): CharacterSpellInventory | null {
+    return parseJsonOrThrow(value, null, (parsed) => {
+      if (parsed === null) {
+        return null;
+      }
+      if (!isRecord(parsed)) {
+        throw new Error("spell inventory must be an object.");
+      }
+      return {
+        cantrips: this.readOptionalStringArray(parsed.cantrips),
+        spells: this.readOptionalStringArray(parsed.spells),
+        preparedSpells: this.readOptionalStringArray(parsed.preparedSpells),
+      };
+    }, "character.spellsJson");
+  }
+
+  private parseNumberRecord(value: string | null | undefined): Record<string, number> {
+    return parseJsonOrThrow(value, {}, (parsed) => this.decodeNumberRecord(parsed), "character.abilitiesJson");
+  }
+
+  private decodeNumberRecord(value: unknown): Record<string, number> {
+    if (!isRecord(value)) {
+      throw new Error("number record must be an object.");
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, numericValue]) => {
+      if (typeof numericValue !== "number" || !Number.isFinite(numericValue)) {
+        throw new Error(`${key} must be a finite number.`);
+      }
+      return [key, numericValue];
+    }));
+  }
+
+  private parseStringArray(value: string | null | undefined): string[] {
+    return parseJsonOrThrow(value, [], decodeStringArray, "character string array JSON");
+  }
+
+  private readOptionalStringArray(value: unknown): string[] | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    return decodeStringArray(value);
+  }
+
+  private isSpellScalingDurationUnit(value: unknown): value is SpellScalingDurationUnit {
+    return value === "round" || value === "minute" || value === "hour" || value === "day";
   }
 
   private resolveDefaultComponentAvailability(): {

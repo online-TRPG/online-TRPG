@@ -128,7 +128,7 @@ export class VttMapInteractionRuntimeService {
       status: result?.status ?? MainCommandStatus.IMPOSSIBLE,
       message: result?.message ?? "맵 상호작용을 처리하지 못했습니다.",
       map,
-      checkOptions: result?.checkOptions as Record<string, unknown>[] | undefined,
+      checkOptions: result?.checkOptions,
       data: result?.checkEffect ? { checkEffect: result.checkEffect } : null,
     };
   }

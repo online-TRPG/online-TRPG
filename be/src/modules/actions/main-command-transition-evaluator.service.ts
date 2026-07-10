@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ScenarioNodeType, SubmitMainCommandDto } from "@trpg/shared-types";
+import { readCompletedCombatNodeIds } from "../sessions/session-completion-flag-store.service";
 import { MAIN_COMMAND_CONFIDENCE, TRANSITION_MATCH_POLICY } from "./main-command-policy.constants";
 
 export type TransitionConditionEvaluation = {
@@ -147,8 +148,7 @@ export class MainCommandTransitionEvaluatorService {
     if (dto.targetId) {
       const normalizedTargetId = dto.targetId.trim().toLowerCase();
       const direct = candidates.find((candidate) =>
-        [candidate.nodeId, candidate.transitionId, candidate.label]
-          .filter((value): value is string => Boolean(value))
+        compactPresentStrings([candidate.nodeId, candidate.transitionId, candidate.label])
           .some((value) => value.trim().toLowerCase() === normalizedTargetId),
       );
       if (direct) {
@@ -159,8 +159,7 @@ export class MainCommandTransitionEvaluatorService {
     const normalizedText = dto.playerText.trim().toLowerCase();
     return (
       candidates.find((candidate) =>
-        [candidate.nodeId, candidate.transitionId, candidate.title, candidate.label, candidate.condition]
-          .filter((value): value is string => Boolean(value))
+        compactPresentStrings([candidate.nodeId, candidate.transitionId, candidate.title, candidate.label, candidate.condition])
           .some((value) => normalizedText.includes(value.trim().toLowerCase())),
       ) ?? null
     );
@@ -184,9 +183,10 @@ export class MainCommandTransitionEvaluatorService {
 
     const normalizedCondition = this.normalizeTransitionConditionText(condition);
     const evidenceText = this.normalizeTransitionConditionText(
-      [...recentLogs.slice(-8).filter((line) => !this.isSceneTransitionLogLine(line)), ...publicClues]
-        .filter((value): value is string => Boolean(value))
-        .join(" "),
+      compactPresentStrings([
+        ...recentLogs.slice(-8).filter((line) => !this.isSceneTransitionLogLine(line)),
+        ...publicClues,
+      ]).join(" "),
     );
 
     if (normalizedCondition && evidenceText.includes(normalizedCondition)) {
@@ -341,37 +341,41 @@ export class MainCommandTransitionEvaluatorService {
       return false;
     }
     const matchedCount = terms.filter((term) => normalizedEvidenceText.includes(term)).length;
-      const requiredMatchCount = terms.length <= TRANSITION_MATCH_POLICY.EXACT_MATCH_TERM_LIMIT
-        ? terms.length
-        : Math.ceil(terms.length * TRANSITION_MATCH_POLICY.PARTIAL_MATCH_RATIO);
+    const requiredMatchCount = terms.length <= TRANSITION_MATCH_POLICY.EXACT_MATCH_TERM_LIMIT
+      ? terms.length
+      : Math.ceil(terms.length * TRANSITION_MATCH_POLICY.PARTIAL_MATCH_RATIO);
     return matchedCount >= requiredMatchCount;
   }
 
   readTransitionConditionRule(value: unknown): TransitionConditionRule | null {
-    if (!value || typeof value !== "object") {
+    if (!this.isRecord(value)) {
       return null;
     }
-    const source = value as Record<string, unknown>;
-    const logic = source.logic === "ANY" ? "ANY" : "ALL";
-    const rawRequirements = Array.isArray(source.requirements) ? source.requirements : [];
-    const requirements: TransitionConditionRequirement[] = rawRequirements
-      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-      .reduce<TransitionConditionRequirement[]>((acc, item) => {
-        const rawType = this.readString(item.type);
-        const type = this.readTransitionRequirementType(rawType);
-        if (!type) {
-          return acc;
-        }
-        acc.push({
-          type,
-          targetId: this.readString(item.targetId),
-          flagKey: this.readString(item.flagKey),
-          flagValue: this.readString(item.flagValue),
-        });
+    const logic = value.logic === "ANY" ? "ANY" : "ALL";
+    const rawRequirements = Array.isArray(value.requirements) ? value.requirements : [];
+    const requirements: TransitionConditionRequirement[] = rawRequirements.reduce<TransitionConditionRequirement[]>((acc, item) => {
+      if (!this.isRecord(item)) {
         return acc;
-      }, []);
+      }
+      const rawType = this.readString(item.type);
+      const type = this.readTransitionRequirementType(rawType);
+      if (!type) {
+        return acc;
+      }
+      acc.push({
+        type,
+        targetId: this.readString(item.targetId),
+        flagKey: this.readString(item.flagKey),
+        flagValue: this.readString(item.flagValue),
+      });
+      return acc;
+    }, []);
 
     return requirements.length ? { logic, requirements } : null;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
   }
 
   private evaluateStructuredTransitionCondition(candidate: TransitionCandidate, evidence: TransitionEvidence): TransitionConditionEvaluation {
@@ -423,9 +427,7 @@ export class MainCommandTransitionEvaluatorService {
         return Boolean(requirement.targetId && evidence.revealedClueIds.includes(requirement.targetId));
       case "COMBAT_RESOLVED": {
         const targetNodeId = requirement.targetId || evidence.currentNodeId;
-        const completedCombatNodeIds = Array.isArray(evidence.flags.completedCombatNodeIds)
-          ? evidence.flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
-          : [];
+        const completedCombatNodeIds = readCompletedCombatNodeIds(evidence.flags);
         return completedCombatNodeIds.includes(targetNodeId);
       }
       case "NODE_VISITED": {
@@ -519,7 +521,7 @@ export class MainCommandTransitionEvaluatorService {
     return condition
       .split(/\b(?:or)\b|또는|혹은|아니면|하거나|거나|든지|던지/iu)
       .map((alternative) => alternative.trim())
-      .filter(Boolean);
+      .flatMap((alternative) => compactPresentStrings([alternative]));
   }
 
   private dedupeTerms(terms: string[]): string[] {
@@ -556,4 +558,8 @@ export class MainCommandTransitionEvaluatorService {
   private readString(value: unknown): string | null {
     return typeof value === "string" && value.trim() ? value.trim() : null;
   }
+}
+
+function compactPresentStrings(value: readonly unknown[]): string[] {
+  return value.flatMap((item) => (typeof item === "string" && item ? [item] : []));
 }

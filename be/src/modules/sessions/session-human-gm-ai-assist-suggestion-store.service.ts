@@ -1,17 +1,32 @@
 import { Injectable } from "@nestjs/common";
-import { HumanGmAiAssistSuggestionDto } from "@trpg/shared-types";
+import {
+  HumanGmAiAssistSuggestionDto,
+  decodeHumanGmAiAssistSuggestion,
+  isRecord,
+} from "@trpg/shared-types";
+
+const HUMAN_GM_AI_ASSIST_SUGGESTIONS_FLAG = "humanGmAiAssistSuggestions";
 
 @Injectable()
 export class SessionHumanGmAiAssistSuggestionStoreService {
-  list(flags: Record<string, unknown>): HumanGmAiAssistSuggestionDto[] {
-    const suggestions = Array.isArray(flags.humanGmAiAssistSuggestions) ? flags.humanGmAiAssistSuggestions : [];
-    return suggestions.filter((suggestion): suggestion is HumanGmAiAssistSuggestionDto => this.isSuggestion(suggestion));
+  list(flags: unknown): HumanGmAiAssistSuggestionDto[] {
+    if (!isRecord(flags)) {
+      return [];
+    }
+    const suggestions = Array.isArray(flags[HUMAN_GM_AI_ASSIST_SUGGESTIONS_FLAG])
+      ? flags[HUMAN_GM_AI_ASSIST_SUGGESTIONS_FLAG]
+      : [];
+    return suggestions.flatMap((suggestion) => this.decodeSuggestionOrEmpty(suggestion));
+  }
+
+  findById(flags: unknown, suggestionId: string): HumanGmAiAssistSuggestionDto | null {
+    return this.list(flags).find((suggestion) => suggestion.id === suggestionId) ?? null;
   }
 
   append(flags: Record<string, unknown>, suggestion: HumanGmAiAssistSuggestionDto): Record<string, unknown> {
     return {
       ...flags,
-      humanGmAiAssistSuggestions: [...this.list(flags), suggestion].slice(-100),
+      [HUMAN_GM_AI_ASSIST_SUGGESTIONS_FLAG]: [...this.list(flags), suggestion].slice(-100),
     };
   }
 
@@ -29,26 +44,15 @@ export class SessionHumanGmAiAssistSuggestionStoreService {
     );
     return {
       ...flags,
-      humanGmAiAssistSuggestions: suggestions,
+      [HUMAN_GM_AI_ASSIST_SUGGESTIONS_FLAG]: suggestions,
     };
   }
 
-  private isSuggestion(value: unknown): value is HumanGmAiAssistSuggestionDto {
-    if (!value || typeof value !== "object") {
-      return false;
+  private decodeSuggestionOrEmpty(value: unknown): HumanGmAiAssistSuggestionDto[] {
+    try {
+      return [decodeHumanGmAiAssistSuggestion(value)];
+    } catch {
+      return [];
     }
-    const candidate = value as Record<string, unknown>;
-    return (
-      typeof candidate.id === "string" &&
-      typeof candidate.assistType === "string" &&
-      typeof candidate.content === "string" &&
-      (candidate.suggestedActionId === null || typeof candidate.suggestedActionId === "string") &&
-      (candidate.targetId === null || typeof candidate.targetId === "string") &&
-      (candidate.status === "PENDING" || candidate.status === "ACCEPTED") &&
-      typeof candidate.createdByUserId === "string" &&
-      (candidate.acceptedByUserId === null || typeof candidate.acceptedByUserId === "string") &&
-      typeof candidate.createdAt === "string" &&
-      (candidate.acceptedAt === null || typeof candidate.acceptedAt === "string")
-    );
   }
 }

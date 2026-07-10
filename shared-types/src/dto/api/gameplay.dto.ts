@@ -14,7 +14,10 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Validate,
   ValidateNested,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from "class-validator";
 import {
   ActionInputType,
@@ -33,6 +36,217 @@ import {
 import { MAIN_COMMAND_CHECK_EFFECT_TYPES, VTT_CHECK_EFFECT_ACTIONS } from "../../constants/main-command-check-effects";
 import { SessionCharacterResponseDto } from "./characters.dto";
 import { VttMapStateDto } from "./sessions.dto";
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasStringField(value: Record<string, unknown>, key: string): boolean {
+  return typeof value[key] === "string" && value[key].trim().length > 0;
+}
+
+function hasOptionalNullableStringField(value: Record<string, unknown>, key: string): boolean {
+  return value[key] === undefined || value[key] === null || typeof value[key] === "string";
+}
+
+function hasOptionalStringField(value: Record<string, unknown>, key: string): boolean {
+  return value[key] === undefined || typeof value[key] === "string";
+}
+
+const mainCommandIntentValues: readonly MainCommandIntent[] = [
+  MainCommandIntent.GENERAL_GM_REQUEST,
+  MainCommandIntent.TALK_TO_NPC,
+  MainCommandIntent.SOCIAL_PERSUADE,
+  MainCommandIntent.SOCIAL_INTIMIDATE,
+  MainCommandIntent.SOCIAL_DECEIVE,
+  MainCommandIntent.READ_EMOTION,
+  MainCommandIntent.ASK_SCENE_INFO,
+  MainCommandIntent.INSPECT_STORY_OBJECT,
+  MainCommandIntent.DECLARE_RP_ACTION,
+  MainCommandIntent.ASK_HINT,
+  MainCommandIntent.ASK_SUMMARY,
+  MainCommandIntent.REQUEST_SCENE_TRANSITION,
+  MainCommandIntent.OBSERVE_AREA,
+  MainCommandIntent.INVESTIGATE_OBJECT,
+  MainCommandIntent.LISTEN,
+  MainCommandIntent.DETECT_DANGER,
+  MainCommandIntent.SPECIAL_MOVE,
+  MainCommandIntent.INTERACT_OBJECT,
+  MainCommandIntent.USE_TOOL,
+  MainCommandIntent.USE_ITEM_EXPLORE,
+  MainCommandIntent.SPLIT_PARTY_TASK,
+  MainCommandIntent.COMBAT_MANEUVER,
+  MainCommandIntent.ENVIRONMENT_USE,
+  MainCommandIntent.IMPROVISED_ATTACK,
+  MainCommandIntent.CALLED_SHOT,
+  MainCommandIntent.READY_ACTION,
+  MainCommandIntent.REACTION_REQUEST,
+  MainCommandIntent.COMBAT_TALK,
+  MainCommandIntent.USE_ITEM_COMBAT,
+  MainCommandIntent.USE_SPELL_CREATIVELY,
+  MainCommandIntent.TACTIC_QUERY,
+  MainCommandIntent.ASK_RULE,
+];
+
+const mainCommandScreenTypeValues: readonly MainCommandScreenType[] = [
+  MainCommandScreenType.STORY,
+  MainCommandScreenType.EXPLORATION,
+  MainCommandScreenType.COMBAT,
+];
+
+function isMainCommandIntent(value: unknown): value is MainCommandIntent {
+  return mainCommandIntentValues.some((entry) => entry === value);
+}
+
+function isMainCommandScreenType(value: unknown): value is MainCommandScreenType {
+  return mainCommandScreenTypeValues.some((entry) => entry === value);
+}
+
+function isMapPoint(value: unknown): value is { x: number; y: number } {
+  return (
+    isPlainRecord(value) &&
+    typeof value.x === "number" &&
+    Number.isFinite(value.x) &&
+    typeof value.y === "number" &&
+    Number.isFinite(value.y)
+  );
+}
+
+function isOptionalMapPoint(value: unknown): boolean {
+  return value === undefined || value === null || isMapPoint(value);
+}
+
+function isD20Roll(value: unknown): boolean {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20;
+}
+
+function isMainCommandCheckOption(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return true;
+  }
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  const dcOk = value.dc === undefined || (typeof value.dc === "number" && Number.isInteger(value.dc) && value.dc >= 1 && value.dc <= 40);
+  return (
+    hasOptionalStringField(value, "ability") &&
+    hasOptionalStringField(value, "skill") &&
+    dcOk &&
+    hasStringField(value, "reason")
+  );
+}
+
+function isMainCommandActionCandidate(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return true;
+  }
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  return (
+    hasStringField(value, "actorId") &&
+    hasOptionalNullableStringField(value, "targetId") &&
+    hasStringField(value, "actionSummary") &&
+    hasOptionalNullableStringField(value, "declaredMethod")
+  );
+}
+
+@ValidatorConstraint({ name: "mainCommandCheckEffect", async: false })
+class MainCommandCheckEffectConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (!isPlainRecord(value)) {
+      return false;
+    }
+
+    switch (value.type) {
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK:
+        return (
+          hasStringField(value, "requestId") &&
+          hasStringField(value, "nodeId") &&
+          hasStringField(value, "sessionCharacterId") &&
+          isMainCommandIntent(value.intent) &&
+          isMainCommandScreenType(value.screenType) &&
+          typeof value.playerText === "string" &&
+          typeof value.actionSummary === "string" &&
+          hasOptionalNullableStringField(value, "targetId") &&
+          hasOptionalNullableStringField(value, "targetName") &&
+          hasOptionalNullableStringField(value, "targetSummary") &&
+          hasOptionalNullableStringField(value, "targetDisposition") &&
+          hasOptionalNullableStringField(value, "itemId") &&
+          hasOptionalNullableStringField(value, "itemName") &&
+          isOptionalMapPoint(value.mapPoint) &&
+          isMainCommandCheckOption(value.checkOption) &&
+          Array.isArray(value.visibleEntityNames) &&
+          value.visibleEntityNames.every((entry) => typeof entry === "string") &&
+          Array.isArray(value.publicClues) &&
+          value.publicClues.every((entry) => typeof entry === "string") &&
+          typeof value.sceneText === "string" &&
+          isMainCommandActionCandidate(value.actionCandidate)
+        );
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR:
+        return (
+          hasStringField(value, "doorId") &&
+          (value.effect === VTT_CHECK_EFFECT_ACTIONS.OPEN || value.effect === VTT_CHECK_EFFECT_ACTIONS.BROKEN) &&
+          hasStringField(value, "nodeId") &&
+          isMapPoint(value.mapPoint)
+        );
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD:
+        return (
+          hasStringField(value, "hazardId") &&
+          value.effect === VTT_CHECK_EFFECT_ACTIONS.DISARM &&
+          hasStringField(value, "nodeId") &&
+          isMapPoint(value.mapPoint)
+        );
+      case MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT:
+        return (
+          hasStringField(value, "objectId") &&
+          value.effect === VTT_CHECK_EFFECT_ACTIONS.BROKEN &&
+          hasStringField(value, "nodeId") &&
+          isMapPoint(value.mapPoint)
+        );
+      default:
+        return false;
+    }
+  }
+
+  defaultMessage(): string {
+    return "effect must be a valid main-command check effect";
+  }
+}
+
+@ValidatorConstraint({ name: "mainCommandDiceResult", async: false })
+class MainCommandDiceResultConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (value === undefined || value === null) {
+      return true;
+    }
+    if (!isPlainRecord(value)) {
+      return false;
+    }
+    const expressionOk = value.expression === undefined || typeof value.expression === "string";
+    const rollsOk = Array.isArray(value.rolls) && value.rolls.length > 0 && value.rolls.every(isD20Roll);
+    const modifierOk = value.modifier === undefined || (typeof value.modifier === "number" && Number.isFinite(value.modifier));
+    const totalOk = typeof value.total === "number" && Number.isFinite(value.total);
+    const advantageOk =
+      value.advantageState === undefined ||
+      value.advantageState === DiceAdvantageState.NORMAL ||
+      value.advantageState === DiceAdvantageState.ADVANTAGE ||
+      value.advantageState === DiceAdvantageState.DISADVANTAGE;
+    const naturalRollOk = value.naturalRoll === undefined || isD20Roll(value.naturalRoll);
+    const dcOk = value.dc === undefined || (typeof value.dc === "number" && Number.isInteger(value.dc) && value.dc >= 1 && value.dc <= 40);
+    const outcomeOk =
+      value.outcome === undefined ||
+      value.outcome === ActionOutcome.SUCCESS ||
+      value.outcome === ActionOutcome.FAILURE ||
+      value.outcome === ActionOutcome.IMPOSSIBLE ||
+      value.outcome === ActionOutcome.NO_ROLL;
+    return expressionOk && rollsOk && modifierOk && totalOk && advantageOk && naturalRollOk && dcOk && outcomeOk;
+  }
+
+  defaultMessage(): string {
+    return "diceResult must be a valid dice result object";
+  }
+}
 
 export class SubmitActionDto {
   @ApiProperty()
@@ -449,7 +663,7 @@ export class MainCommandResponseDto {
   actionCandidate?: MainCommandActionCandidateDto;
 
   @ApiPropertyOptional({ type: Object, nullable: true })
-  statePatch?: Record<string, unknown> | null;
+  statePatch?: JsonObject | null;
 
   @ApiPropertyOptional({ type: MainCommandResponseDataDto, nullable: true })
   data?: MainCommandResponseDataDto | null;
@@ -462,6 +676,7 @@ export class ResolveMainCommandCheckDto {
 
   @ApiProperty({ type: Object })
   @IsObject()
+  @Validate(MainCommandCheckEffectConstraint)
   effect!: MainCommandCheckEffectDto;
 
   @ApiPropertyOptional()
@@ -481,7 +696,8 @@ export class ResolveMainCommandCheckDto {
   })
   @IsOptional()
   @IsObject()
-  diceResult?: Record<string, unknown>;
+  @Validate(MainCommandDiceResultConstraint)
+  diceResult?: TurnLogDiceResultDto;
 }
 
 export class DiceRollRequestDto {
@@ -524,6 +740,29 @@ export class DiceRollResponseDto {
   advantageState!: DiceAdvantageState;
 }
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonObject = { [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
+
+export type TurnLogDiceResultDto = {
+  expression: string;
+  rolls: number[];
+  modifier: number;
+  total: number;
+  advantageState?: DiceAdvantageState;
+  naturalRoll?: number;
+  dc?: number;
+  outcome?: ActionOutcome;
+  ability?: string;
+  skill?: string;
+  damageType?: string;
+} & { [key: string]: JsonValue | undefined };
+
+export type TurnLogStructuredActionDto = {
+  type?: string;
+} & { [key: string]: JsonValue | undefined };
+export type TurnLogStateDiffDto = StateDiffResponseDto | JsonObject;
+
 export class TurnLogResponseDto {
   @ApiProperty()
   turnLogId!: string;
@@ -553,13 +792,13 @@ export class TurnLogResponseDto {
   rawInput!: string | null;
 
   @ApiProperty({ type: Object, nullable: true })
-  structuredAction!: Record<string, unknown> | null;
+  structuredAction!: TurnLogStructuredActionDto | null;
 
   @ApiProperty({ type: Object, nullable: true })
-  diceResult!: Record<string, unknown> | null;
+  diceResult!: TurnLogDiceResultDto | null;
 
   @ApiProperty({ type: Object, nullable: true })
-  stateDiff!: Record<string, unknown> | null;
+  stateDiff!: TurnLogStateDiffDto | null;
 
   @ApiProperty({ enum: ActionOutcome })
   outcome!: ActionOutcome;
@@ -646,6 +885,17 @@ export class CombatActionResourcesDto {
   spellSlots?: Record<string, CombatSpellSlotResourceDto>;
 }
 
+export class CombatMonsterActionSaveDto {
+  @ApiProperty()
+  ability!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  dcSource!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  fixedDc?: number | null;
+}
+
 export class CombatMonsterActionOptionDto {
   @ApiProperty()
   actionId!: string;
@@ -692,8 +942,8 @@ export class CombatMonsterActionOptionDto {
   @ApiPropertyOptional({ nullable: true })
   recharge?: string | null;
 
-  @ApiPropertyOptional({ type: Object, nullable: true })
-  save?: { ability: string; dcSource: string | null; fixedDc?: number | null } | null;
+  @ApiPropertyOptional({ type: CombatMonsterActionSaveDto, nullable: true })
+  save?: CombatMonsterActionSaveDto | null;
 
   @ApiPropertyOptional({ type: [String] })
   conditionRiders?: string[];
@@ -1201,5 +1451,5 @@ export class StateDiffResponseDto {
   reason!: string;
 
   @ApiProperty({ type: Object })
-  diff!: Record<string, unknown>;
+  diff!: JsonObject;
 }

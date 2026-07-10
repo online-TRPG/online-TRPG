@@ -35,7 +35,7 @@ function splitSceneParagraphs(sceneText: string | null | undefined) {
   const paragraphs = (sceneText ?? '')
     .split(/\n{2,}|\r?\n/)
     .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
+    .filter((paragraph) => paragraph.length > 0);
 
   return paragraphs.length ? paragraphs : ['현재 장면 설명이 아직 준비되지 않았습니다.'];
 }

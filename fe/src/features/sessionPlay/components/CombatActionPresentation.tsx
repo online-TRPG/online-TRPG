@@ -81,6 +81,13 @@ function getCombatActionIconName(label: string): GameIconName | undefined {
   return combatActionIconNames[label];
 }
 
+function isMonsterActionUnavailableReason(value: unknown): value is MonsterActionUnavailableReason {
+  return (
+    value === MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED ||
+    value === MONSTER_ACTION_UNAVAILABLE_REASONS.LIMITED_USE_EXPENDED
+  );
+}
+
 export function CombatActionButtonContent({
   label,
   spellId,
@@ -109,8 +116,8 @@ export function getMonsterActionRangeLabel(action: MonsterActionPresentationInpu
 }
 
 export function getMonsterActionUnavailableLabel(action: MonsterActionPresentationInput) {
-  if (action.unavailableReason && action.unavailableReason in monsterActionUnavailableLabels) {
-    return monsterActionUnavailableLabels[action.unavailableReason as MonsterActionUnavailableReason];
+  if (isMonsterActionUnavailableReason(action.unavailableReason)) {
+    return monsterActionUnavailableLabels[action.unavailableReason];
   }
   return action.available === false ? '사용 불가' : null;
 }

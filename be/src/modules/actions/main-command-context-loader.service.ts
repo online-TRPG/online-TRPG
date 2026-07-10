@@ -7,7 +7,9 @@ import {
 } from "@prisma/client";
 import { MainCommandScreenType, ScenarioNodeType, SubmitMainCommandDto } from "@trpg/shared-types";
 import { badRequest, forbidden } from "../../common/exceptions/domain-error";
+import { parseJsonRecordOrFallback } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
+import { readCompletedCombatNodeIds } from "../sessions/session-completion-flag-store.service";
 import { SessionsService } from "../sessions/sessions.service";
 import type { LoadedContext } from "./main-commands.service";
 
@@ -162,7 +164,6 @@ export class MainCommandContextLoaderService {
     const normalized = dto.itemId.trim().toLowerCase();
     const hasItem = inventoryEntries.some((entry) =>
       [entry.id, entry.itemDefinitionId, entry.itemDefinition.id, entry.itemDefinition.name]
-        .filter((value): value is string => Boolean(value))
         .map((value) => value.trim().toLowerCase())
         .includes(normalized),
     );
@@ -180,10 +181,8 @@ export class MainCommandContextLoaderService {
       return screenType;
     }
 
-    const flags = this.parseJson<Record<string, unknown>>(flagsJson, {});
-    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
-      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
-      : [];
+    const flags = parseJsonRecordOrFallback(flagsJson);
+    const completedCombatNodeIds = readCompletedCombatNodeIds(flags);
 
     return completedCombatNodeIds.includes(nodeId) ? MainCommandScreenType.EXPLORATION : MainCommandScreenType.COMBAT;
   }
@@ -212,15 +211,4 @@ export class MainCommandContextLoaderService {
     }
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
 }

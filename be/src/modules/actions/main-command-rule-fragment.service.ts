@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 
 export type RuleFragmentSummary = {
   id: string;
@@ -33,39 +34,35 @@ export class MainCommandRuleFragmentService {
     this.ruleFragmentsCache = content
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter((line) => Boolean(line))
-      .map((line) => {
-        const parsed = this.parseJson<Record<string, unknown> | null>(line, null);
-        const id = parsed ? this.readString(parsed.id) : null;
-        const titleKo = parsed ? this.readString(parsed.titleKo) : null;
-        const summaryKo = parsed ? this.readString(parsed.summaryKo) : null;
-        if (!id || !titleKo || !summaryKo) {
-          return null;
+      .flatMap((line) => {
+        if (!line) {
+          return [];
         }
-        return {
-          id,
-          titleKo,
-          summaryKo,
-        };
-      })
-      .filter((item): item is RuleFragmentSummary => Boolean(item));
+        const item = parseJsonOrFallback(line, null, (value) => this.decodeRuleFragmentSummary(value));
+        return item ? [item] : [];
+      });
 
     return this.ruleFragmentsCache;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
-
   private readString(value: unknown): string | null {
     return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  private decodeRuleFragmentSummary(value: unknown): RuleFragmentSummary {
+    if (!this.isRecord(value)) {
+      throw new Error("rule fragment must be an object.");
+    }
+    const id = this.readString(value.id);
+    const titleKo = this.readString(value.titleKo);
+    const summaryKo = this.readString(value.summaryKo);
+    if (!id || !titleKo || !summaryKo) {
+      throw new Error("rule fragment is missing required fields.");
+    }
+    return { id, titleKo, summaryKo };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
   }
 }

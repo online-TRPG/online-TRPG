@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ActionOutcome, MainCommandNarrativeCheckEffectDto, ResolveMainCommandCheckDto } from "@trpg/shared-types";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
+import type { SanitizedMainCommandDiceResult } from "./main-command-check-result-narration.service";
 
 @Injectable()
 export class MainCommandCheckResultLogService {
@@ -16,7 +17,7 @@ export class MainCommandCheckResultLogService {
     actorUserId: string;
     dto: ResolveMainCommandCheckDto;
     effect: MainCommandNarrativeCheckEffectDto;
-    diceResult: unknown;
+    diceResult: SanitizedMainCommandDiceResult | null;
     outcome: ActionOutcome;
     narration: string;
   }): Promise<{ turnLogId: string }> {

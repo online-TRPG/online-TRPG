@@ -8,9 +8,12 @@ export class SessionPublicIdService {
 
   async ensure<T extends { id: string; publicId: string | null }>(
     session: T,
-  ): Promise<T & { publicId: string }> {
+  ): Promise<Omit<T, "publicId"> & { publicId: string }> {
     if (session.publicId) {
-      return session as T & { publicId: string };
+      return {
+        ...session,
+        publicId: session.publicId,
+      };
     }
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -21,9 +24,13 @@ export class SessionPublicIdService {
           select: { publicId: true },
         });
 
+        if (!updated.publicId) {
+          continue;
+        }
+
         return {
           ...session,
-          publicId: updated.publicId!,
+          publicId: updated.publicId,
         };
       } catch {
         // unique collision: retry with another random value

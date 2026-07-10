@@ -1,21 +1,39 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandIntent, MainCommandNarrativeCheckEffectDto } from "@trpg/shared-types";
+import {
+  ActionOutcome,
+  DiceAdvantageState,
+  MainCommandIntent,
+  MainCommandNarrativeCheckEffectDto,
+  TurnLogDiceResultDto,
+} from "@trpg/shared-types";
 import { AiService } from "../ai/ai.service";
 
 type MainCommandCheckEffect = MainCommandNarrativeCheckEffectDto;
+export type SanitizedMainCommandDiceResult = {
+  expression: string;
+  rolls: number[];
+  modifier: number;
+  total: number;
+  advantageState: DiceAdvantageState;
+  naturalRoll: number;
+  outcome: ActionOutcome;
+  dc?: number;
+};
 
 @Injectable()
 export class MainCommandCheckResultNarrationService {
   constructor(private readonly aiService: AiService) {}
 
-  sanitizeDiceResult(value: Record<string, unknown> | undefined): Record<string, unknown> | null {
+  sanitizeDiceResult(value: TurnLogDiceResultDto | undefined): SanitizedMainCommandDiceResult | null {
     if (!value || typeof value !== "object") {
       return null;
     }
 
     const rawRolls = value.rolls;
     const rolls = Array.isArray(rawRolls)
-      ? rawRolls.filter((roll): roll is number => Number.isInteger(roll) && roll >= 1 && roll <= 20)
+      ? rawRolls.flatMap((roll) =>
+          Number.isInteger(roll) && roll >= 1 && roll <= 20 ? [roll] : [],
+        )
       : [];
     const total = this.readFiniteNumber(value.total);
     const modifier = this.readFiniteNumber(value.modifier) ?? 0;
@@ -23,9 +41,10 @@ export class MainCommandCheckResultNarrationService {
     const naturalRoll = this.readFiniteNumber(value.naturalRoll) ?? rolls[0] ?? null;
     const expression = typeof value.expression === "string" && value.expression.trim() ? value.expression.trim() : "1d20";
     const advantageState =
-      value.advantageState === "ADVANTAGE" || value.advantageState === "DISADVANTAGE"
+      value.advantageState === DiceAdvantageState.ADVANTAGE ||
+      value.advantageState === DiceAdvantageState.DISADVANTAGE
         ? value.advantageState
-        : "NORMAL";
+        : DiceAdvantageState.NORMAL;
     const outcome =
       value.outcome === ActionOutcome.SUCCESS || value.outcome === ActionOutcome.FAILURE || value.outcome === ActionOutcome.IMPOSSIBLE
         ? value.outcome
@@ -42,24 +61,18 @@ export class MainCommandCheckResultNarrationService {
       total,
       advantageState,
       naturalRoll,
-      dc,
       outcome,
+      ...(dc !== null ? { dc } : {}),
     };
   }
 
-  formatRollSummary(diceResult: Record<string, unknown> | null, outcome: ActionOutcome): string | null {
+  formatRollSummary(diceResult: SanitizedMainCommandDiceResult | null, outcome: ActionOutcome): string | null {
     if (!diceResult) {
       return null;
     }
 
-    const expression = typeof diceResult.expression === "string" ? diceResult.expression : "1d20";
-    const rolls = Array.isArray(diceResult.rolls) ? diceResult.rolls.filter((roll): roll is number => typeof roll === "number") : [];
-    const total = this.readFiniteNumber(diceResult.total);
-    const modifier = this.readFiniteNumber(diceResult.modifier) ?? 0;
-    const dc = this.readFiniteNumber(diceResult.dc);
-    if (total === null || !rolls.length) {
-      return null;
-    }
+    const { expression, rolls, total, modifier } = diceResult;
+    const dc = typeof diceResult.dc === "number" ? diceResult.dc : null;
 
     const outcomeLabel =
       outcome === ActionOutcome.SUCCESS

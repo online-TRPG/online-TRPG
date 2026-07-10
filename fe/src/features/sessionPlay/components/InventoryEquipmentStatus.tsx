@@ -12,7 +12,7 @@ interface InventoryEquipmentStatusProps {
 
 function getItemSearchKey(item: InventoryItemDto) {
   return [item.id, item.itemDefinitionId, item.name, item.itemType, ...(item.properties ?? [])]
-    .filter(Boolean)
+    .flatMap((value) => (value ? [value] : []))
     .join(' ')
     .toLowerCase();
 }

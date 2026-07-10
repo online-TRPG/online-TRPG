@@ -44,12 +44,12 @@ describe("SessionHumanGmMessageStoreService", () => {
     expect(messages[49]).toEqual(next);
   });
 
-  it("preserves unrelated flags and legacy message entries", () => {
+  it("preserves unrelated flags and drops malformed legacy message entries", () => {
     const legacyMessage = { id: "legacy", content: "Legacy payload" };
     const next = createMessage("new");
 
     expect(service.append({ gmMessages: [legacyMessage], otherFlag: true }, next)).toEqual({
-      gmMessages: [legacyMessage, next],
+      gmMessages: [next],
       otherFlag: true,
     });
   });

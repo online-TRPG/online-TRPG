@@ -1,4 +1,13 @@
 import type { SrdMonsterReferenceDto } from '@trpg/shared-types';
+import {
+  decodeArray,
+  isRecord,
+  isStringArray,
+  readArray,
+  readNumber,
+  readRecord,
+  readString,
+} from '@trpg/shared-types/frontend';
 
 export interface ClassOption {
   value: string;
@@ -166,8 +175,29 @@ export interface StaticSpellCatalogEntry {
 }
 
 export interface StaticItemCatalog {
-  equipmentItems: Array<Record<string, unknown>>;
-  magicItems: Array<Record<string, unknown>>;
+  equipmentItems: StaticItemCatalogEntry[];
+  magicItems: StaticItemCatalogEntry[];
+}
+
+export interface StaticItemCatalogEntry {
+  id: string;
+  nameKo: string;
+  nameEn?: string | null;
+  kind?: string | null;
+  costRaw?: string | null;
+  weightRaw?: string | null;
+  equipmentCategory?: string | null;
+  armorCategory?: string | null;
+  weaponCategory?: string | null;
+  damageRaw?: string | null;
+  damageType?: string | null;
+  rangeRaw?: string | null;
+  propertiesRaw?: string | null;
+  rarity?: string | null;
+  requiresAttunement?: boolean | null;
+  aliasesKo?: string[];
+  sourceClassIds?: string[];
+  sourceTable?: string | null;
 }
 
 export interface StaticFeSpellPools {
@@ -260,22 +290,25 @@ function getStaticAssetUrl(relativePath: string) {
   return `${normalizedBaseUrl}${relativePath}`;
 }
 
-async function fetchStaticAsset<T>(relativePath: string): Promise<T> {
-  const cached = RAW_ASSET_CACHE.get(relativePath);
-  if (cached) {
-    return cached as Promise<T>;
+async function fetchStaticAsset<T>(relativePath: string, decode: (value: unknown) => T): Promise<T> {
+  let rawRequest = RAW_ASSET_CACHE.get(relativePath);
+  if (!rawRequest) {
+    rawRequest = fetch(getStaticAssetUrl(relativePath)).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`정적 SRD 파일을 불러오지 못했습니다. (${response.status})`);
+      }
+      const body: unknown = await response.json();
+      return body;
+    });
+    RAW_ASSET_CACHE.set(relativePath, rawRequest);
   }
 
-  const request = fetch(getStaticAssetUrl(relativePath)).then(async (response) => {
-    if (!response.ok) {
-      throw new Error(`정적 SRD 파일을 불러오지 못했습니다. (${response.status})`);
-    }
-
-    return (await response.json()) as T;
-  });
-
-  RAW_ASSET_CACHE.set(relativePath, request);
-  return request;
+  const rawValue = await rawRequest;
+  try {
+    return decode(rawValue);
+  } catch {
+    throw new Error(`정적 SRD 파일 형식이 올바르지 않습니다. (${relativePath})`);
+  }
 }
 
 export function normalizeClassValue(value: string): ClassOptionValue {
@@ -285,7 +318,7 @@ export function normalizeClassValue(value: string): ClassOptionValue {
 }
 
 export function getClassLabel(value: string) {
-  return CLASS_LABEL_MAP.get(value as ClassOptionValue) ?? LEGACY_CLASS_LABEL_MAP.get(value) ?? value;
+  return CLASS_LABEL_MAP.get(value) ?? LEGACY_CLASS_LABEL_MAP.get(value) ?? value;
 }
 
 function escapeRegExp(value: string) {
@@ -324,7 +357,7 @@ function buildClassSummary(entry: RawClassEntry) {
     subclassText ? `SRD 대표 서브클래스는 ${subclassText}입니다.` : null,
   ];
 
-  return parts.filter(Boolean).join(' ');
+  return compactStrings(parts).join(' ');
 }
 
 function normalizeSrdSummary(name: string, summary: string) {
@@ -338,8 +371,10 @@ function normalizeSrdSummary(name: string, summary: string) {
 function normalizeClassOptions(entries: RawClassEntry[]): ClassOption[] {
   const indexed = new Map(entries.map((entry) => [entry.nameEn, entry]));
 
-  return SUPPORTED_CLASS_ORDER.map((className) => indexed.get(className))
-    .filter((entry): entry is RawClassEntry => Boolean(entry))
+  return SUPPORTED_CLASS_ORDER.flatMap((className) => {
+    const entry = indexed.get(className);
+    return entry ? [entry] : [];
+  })
     .map((entry) => ({
       value: normalizeClassValue(entry.nameEn),
       label: entry.nameKo,
@@ -360,7 +395,7 @@ function normalizeClassOptions(entries: RawClassEntry[]): ClassOption[] {
       ],
       subclassRaw: entry.srdSubclassRaw ?? null,
       levelFeatureSummary: (entry.levelFeatures ?? []).map((feature) => ({
-        level: Number.parseInt(feature.level, 10) || 0,
+        level: parseClassFeatureLevel(feature.level),
         features: feature.features,
       })),
       featureReferences: (entry.featureReferences ?? []).map((feature) => ({
@@ -369,12 +404,21 @@ function normalizeClassOptions(entries: RawClassEntry[]): ClassOption[] {
         category: feature.category,
         availableAtLevels: (feature.availableAtLevels ?? [])
           .map((level) => Number.parseInt(String(level), 10))
-          .filter((level) => Number.isFinite(level)),
+          .filter((level) => Number.isInteger(level) && level >= 1 && level <= 20),
         summaryKo: normalizeSrdSummary(feature.nameKo, feature.summaryKo ?? ''),
         sourceHeading: feature.sourceHeading ?? null,
       })),
       summary: buildClassSummary(entry),
     }));
+}
+
+function parseClassFeatureLevel(value: string): number {
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return 0;
+  }
+  const level = Number.parseInt(normalized, 10);
+  return Number.isInteger(level) && level >= 1 && level <= 20 ? level : 0;
 }
 
 function parseSpeedValue(speedRaw: string) {
@@ -386,7 +430,11 @@ function splitLanguages(raw: string) {
   return raw
     .split(',')
     .map((language) => language.trim())
-    .filter(Boolean);
+    .flatMap((language) => compactStrings([language]));
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === 'string' && value.length > 0 ? [value] : []);
 }
 
 function parseAbilityBonuses(raw: string, note?: string): RaceAbilityBonus[] {
@@ -613,31 +661,392 @@ function normalizeRaceData(entries: RawRaceEntry[]): RaceData[] {
 }
 
 export async function loadClassOptions(): Promise<ClassOption[]> {
-  const payload = await fetchStaticAsset<RawClassEntry[]>('srd/classes.json');
+  const payload = await fetchStaticAsset<RawClassEntry[]>('srd/classes.json', decodeRawClassEntries);
   return normalizeClassOptions(payload);
 }
 
 export async function loadClassFeatureManifest(): Promise<CanonicalClassFeatureEntry[]> {
-  return fetchStaticAsset<CanonicalClassFeatureEntry[]>('srd/class-features.json');
+  return fetchStaticAsset<CanonicalClassFeatureEntry[]>('srd/class-features.json', decodeClassFeatureEntries);
 }
 
 export async function loadRaceData(): Promise<RaceData[]> {
-  const payload = await fetchStaticAsset<RawRaceEntry[]>('srd/races.json');
+  const payload = await fetchStaticAsset<RawRaceEntry[]>('srd/races.json', decodeRawRaceEntries);
   return normalizeRaceData(payload);
 }
 
 export async function loadMonsterCatalog(): Promise<SrdMonsterReferenceDto[]> {
-  return fetchStaticAsset<SrdMonsterReferenceDto[]>('srd/monsters.json');
+  return fetchStaticAsset<SrdMonsterReferenceDto[]>('srd/monsters.json', decodeMonsterEntries);
 }
 
 export async function loadSpellCatalog(): Promise<StaticSpellCatalogEntry[]> {
-  return fetchStaticAsset<StaticSpellCatalogEntry[]>('srd/spells.json');
+  return fetchStaticAsset<StaticSpellCatalogEntry[]>('srd/spells.json', decodeSpellEntries);
 }
 
 export async function loadFeSpellPools(): Promise<StaticFeSpellPools> {
-  return fetchStaticAsset<StaticFeSpellPools>('srd/fe-spell-pools.json');
+  return fetchStaticAsset<StaticFeSpellPools>('srd/fe-spell-pools.json', decodeFeSpellPools);
 }
 
 export async function loadItemCatalog(): Promise<StaticItemCatalog> {
-  return fetchStaticAsset<StaticItemCatalog>('srd/items.json');
+  return fetchStaticAsset<StaticItemCatalog>('srd/items.json', decodeItemCatalog);
+}
+
+function decodeRawClassEntries(value: unknown): RawClassEntry[] {
+  return decodeArray(value, decodeRawClassEntry, 'classes');
+}
+
+function readOptionalNullableString(record: Record<string, unknown>, key: string, label: string): string | null | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value === 'string') {
+    return value;
+  }
+  throw new Error(`${label} must be a string or null.`);
+}
+
+function readOptionalStringArray(record: Record<string, unknown>, key: string, label: string): string[] | undefined {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!isStringArray(value)) {
+    throw new Error(`${label} must be a string array.`);
+  }
+  return value;
+}
+
+function readStringArrayRecord(value: unknown, label: string): Record<string, string[]> {
+  const record = readRecord(value, label);
+  const result: Record<string, string[]> = {};
+  for (const [key, entryValue] of Object.entries(record)) {
+    if (!isStringArray(entryValue)) {
+      throw new Error(`${label}.${key} must be a string array.`);
+    }
+    result[key] = entryValue;
+  }
+  return result;
+}
+
+function readOptionalBooleanOrNull(value: unknown, label: string): boolean | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value === 'boolean') {
+    return value;
+  }
+  throw new Error(`${label} must be a boolean or null.`);
+}
+
+function readOptionalRawObject(value: unknown, label: string): { raw?: string | null } | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  const record = readRecord(value, label);
+  const raw = readOptionalNullableString(record, 'raw', `${label}.raw`);
+  return raw === undefined ? {} : { raw };
+}
+
+function decodeMonsterSource(value: unknown): SrdMonsterReferenceDto['source'] {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  const record = readRecord(value, 'monster.source');
+  const file = readOptionalNullableString(record, 'file', 'monster.source.file');
+  const page = readOptionalNullableString(record, 'page', 'monster.source.page');
+  const heading = readOptionalNullableString(record, 'heading', 'monster.source.heading');
+  return {
+    ...(file !== undefined ? { file: file ?? undefined } : {}),
+    ...(page !== undefined ? { page: page ?? undefined } : {}),
+    ...(heading !== undefined ? { heading: heading ?? undefined } : {}),
+  };
+}
+
+function decodeRawClassSpellcasting(value: unknown): NonNullable<RawClassEntry['spellcasting']> {
+  const record = readRecord(value, 'class.spellcasting');
+  const ability = readOptionalNullableString(record, 'ability', 'class.spellcasting.ability');
+  const formulaList = readOptionalStringArray(record, 'formulaList', 'class.spellcasting.formulaList');
+  const noteList = readOptionalStringArray(record, 'noteList', 'class.spellcasting.noteList');
+  return {
+    ...(ability !== undefined ? { ability } : {}),
+    ...(formulaList ? { formulaList } : {}),
+    ...(noteList ? { noteList } : {}),
+  };
+}
+
+function decodeRawClassLevelFeatures(value: unknown): NonNullable<RawClassEntry['levelFeatures']> {
+  return decodeArray(value, (entry) => {
+    const record = readRecord(entry, 'class.levelFeature');
+    return {
+      level: readString(record, 'level', 'class.levelFeature.level'),
+      features: readString(record, 'features', 'class.levelFeature.features'),
+    };
+  }, 'class.levelFeatures');
+}
+
+function decodeRawClassFeatureReferences(value: unknown): NonNullable<RawClassEntry['featureReferences']> {
+  return decodeArray(value, (entry) => {
+    const record = readRecord(entry, 'class.featureReference');
+    const availableAtLevels = record.availableAtLevels;
+    if (
+      availableAtLevels !== undefined &&
+      (!Array.isArray(availableAtLevels) ||
+        !availableAtLevels.every((level) => {
+          const parsedLevel = Number.parseInt(String(level), 10);
+          return Number.isInteger(parsedLevel) && parsedLevel >= 1 && parsedLevel <= 20;
+        }))
+    ) {
+      throw new Error('class.featureReference.availableAtLevels must contain class levels from 1 to 20.');
+    }
+    return {
+      id: readString(record, 'id', 'class.featureReference.id'),
+      nameKo: readString(record, 'nameKo', 'class.featureReference.nameKo'),
+      category: readString(record, 'category', 'class.featureReference.category'),
+      ...(availableAtLevels ? { availableAtLevels } : {}),
+      summaryKo: readOptionalNullableString(record, 'summaryKo', 'class.featureReference.summaryKo'),
+      sourceHeading: readOptionalNullableString(record, 'sourceHeading', 'class.featureReference.sourceHeading'),
+    };
+  }, 'class.featureReferences');
+}
+
+function decodeRawClassEntry(value: unknown): RawClassEntry {
+  const record = readRecord(value, 'class');
+  if (!isStringArray(record.startingEquipment)) {
+    throw new Error('class.startingEquipment must be a string array.');
+  }
+  const spellcasting = record.spellcasting === undefined || record.spellcasting === null
+    ? undefined
+    : decodeRawClassSpellcasting(record.spellcasting);
+  const levelFeatures = record.levelFeatures === undefined || record.levelFeatures === null
+    ? undefined
+    : decodeRawClassLevelFeatures(record.levelFeatures);
+  const featureReferences = record.featureReferences === undefined || record.featureReferences === null
+    ? undefined
+    : decodeRawClassFeatureReferences(record.featureReferences);
+  const srdSubclassRaw = readOptionalNullableString(record, 'srdSubclassRaw', 'class.srdSubclassRaw');
+  const summaryKo = readOptionalNullableString(record, 'summaryKo', 'class.summaryKo');
+
+  return {
+    id: readString(record, 'id', 'class.id'),
+    nameKo: readString(record, 'nameKo', 'class.nameKo'),
+    nameEn: readString(record, 'nameEn', 'class.nameEn'),
+    hitDieRaw: readString(record, 'hitDieRaw', 'class.hitDieRaw'),
+    primaryAbilitiesRaw: readString(record, 'primaryAbilitiesRaw', 'class.primaryAbilitiesRaw'),
+    savingThrowsRaw: readString(record, 'savingThrowsRaw', 'class.savingThrowsRaw'),
+    armorProficienciesRaw: readString(record, 'armorProficienciesRaw', 'class.armorProficienciesRaw'),
+    weaponProficienciesRaw: readString(record, 'weaponProficienciesRaw', 'class.weaponProficienciesRaw'),
+    toolProficienciesRaw: readString(record, 'toolProficienciesRaw', 'class.toolProficienciesRaw'),
+    skillChoicesRaw: readString(record, 'skillChoicesRaw', 'class.skillChoicesRaw'),
+    startingEquipment: record.startingEquipment,
+    ...(spellcasting ? { spellcasting } : {}),
+    ...(srdSubclassRaw !== undefined ? { srdSubclassRaw } : {}),
+    ...(levelFeatures ? { levelFeatures } : {}),
+    ...(featureReferences ? { featureReferences } : {}),
+    ...(summaryKo !== undefined ? { summaryKo: summaryKo ?? undefined } : {}),
+  };
+}
+
+function decodeClassFeatureEntries(value: unknown): CanonicalClassFeatureEntry[] {
+  return decodeArray(value, (entry) => {
+    const record = readRecord(entry, 'classFeature');
+    const aliases = readOptionalStringArray(record, 'aliases', 'classFeature.aliases') ?? [];
+    const availableAtLevels = record.availableAtLevels;
+    if (
+      !Array.isArray(availableAtLevels) ||
+      !availableAtLevels.every((level) => Number.isInteger(level) && level >= 1 && level <= 20)
+    ) {
+      throw new Error('classFeature.availableAtLevels must contain class levels from 1 to 20.');
+    }
+    const level = readNumber(record, 'level', 'classFeature.level');
+    if (!Number.isInteger(level) || level < 1 || level > 20) {
+      throw new Error('classFeature.level must be an integer from 1 to 20.');
+    }
+    return {
+      id: readString(record, 'id', 'classFeature.id'),
+      classKey: readString(record, 'classKey', 'classFeature.classKey'),
+      level,
+      nameKo: readString(record, 'nameKo', 'classFeature.nameKo'),
+      category: readString(record, 'category', 'classFeature.category'),
+      summaryKo: readString(record, 'summaryKo', 'classFeature.summaryKo'),
+      source: readString(record, 'source', 'classFeature.source'),
+      aliases,
+      availableAtLevels,
+    };
+  }, 'classFeatures');
+}
+
+function decodeRawRaceEntries(value: unknown): RawRaceEntry[] {
+  return decodeArray(value, (entry) => {
+    const record = readRecord(entry, 'race');
+    const traits = record.traits === undefined || record.traits === null
+      ? undefined
+      : readArray(record, 'traits', decodeRawRaceTraitEntry, 'race.traits');
+    const subraces = record.subraces === undefined || record.subraces === null
+      ? undefined
+      : readArray(record, 'subraces', decodeRawRaceSubraceEntry, 'race.subraces');
+    return {
+      id: readString(record, 'id', 'race.id'),
+      nameKo: readString(record, 'nameKo', 'race.nameKo'),
+      nameEn: readString(record, 'nameEn', 'race.nameEn'),
+      sizeRaw: readString(record, 'sizeRaw', 'race.sizeRaw'),
+      speedRaw: readString(record, 'speedRaw', 'race.speedRaw'),
+      abilityScoreIncreaseRaw: readString(record, 'abilityScoreIncreaseRaw', 'race.abilityScoreIncreaseRaw'),
+      languagesRaw: readString(record, 'languagesRaw', 'race.languagesRaw'),
+      ...(subraces ? { subraces } : {}),
+      ...(traits ? { traits } : {}),
+    };
+  }, 'races');
+}
+
+function decodeRawRaceTraitEntry(value: unknown): RawRaceTraitEntry {
+  const record = readRecord(value, 'raceTrait');
+  return {
+    nameKo: readString(record, 'nameKo', 'raceTrait.nameKo'),
+    summaryKo: readString(record, 'summaryKo', 'raceTrait.summaryKo'),
+  };
+}
+
+function decodeRawRaceSubraceEntry(value: unknown): RawRaceSubraceEntry {
+  const record = readRecord(value, 'raceSubrace');
+  return {
+    id: readString(record, 'id', 'raceSubrace.id'),
+    nameKo: readString(record, 'nameKo', 'raceSubrace.nameKo'),
+    abilityScoreIncreaseRaw: readString(record, 'abilityScoreIncreaseRaw', 'raceSubrace.abilityScoreIncreaseRaw'),
+  };
+}
+
+function decodeMonsterEntries(value: unknown): SrdMonsterReferenceDto[] {
+  return decodeArray(value, (entry) => {
+    const record = readRecord(entry, 'monster');
+    const source = decodeMonsterSource(record.source);
+    return {
+      id: readString(record, 'id', 'monster.id'),
+      nameEn: readString(record, 'nameEn', 'monster.nameEn'),
+      nameKo: readOptionalNullableString(record, 'nameKo', 'monster.nameKo'),
+      basicRaw: readString(record, 'basicRaw', 'monster.basicRaw'),
+      armorClassRaw: readOptionalNullableString(record, 'armorClassRaw', 'monster.armorClassRaw'),
+      hitPointsRaw: readOptionalNullableString(record, 'hitPointsRaw', 'monster.hitPointsRaw'),
+      speedRaw: readOptionalNullableString(record, 'speedRaw', 'monster.speedRaw'),
+      challengeRaw: readOptionalNullableString(record, 'challengeRaw', 'monster.challengeRaw'),
+      sensesRaw: readOptionalNullableString(record, 'sensesRaw', 'monster.sensesRaw'),
+      languagesRaw: readOptionalNullableString(record, 'languagesRaw', 'monster.languagesRaw'),
+      traits: readOptionalStringArray(record, 'traits', 'monster.traits') ?? [],
+      actions: readOptionalStringArray(record, 'actions', 'monster.actions') ?? [],
+      legendaryActions: readOptionalStringArray(record, 'legendaryActions', 'monster.legendaryActions') ?? [],
+      playReference: readOptionalNullableString(record, 'playReference', 'monster.playReference'),
+      ...(source !== undefined ? { source } : {}),
+    };
+  }, 'monsters');
+}
+
+function decodeSpellEntries(value: unknown): StaticSpellCatalogEntry[] {
+  return decodeArray(value, (entry) => {
+    const record = readRecord(entry, 'spell');
+    const ritual = record.ritual;
+    if (typeof ritual !== 'boolean') {
+      throw new Error('spell.ritual must be a boolean.');
+    }
+    return {
+      id: readString(record, 'id', 'spell.id'),
+      nameEn: readString(record, 'nameEn', 'spell.nameEn'),
+      nameKo: readOptionalNullableString(record, 'nameKo', 'spell.nameKo'),
+      level: readNumber(record, 'level', 'spell.level'),
+      schoolKo: readString(record, 'schoolKo', 'spell.schoolKo'),
+      ritual,
+      castingTime: readOptionalRawObject(record.castingTime, 'spell.castingTime'),
+      range: readOptionalRawObject(record.range, 'spell.range'),
+      components: readOptionalRawObject(record.components, 'spell.components'),
+      duration: readOptionalRawObject(record.duration, 'spell.duration'),
+      concentration: readOptionalBooleanOrNull(record.concentration, 'spell.concentration'),
+      playReference: readString(record, 'playReference', 'spell.playReference'),
+      higherLevel: readOptionalNullableString(record, 'higherLevel', 'spell.higherLevel'),
+      scaling: readOptionalNullableString(record, 'scaling', 'spell.scaling'),
+    };
+  }, 'spells');
+}
+
+function decodeFeSpellPools(value: unknown): StaticFeSpellPools {
+  const record = readRecord(value, 'feSpellPools');
+  const characterBuilder = readRecord(record.characterBuilder, 'feSpellPools.characterBuilder');
+  const quickCreate = readRecord(record.quickCreate, 'feSpellPools.quickCreate');
+  if (!isStringArray(characterBuilder.cantrips)) {
+    throw new Error('feSpellPools.characterBuilder.cantrips must be a string array.');
+  }
+  if (!isRecord(characterBuilder.slotSpellsByLevel)) {
+    throw new Error('feSpellPools.characterBuilder.slotSpellsByLevel must be an object.');
+  }
+  if (!isStringArray(quickCreate.cantrips) || !isStringArray(quickCreate.level1SlotSpells)) {
+    throw new Error('feSpellPools.quickCreate spell lists must be string arrays.');
+  }
+  return {
+    characterBuilder: {
+      cantrips: characterBuilder.cantrips,
+      slotSpellsByLevel: readStringArrayRecord(characterBuilder.slotSpellsByLevel, 'feSpellPools.characterBuilder.slotSpellsByLevel'),
+    },
+    quickCreate: {
+      cantrips: quickCreate.cantrips,
+      level1SlotSpells: quickCreate.level1SlotSpells,
+      level5SlotSpellsByClass: readStringArrayRecord(quickCreate.level5SlotSpellsByClass, 'feSpellPools.quickCreate.level5SlotSpellsByClass'),
+      level7SlotSpellsByClass: readStringArrayRecord(quickCreate.level7SlotSpellsByClass, 'feSpellPools.quickCreate.level7SlotSpellsByClass'),
+    },
+  };
+}
+
+function decodeItemCatalog(value: unknown): StaticItemCatalog {
+  const record = readRecord(value, 'itemCatalog');
+  if (!Array.isArray(record.equipmentItems) || !Array.isArray(record.magicItems)) {
+    throw new Error('itemCatalog item groups must be arrays.');
+  }
+  return {
+    equipmentItems: decodeArray(record.equipmentItems, decodeItemCatalogEntry, 'itemCatalog.equipmentItems'),
+    magicItems: decodeArray(record.magicItems, decodeItemCatalogEntry, 'itemCatalog.magicItems'),
+  };
+}
+
+function decodeItemCatalogEntry(value: unknown): StaticItemCatalogEntry {
+  const record = readRecord(value, 'itemCatalog.item');
+  const optionalString = (key: string) => readOptionalNullableString(record, key, `itemCatalog.item.${key}`);
+  const nameEn = optionalString('nameEn');
+  const kind = optionalString('kind');
+  const costRaw = optionalString('costRaw');
+  const weightRaw = optionalString('weightRaw');
+  const equipmentCategory = optionalString('equipmentCategory');
+  const armorCategory = optionalString('armorCategory');
+  const weaponCategory = optionalString('weaponCategory');
+  const damageRaw = optionalString('damageRaw');
+  const damageType = optionalString('damageType');
+  const rangeRaw = optionalString('rangeRaw');
+  const propertiesRaw = optionalString('propertiesRaw');
+  const rarity = optionalString('rarity');
+  const aliasesKo = readOptionalStringArray(record, 'aliasesKo', 'itemCatalog.item.aliasesKo');
+  const sourceClassIds = readOptionalStringArray(record, 'sourceClassIds', 'itemCatalog.item.sourceClassIds');
+  const requiresAttunement = readOptionalBooleanOrNull(record.requiresAttunement, 'itemCatalog.item.requiresAttunement');
+  const sourceTable = optionalString('sourceTable');
+
+  return {
+    id: readString(record, 'id', 'itemCatalog.item.id'),
+    nameKo: readString(record, 'nameKo', 'itemCatalog.item.nameKo'),
+    ...(nameEn !== undefined ? { nameEn } : {}),
+    ...(kind !== undefined ? { kind } : {}),
+    ...(costRaw !== undefined ? { costRaw } : {}),
+    ...(weightRaw !== undefined ? { weightRaw } : {}),
+    ...(equipmentCategory !== undefined ? { equipmentCategory } : {}),
+    ...(armorCategory !== undefined ? { armorCategory } : {}),
+    ...(weaponCategory !== undefined ? { weaponCategory } : {}),
+    ...(damageRaw !== undefined ? { damageRaw } : {}),
+    ...(damageType !== undefined ? { damageType } : {}),
+    ...(rangeRaw !== undefined ? { rangeRaw } : {}),
+    ...(propertiesRaw !== undefined ? { propertiesRaw } : {}),
+    ...(rarity !== undefined ? { rarity } : {}),
+    ...(requiresAttunement !== undefined ? { requiresAttunement } : {}),
+    ...(aliasesKo ? { aliasesKo } : {}),
+    ...(sourceClassIds ? { sourceClassIds } : {}),
+    ...(sourceTable !== undefined ? { sourceTable } : {}),
+  };
 }

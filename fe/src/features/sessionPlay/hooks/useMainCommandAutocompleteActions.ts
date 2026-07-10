@@ -30,6 +30,12 @@ type UseMainCommandAutocompleteActionsParams = {
   ) => void;
 };
 
+function isMainCommandAutocompleteNavigationKey(
+  key: string,
+): key is MainCommandAutocompleteNavigationKey {
+  return key === 'ArrowDown' || key === 'ArrowUp' || key === 'Home' || key === 'End';
+}
+
 export function useMainCommandAutocompleteActions(
   params: UseMainCommandAutocompleteActionsParams,
 ) {
@@ -75,16 +81,11 @@ export function useMainCommandAutocompleteActions(
       return;
     }
 
-    if (
-      event.key === 'ArrowDown' ||
-      event.key === 'ArrowUp' ||
-      event.key === 'Home' ||
-      event.key === 'End'
-    ) {
+    if (isMainCommandAutocompleteNavigationKey(event.key)) {
       event.preventDefault();
-      const key = event.key as MainCommandAutocompleteNavigationKey;
+      const navigationKey = event.key;
       setMainCommandAutocompleteIndex((current) =>
-        getNextMainCommandAutocompleteIndex(current, commandEntries.length, key),
+        getNextMainCommandAutocompleteIndex(current, commandEntries.length, navigationKey),
       );
       return;
     }

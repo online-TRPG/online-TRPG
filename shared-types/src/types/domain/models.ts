@@ -15,6 +15,11 @@ import type {
   UserRole,
 } from "../../constants/enums";
 import type { AbilityScores, InventoryItem } from "../common/ability-scores";
+import type {
+  ScenarioCheckOptionDto,
+  ScenarioClueDto,
+  ScenarioTransitionDto,
+} from "../../dto/api/scenarios.dto";
 
 export type UserModel = {
   id: string;
@@ -167,9 +172,9 @@ export type ScenarioNodeModel = {
   title: string;
   sceneText: string;
   imageUrl?: string | null;
-  checkOptions: Record<string, unknown>[];
-  transitions: Record<string, unknown>[];
-  clues: Record<string, unknown>[];
+  checkOptions: ScenarioCheckOptionDto[];
+  transitions: ScenarioTransitionDto[];
+  clues: ScenarioClueDto[];
   fallbackNodeId?: string | null;
 };
 

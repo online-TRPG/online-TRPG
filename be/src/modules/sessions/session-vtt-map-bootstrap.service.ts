@@ -61,7 +61,9 @@ export class SessionVttMapBootstrapService {
     });
     const preservedTokens = existingTokens.filter((token) => !token.sessionCharacterId).slice(0, 68);
     const existingPlayerTokenByCharacterId = new Map(
-      existingTokens.filter((token) => token.sessionCharacterId).map((token) => [token.sessionCharacterId as string, token]),
+      existingTokens.flatMap((token) =>
+        typeof token.sessionCharacterId === "string" ? [[token.sessionCharacterId, token] as const] : [],
+      ),
     );
 
     const playerTokens = sessionCharacters.slice(0, 12).map((sessionCharacter, index) => {

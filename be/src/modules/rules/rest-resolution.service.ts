@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { ConditionRuntimeService } from "./condition-runtime.service";
+import { isRecord } from "@trpg/shared-types";
+import { ConditionRuntimeService, type ConditionStateEntry } from "./condition-runtime.service";
 
 export type RestType = "short" | "long";
 
@@ -18,7 +19,7 @@ export type RestResolutionInput = {
   currentHp: number;
   maxHp: number;
   tempHp?: number | null;
-  conditions?: unknown[];
+  conditions?: ConditionStateEntry[];
   resource?: RestResourceState | null;
   resourceMaximums?: {
     secondWindAvailable?: boolean;
@@ -45,7 +46,7 @@ export type RestResolution = {
     maxHp: number;
     tempHp: number;
   };
-  conditions: unknown[];
+  conditions: ConditionStateEntry[];
   resource: {
     secondWindAvailable: boolean;
     actionSurgeUses: number;
@@ -353,10 +354,10 @@ export class RestResolutionService {
   }
 
   private removeRecoveredConditions(
-    conditions: unknown[],
+    conditions: ConditionStateEntry[],
     restType: RestType,
     recoveredTags: string[],
-  ): unknown[] {
+  ): ConditionStateEntry[] {
     const recovered = new Set(recoveredTags);
     return conditions.filter((condition) => {
       if (typeof condition === "string") {
@@ -404,10 +405,10 @@ export class RestResolutionService {
         }
         return !recovered.has(condition);
       }
-      if (!condition || typeof condition !== "object") {
+      if (!isRecord(condition)) {
         return true;
       }
-      const record = condition as Record<string, unknown>;
+      const record = condition;
       const parsed = this.conditionRuntime.parseConditionsJson(JSON.stringify([record]))[0];
       if (
         parsed &&
@@ -429,17 +430,17 @@ export class RestResolutionService {
   }
 
   private hasConditionTag(
-    conditions: unknown[] | undefined,
+    conditions: ConditionStateEntry[] | undefined,
     expected: string,
   ): boolean {
     return (conditions ?? []).some((condition) => {
       if (typeof condition === "string") {
         return condition === expected;
       }
-      if (!condition || typeof condition !== "object") {
+      if (!isRecord(condition)) {
         return false;
       }
-      const record = condition as Record<string, unknown>;
+      const record = condition;
       return (
         record.conditionId === expected ||
         (Array.isArray(record.tags) && record.tags.includes(expected))
@@ -448,17 +449,17 @@ export class RestResolutionService {
   }
 
   private hasConditionPrefix(
-    conditions: unknown[] | undefined,
+    conditions: ConditionStateEntry[] | undefined,
     prefix: string,
   ): boolean {
     return (conditions ?? []).some((condition) => {
       if (typeof condition === "string") {
         return condition.startsWith(prefix);
       }
-      if (!condition || typeof condition !== "object") {
+      if (!isRecord(condition)) {
         return false;
       }
-      const record = condition as Record<string, unknown>;
+      const record = condition;
       return (
         (typeof record.conditionId === "string" &&
           record.conditionId.startsWith(prefix)) ||

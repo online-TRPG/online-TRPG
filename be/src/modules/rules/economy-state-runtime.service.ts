@@ -1,8 +1,22 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, StateDiffResponseDto, TurnLogResponseDto } from "@trpg/shared-types";
+import {
+  ActionOutcome,
+  StateDiffResponseDto,
+  TurnLogResponseDto,
+  decodeStateDiffResponse,
+  decodeTurnLogDiceResult,
+  decodeTurnLogStateDiff,
+  decodeTurnLogStructuredAction,
+  isRecord,
+} from "@trpg/shared-types";
 import { ActionOutcome as PrismaActionOutcome } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { notFound } from "../../common/exceptions/domain-error";
+import {
+  parseJsonOrFallback,
+  parseJsonRecordOrFallback,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { EconomyResolution, EconomyState } from "./economy-runtime.service";
 
 export const ECONOMY_FLAGS_KEY = "economy";
@@ -47,12 +61,12 @@ export class EconomyStateRuntimeService {
 
       const baseVersion = gameState.version;
       const nextVersion = baseVersion + 1;
-      const flags = this.parseFlags(gameState.flagsJson);
+      const flags = this.parseFlagsForMutation(gameState.flagsJson);
       const nextFlags = {
         ...flags,
         [ECONOMY_FLAGS_KEY]: params.resolution.state,
       };
-      const stateDiff: StateDiffResponseDto = {
+      const stateDiff: StateDiffResponseDto = decodeStateDiffResponse({
         baseVersion,
         nextVersion,
         reason: params.reason ?? `economy:${params.resolution.auditEvent.type}`,
@@ -62,7 +76,7 @@ export class EconomyStateRuntimeService {
             auditEvent: params.resolution.auditEvent,
           },
         },
-      };
+      });
 
       const created = await tx.turnLog.create({
         data: {
@@ -72,12 +86,12 @@ export class EconomyStateRuntimeService {
           sessionCharacterId: params.sessionCharacterId ?? params.resolution.auditEvent.sessionCharacterId ?? null,
           turnNumber: (latest?.turnNumber ?? 0) + 1,
           rawInput: params.rawInput ?? `/economy ${params.resolution.auditEvent.type}`,
-          structuredActionJson: JSON.stringify({
+          structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction({
             type: "economy",
             economyAction: params.resolution.auditEvent.type,
             auditEvent: params.resolution.auditEvent,
-          }),
-          stateDiffJson: JSON.stringify(stateDiff),
+          })),
+          stateDiffJson: JSON.stringify(decodeTurnLogStateDiff(stateDiff)),
           outcome: PrismaActionOutcome.SUCCESS,
           narration: params.narration ?? this.createNarration(params.resolution),
         },
@@ -111,7 +125,7 @@ export class EconomyStateRuntimeService {
   }
 
   readEconomyStateFromFlags(flagsJson: string | null | undefined): EconomyState | null {
-    const flags = this.parseFlags(flagsJson);
+    const flags = this.parseFlagsForRead(flagsJson);
     return this.isEconomyState(flags[ECONOMY_FLAGS_KEY]) ? flags[ECONOMY_FLAGS_KEY] : null;
   }
 
@@ -146,39 +160,129 @@ export class EconomyStateRuntimeService {
       actionCreatedAt: null,
       actionQueueStatus: null,
       rawInput: row.rawInput,
-      structuredAction: this.parseJson<Record<string, unknown> | null>(row.structuredActionJson, null),
-      diceResult: this.parseJson<Record<string, unknown> | null>(row.diceResultJson, null),
-      stateDiff: this.parseJson<Record<string, unknown> | null>(row.stateDiffJson, null),
-      outcome: row.outcome as ActionOutcome,
+      structuredAction: parseJsonOrFallback(row.structuredActionJson, null, decodeTurnLogStructuredAction),
+      diceResult: parseJsonOrFallback(row.diceResultJson, null, decodeTurnLogDiceResult),
+      stateDiff: parseJsonOrFallback(row.stateDiffJson, null, decodeTurnLogStateDiff),
+      outcome: this.toSharedOutcome(row.outcome),
       narration: row.narration,
       createdAt: row.createdAt.toISOString(),
     };
   }
 
-  private parseFlags(flagsJson: string | null | undefined): Record<string, unknown> {
-    return this.parseJson<Record<string, unknown>>(flagsJson, {});
+  private parseFlagsForRead(flagsJson: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrFallback(flagsJson);
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) return fallback;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
+  private parseFlagsForMutation(flagsJson: string | null | undefined): Record<string, unknown> {
+    return parseJsonRecordOrThrow(flagsJson, {}, "gameState.flagsJson");
+  }
+
+  private toSharedOutcome(value: PrismaActionOutcome): ActionOutcome {
+    switch (value) {
+      case PrismaActionOutcome.SUCCESS:
+        return ActionOutcome.SUCCESS;
+      case PrismaActionOutcome.FAILURE:
+        return ActionOutcome.FAILURE;
+      case PrismaActionOutcome.IMPOSSIBLE:
+        return ActionOutcome.IMPOSSIBLE;
+      case PrismaActionOutcome.NO_ROLL:
+        return ActionOutcome.NO_ROLL;
     }
   }
 
   private isEconomyState(value: unknown): value is EconomyState {
-    if (!value || typeof value !== "object") return false;
-    const candidate = value as Partial<EconomyState>;
+    if (!isRecord(value)) return false;
+    const candidate = value;
     return (
       Array.isArray(candidate.partyStash) &&
-      typeof candidate.walletsBySessionCharacterId === "object" &&
-      candidate.walletsBySessionCharacterId !== null &&
-      typeof candidate.shopStatesById === "object" &&
-      candidate.shopStatesById !== null &&
-      typeof candidate.craftingProgressById === "object" &&
-      candidate.craftingProgressById !== null
+      candidate.partyStash.every((item) => this.isEconomyInventoryItem(item)) &&
+      this.isRecordOf(candidate.walletsBySessionCharacterId, (wallet) => this.isCurrencyWallet(wallet)) &&
+      this.isRecordOf(candidate.shopStatesById, (shop) => this.isShopState(shop)) &&
+      this.isRecordOf(candidate.craftingProgressById, (progress) => this.isCraftingProgress(progress)) &&
+      (
+        candidate.downtimeCompletionsById === undefined ||
+        this.isRecordOf(candidate.downtimeCompletionsById, (completion) => isRecord(completion))
+      )
     );
+  }
+
+  private isRecordOf(value: unknown, isValidValue: (entry: unknown) => boolean): value is Record<string, unknown> {
+    return isRecord(value) && Object.values(value).every(isValidValue);
+  }
+
+  private isCurrencyWallet(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return ["cp", "sp", "ep", "gp", "pp"].every((key) => value[key] === undefined || this.isFiniteNumber(value[key]));
+  }
+
+  private isEconomyInventoryItem(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.itemDefinitionId === "string" &&
+      this.isPositiveInteger(value.quantity) &&
+      (value.identified === undefined || typeof value.identified === "boolean") &&
+      (value.damaged === undefined || typeof value.damaged === "boolean") &&
+      (value.attunedBySessionCharacterId === undefined ||
+        value.attunedBySessionCharacterId === null ||
+        typeof value.attunedBySessionCharacterId === "string") &&
+      (value.chargesRemaining === undefined ||
+        value.chargesRemaining === null ||
+        this.isNonNegativeInteger(value.chargesRemaining))
+    );
+  }
+
+  private isShopInventoryItem(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.itemDefinitionId === "string" &&
+      this.isPositiveInteger(value.quantity) &&
+      this.isNonNegativeNumber(value.priceGp) &&
+      (value.buyLimit === undefined || value.buyLimit === null || this.isNonNegativeInteger(value.buyLimit)) &&
+      (value.requiresApproval === undefined || typeof value.requiresApproval === "boolean")
+    );
+  }
+
+  private isShopState(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.shopId === "string" &&
+      Array.isArray(value.inventory) &&
+      value.inventory.every((item) => this.isShopInventoryItem(item)) &&
+      (value.sellPriceMultiplier === undefined || this.isPositiveNumber(value.sellPriceMultiplier))
+    );
+  }
+
+  private isCraftingProgress(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return (
+      typeof value.craftingId === "string" &&
+      typeof value.recipeId === "string" &&
+      typeof value.sessionCharacterId === "string" &&
+      typeof value.outputItemDefinitionId === "string" &&
+      this.isPositiveInteger(value.outputQuantity) &&
+      this.isNonNegativeNumber(value.completedHours) &&
+      this.isPositiveNumber(value.requiredHours) &&
+      (value.status === "in_progress" || value.status === "completed")
+    );
+  }
+
+  private isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+
+  private isNonNegativeNumber(value: unknown): value is number {
+    return this.isFiniteNumber(value) && value >= 0;
+  }
+
+  private isPositiveNumber(value: unknown): value is number {
+    return this.isFiniteNumber(value) && value > 0;
+  }
+
+  private isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  }
+
+  private isPositiveInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value >= 1;
   }
 }

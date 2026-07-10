@@ -1,8 +1,6 @@
-import { useMemo } from 'react';
 import { isEndedCombatStatus } from '@trpg/shared-types/frontend';
 import type { CombatResponseDto } from '@trpg/shared-types';
 import type { PlayerScenarioNode } from '../../../types/session';
-import { getCompletedCombatNodeIds } from '../utils/combatResultPresentation';
 import {
   MainCommandScreenTypeValues,
   getMainCommandScreenTypeFromNodeType,
@@ -14,7 +12,7 @@ type UsePlayNodeModeProjectionParams = {
   sessionId?: string | null;
   sessionExists: boolean;
   isRecruiting: boolean;
-  stateFlags?: Record<string, unknown>;
+  completedCombatNodeIds: ReadonlySet<string>;
 };
 
 export function usePlayNodeModeProjection(params: UsePlayNodeModeProjectionParams) {
@@ -24,13 +22,9 @@ export function usePlayNodeModeProjection(params: UsePlayNodeModeProjectionParam
     sessionId,
     sessionExists,
     isRecruiting,
-    stateFlags,
+    completedCombatNodeIds,
   } = params;
 
-  const completedCombatNodeIds = useMemo(
-    () => getCompletedCombatNodeIds(stateFlags),
-    [stateFlags],
-  );
   const isCompletedCombatNode = Boolean(
     currentNode?.nodeType === 'combat' &&
       currentNode.id &&

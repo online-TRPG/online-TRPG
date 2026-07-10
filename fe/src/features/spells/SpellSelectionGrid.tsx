@@ -225,7 +225,7 @@ export function SpellSelectionGrid({
             const selected = !readOnly && selectedSet.has(option.id);
             const locked = !readOnly && !selected && selectedCount >= selectionLimit;
             const tooltipId = `${title.replace(/\s+/g, '-')}-${option.id.replace(/[^a-z0-9_-]/gi, '-')}-tooltip`;
-            const detailSpecs = option.detail?.specs?.filter(Boolean) ?? [];
+            const detailSpecs = option.detail?.specs?.filter((spec) => spec.trim().length > 0) ?? [];
             const hasDetail = Boolean(
               detailSpecs.length ||
                 option.detail?.summary ||
@@ -252,7 +252,7 @@ export function SpellSelectionGrid({
                   selected ? 'is-selected' : '',
                   readOnly ? 'is-read-only' : '',
                   locked ? 'is-disabled' : '',
-                ].filter(Boolean).join(' ')}
+                ].filter((className) => className.length > 0).join(' ')}
                 aria-pressed={readOnly ? undefined : selected}
                 aria-describedby={hasDetail ? tooltipId : undefined}
                 disabled={disabled || locked}

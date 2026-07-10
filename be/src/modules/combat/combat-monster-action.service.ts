@@ -5,10 +5,6 @@ import type { CombatMonsterActionOptionDto, VttMapStateDto } from "@trpg/shared-
 import { unprocessable } from "../../common/exceptions/domain-error";
 import { MonsterAbilityService } from "../rules/monster-ability.service";
 import { CombatMonsterResourceService } from "./combat-monster-resource.service";
-import {
-  MONSTER_LIMITED_USE_EXPENDED_FLAG,
-  MONSTER_RECHARGE_EXPENDED_FLAG,
-} from "./combat-runtime-flags.constants";
 import { CombatMovementService } from "./combat-movement.service";
 import { SrdEngineLoaderService } from "./srd-engine-loader.service";
 import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
@@ -219,18 +215,14 @@ export class CombatMonsterActionService {
     action: SrdEngineExecutableMonsterAction,
     flags: Record<string, unknown>,
   ): string | null {
-    const rechargeExpended = this.combatMonsterResources.parseMonsterRechargeExpended(
-      flags[MONSTER_RECHARGE_EXPENDED_FLAG],
-    );
+    const rechargeExpended = this.combatMonsterResources.readMonsterRechargeExpendedFromFlags(flags);
     if (this.combatMonsterResources.isRechargeMonsterAction(action) && rechargeExpended[participant.id]?.[action.actionId]) {
       return MONSTER_ACTION_UNAVAILABLE_REASONS.RECHARGE_EXPENDED;
     }
 
     const limitedUseLimit = this.combatMonsterResources.resolveMonsterLimitedUseLimit(action);
     if (limitedUseLimit !== null) {
-      const limitedUseExpended = this.combatMonsterResources.parseMonsterLimitedUseExpended(
-        flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
-      );
+      const limitedUseExpended = this.combatMonsterResources.readMonsterLimitedUseExpendedFromFlags(flags);
       const used = this.combatMonsterResources.extractMonsterLimitedUseUsed(
         limitedUseExpended[participant.id]?.[action.actionId],
       );

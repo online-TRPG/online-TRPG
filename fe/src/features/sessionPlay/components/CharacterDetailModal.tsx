@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SessionCharacterResponseDto } from '@trpg/shared-types';
+import type { InventoryItemDto, SessionCharacterResponseDto } from '@trpg/shared-types';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -16,9 +16,13 @@ import './StoryNodeSurface.css';
 interface CharacterDetailModalProps {
   character: SessionCharacterResponseDto;
   onClose: () => void;
-  onEquipInventoryItem?: (item: SessionCharacterResponseDto['inventory'][number]) => void;
+  onEquipInventoryItem?: (item: CharacterDetailEquipmentActionItem) => void;
   isEquipmentBusy?: boolean;
 }
+
+type CharacterDetailEquipmentActionItem = InventoryItemDto & {
+  __equipmentDisplayState?: 'equipped' | 'available';
+};
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 
@@ -362,10 +366,10 @@ export function CharacterDetailModal({
                   const isEquipped =
                     equipmentDisplayState === 'equipped' ||
                     Boolean(isBodyArmor);
-                  const equipmentActionItem = {
+                  const equipmentActionItem: CharacterDetailEquipmentActionItem = {
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
-                  } as SessionCharacterResponseDto['inventory'][number];
+                  };
                   const itemDisplayName = getUserFacingItemName(item);
                   return (
                     <article
@@ -444,7 +448,7 @@ function isWeaponItem(item: SessionCharacterResponseDto['inventory'][number]) {
 
 function getItemSearchKey(item: SessionCharacterResponseDto['inventory'][number]) {
   return [item.id, item.itemDefinitionId, item.name, item.itemType, ...(item.properties ?? [])]
-    .filter(Boolean)
+    .flatMap((value) => (value ? [value] : []))
     .join(' ')
     .toLowerCase();
 }

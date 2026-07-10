@@ -1,15 +1,30 @@
 import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./httpClient";
-import type {
-  ActionAcceptedEventDto,
-  CombatReactionPromptDto,
-  CombatResponseDto,
-  DiceRollResponseDto,
-  StateDiffResponseDto,
-  SystemMessageEventDto,
-  TurnLogResponseDto,
-  VttMapStateDto,
+import {
+  type ActionAcceptedEventDto,
+  type CombatReactionPromptDto,
+  type CombatResponseDto,
+  type DiceRollResponseDto,
+  type SessionSnapshotDto,
+  type StateDiffResponseDto,
+  type SystemMessageEventDto,
+  type TurnLogResponseDto,
+  type VttMapStateDto,
 } from "@trpg/shared-types";
+import {
+  decodeActionAcceptedEvent,
+  decodeCharacterUpdatedEvent,
+  decodeChatMessageEventPayload,
+  decodeCombatReactionPromptEvent,
+  decodeCombatUpdatedEvent,
+  decodeDiceRolledEvent,
+  decodeParticipantUpdatedEvent,
+  decodeSessionSnapshotEvent,
+  decodeStateDiffAppliedEvent,
+  decodeSystemMessageEvent,
+  decodeTurnLogCreatedEvent,
+  decodeVttMapUpdatedEvent,
+} from "@trpg/shared-types/frontend";
 import type { Character, ChatMessage, Participant, SessionSnapshot, StoredUser } from "../types/session";
 import { normalizeSessionSnapshot } from "../types/session";
 
@@ -62,63 +77,63 @@ export function connectSessionSocket(
     handlers.onLog("Realtime error", error.message);
   });
 
-  socket.on("session.snapshot", (payload: { snapshot: SessionSnapshot }) => {
+  safeSocketOn(socket, "session.snapshot", decodeSessionSnapshotPayload, (payload) => {
     handlers.onSnapshot(normalizeSessionSnapshot(payload.snapshot));
     handlers.onLog("Session synced", "Loaded the latest room snapshot.");
-  });
+  }, handlers);
 
-  socket.on("participant.updated", (payload: { participant: Participant }) => {
+  safeSocketOn(socket, "participant.updated", decodeParticipantUpdatedPayload, (payload) => {
     handlers.onParticipantUpdated(payload.participant);
     handlers.onLog(
       "Participant updated",
       `${payload.participant.user.displayName} participant state changed.`,
     );
-  });
+  }, handlers);
 
-  socket.on("character.updated", (payload: { character: Character }) => {
+  safeSocketOn(socket, "character.updated", decodeCharacterUpdatedPayload, (payload) => {
     handlers.onCharacterUpdated(payload.character);
     handlers.onLog("Character updated", `${payload.character.name} stats were refreshed.`);
-  });
+  }, handlers);
 
-  socket.on("chat.message", (payload: { message: ChatMessage }) => {
+  safeSocketOn(socket, "chat.message", decodeChatMessagePayload, (payload) => {
     handlers.onChatMessage(payload.message);
-  });
+  }, handlers);
 
-  socket.on("action.accepted", (payload: ActionAcceptedEventDto) => {
+  safeSocketOn(socket, "action.accepted", decodeActionAcceptedPayload, (payload) => {
     handlers.onActionAccepted(payload);
-  });
+  }, handlers);
 
-  socket.on("turn.log.created", (payload: { turnLog: TurnLogResponseDto }) => {
+  safeSocketOn(socket, "turn.log.created", decodeTurnLogCreatedPayload, (payload) => {
     handlers.onTurnLogCreated(payload.turnLog);
-  });
+  }, handlers);
 
-  socket.on("system.message", (payload: SystemMessageEventDto) => {
+  safeSocketOn(socket, "system.message", decodeSystemMessagePayload, (payload) => {
     handlers.onSystemMessage(payload);
-  });
+  }, handlers);
 
-  socket.on("dice.rolled", (payload: { diceResult: DiceRollResponseDto }) => {
+  safeSocketOn(socket, "dice.rolled", decodeDiceRolledPayload, (payload) => {
     handlers.onDiceRolled(payload.diceResult);
-  });
+  }, handlers);
 
-  socket.on("state.diff.applied", (payload: { stateDiff: StateDiffResponseDto }) => {
+  safeSocketOn(socket, "state.diff.applied", decodeStateDiffPayload, (payload) => {
     handlers.onStateDiffApplied(payload.stateDiff);
-  });
+  }, handlers);
 
-  socket.on("vtt.map.updated", (payload: { map: VttMapStateDto }) => {
+  safeSocketOn(socket, "vtt.map.updated", decodeVttMapUpdatedPayload, (payload) => {
     handlers.onVttMapUpdated(payload.map);
     handlers.onLog("Map updated", "The tabletop map changed.");
-  });
+  }, handlers);
 
-  socket.on("combat.updated", (payload: { combat: CombatResponseDto }) => {
+  safeSocketOn(socket, "combat.updated", decodeCombatUpdatedPayload, (payload) => {
     handlers.onCombatUpdated(payload.combat);
     window.dispatchEvent(new CustomEvent("trpg:combat-updated", { detail: payload.combat }));
     handlers.onLog("Combat updated", "The combat tracker changed.");
-  });
+  }, handlers);
 
-  socket.on("combat.reaction.prompt", (payload: { reaction: CombatReactionPromptDto }) => {
+  safeSocketOn(socket, "combat.reaction.prompt", decodeCombatReactionPromptPayload, (payload) => {
     window.dispatchEvent(new CustomEvent("trpg:combat-reaction-prompt", { detail: payload.reaction }));
     handlers.onLog("Reaction prompt", payload.reaction.message);
-  });
+  }, handlers);
 
   return socket;
 }
@@ -130,4 +145,68 @@ export function sendRealtimeChatMessage(
   scope: "CHAT" | "MAIN" = "CHAT",
 ): void {
   socket.emit("chat.send", { sessionId, content, scope });
+}
+
+function safeSocketOn<T>(
+  socket: Socket,
+  eventName: string,
+  decode: (payload: unknown) => T,
+  handler: (payload: T) => void,
+  handlers: Pick<RealtimeHandlers, "onLog">,
+): void {
+  socket.on(eventName, (payload: unknown) => {
+    try {
+      handler(decode(payload));
+    } catch {
+      handlers.onLog("Realtime payload ignored", `${eventName} payload shape was invalid.`);
+    }
+  });
+}
+
+function decodeSessionSnapshotPayload(value: unknown): { snapshot: SessionSnapshotDto } {
+  return decodeSessionSnapshotEvent(value);
+}
+
+function decodeParticipantUpdatedPayload(value: unknown): { participant: Participant } {
+  return decodeParticipantUpdatedEvent(value);
+}
+
+function decodeCharacterUpdatedPayload(value: unknown): { character: Character } {
+  return decodeCharacterUpdatedEvent(value);
+}
+
+function decodeChatMessagePayload(value: unknown): { message: ChatMessage } {
+  return decodeChatMessageEventPayload(value);
+}
+
+function decodeActionAcceptedPayload(value: unknown): ActionAcceptedEventDto {
+  return decodeActionAcceptedEvent(value);
+}
+
+function decodeTurnLogCreatedPayload(value: unknown): { turnLog: TurnLogResponseDto } {
+  return decodeTurnLogCreatedEvent(value);
+}
+
+function decodeSystemMessagePayload(value: unknown): SystemMessageEventDto {
+  return decodeSystemMessageEvent(value);
+}
+
+function decodeDiceRolledPayload(value: unknown): { diceResult: DiceRollResponseDto } {
+  return decodeDiceRolledEvent(value);
+}
+
+function decodeStateDiffPayload(value: unknown): { stateDiff: StateDiffResponseDto } {
+  return decodeStateDiffAppliedEvent(value);
+}
+
+function decodeVttMapUpdatedPayload(value: unknown): { map: VttMapStateDto } {
+  return decodeVttMapUpdatedEvent(value);
+}
+
+function decodeCombatUpdatedPayload(value: unknown): { combat: CombatResponseDto } {
+  return decodeCombatUpdatedEvent(value);
+}
+
+function decodeCombatReactionPromptPayload(value: unknown): { reaction: CombatReactionPromptDto } {
+  return decodeCombatReactionPromptEvent(value);
 }

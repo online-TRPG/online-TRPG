@@ -406,11 +406,11 @@ export function normalizeSpellId(value: string) {
 }
 
 function getRuleCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | undefined {
-  if (typeof entry.spellLevel === 'number') return entry.spellLevel;
+  if (isSpellLevel(entry.spellLevel)) return entry.spellLevel;
   const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
   if (!tag) return undefined;
   const level = Number(tag.slice('spell_level:'.length));
-  return Number.isInteger(level) ? level : undefined;
+  return isSpellLevel(level) ? level : undefined;
 }
 
 function formatRuleCatalogSpellLabel(entry: RuleCatalogReferenceDto) {
@@ -418,7 +418,7 @@ function formatRuleCatalogSpellLabel(entry: RuleCatalogReferenceDto) {
   const raw = entry.id.includes('.') ? entry.id.slice(entry.id.lastIndexOf('.') + 1) : entry.id;
   return raw
     .split('_')
-    .filter(Boolean)
+    .filter((part) => part.length > 0)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ') || entry.id;
 }
@@ -474,7 +474,7 @@ export function getKnownMvpSpellActions(
   const spellLevelById: Record<string, number> = { ...mvpSpellLevelById };
   for (const entry of catalogSpellEntries) {
     const level = getRuleCatalogSpellLevel(entry);
-    if (typeof level === 'number') spellLevelById[entry.id] = level;
+    if (level !== undefined) spellLevelById[entry.id] = level;
   }
   const actions: CombatSpellAction[] = [];
   const seenSpellIds = new Set<string>();
@@ -492,9 +492,10 @@ export function getKnownMvpSpellActions(
     ...(character?.spells?.spells ?? []),
   ].map(normalizeSpellId);
   for (const spellId of knownSpellIds) {
-    if (seenSpellIds.has(spellId) || !catalogSpellById.has(spellId)) continue;
+    if (seenSpellIds.has(spellId)) continue;
+    const entry = catalogSpellById.get(spellId);
+    if (!entry) continue;
     if (!hasMvpSpell(character, spellId, spellLevelById)) continue;
-    const entry = catalogSpellById.get(spellId)!;
     actions.push({
       label: formatRuleCatalogSpellLabel(entry),
       spellId,
@@ -519,7 +520,7 @@ export function getVisibleSpellActions(
     const spellLevel = action.level;
     if (spellFilter === 'cantrip') return spellLevel === 0;
     if (spellFilter.startsWith('level')) {
-      return spellLevel === Number(spellFilter.slice('level'.length));
+      return spellLevel === parseSpellFilterLevel(spellFilter);
     }
     return true;
   });
@@ -531,7 +532,7 @@ export function getVisibleSpellSlotEntries(
   return Object.entries(spellSlotResources)
     .filter(([level, resource]) => {
       const numericLevel = Number(level);
-      return Number.isInteger(numericLevel) && numericLevel > 0 && resource.total > 0;
+      return isSlotLevel(numericLevel) && isPositiveFiniteNumber(resource.total);
     })
     .sort(([left], [right]) => Number(left) - Number(right));
 }
@@ -563,7 +564,7 @@ export function getAvailableSlotLevelsForSpell(
   spellLevel: number | undefined,
   spellSlotResources: Record<string, CombatSpellSlotResource>
 ) {
-  if (typeof spellLevel !== 'number' || spellLevel <= 0) return [];
+  if (!isSlotLevel(spellLevel)) return [];
   return Object.entries(spellSlotResources)
     .map(([level, resource]) => ({
       level: Number(level),
@@ -572,10 +573,10 @@ export function getAvailableSlotLevelsForSpell(
     }))
     .filter(
       (entry) =>
-        Number.isInteger(entry.level) &&
+        isSlotLevel(entry.level) &&
         entry.level >= spellLevel &&
-        entry.total > 0 &&
-        entry.remaining > 0
+        isPositiveFiniteNumber(entry.total) &&
+        isPositiveFiniteNumber(entry.remaining)
     )
     .sort((left, right) => left.level - right.level)
     .map((entry) => entry.level);
@@ -587,11 +588,28 @@ export function getSelectedSlotLevelForSpell(
   spellSlotResources: Record<string, CombatSpellSlotResource>,
   selectedSlotLevelBySpellId: Record<string, number>
 ) {
-  if (typeof spellLevel !== 'number' || spellLevel <= 0) return undefined;
+  if (!isSlotLevel(spellLevel)) return undefined;
   const availableLevels = getAvailableSlotLevelsForSpell(spellLevel, spellSlotResources);
   if (!availableLevels.length) return spellLevel;
   const selected = selectedSlotLevelBySpellId[spellId];
   return availableLevels.includes(selected) ? selected : availableLevels[0];
+}
+
+function isSpellLevel(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 9;
+}
+
+function isSlotLevel(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 9;
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function parseSpellFilterLevel(value: string): number | null {
+  const level = Number(value.slice('level'.length));
+  return isSlotLevel(level) ? level : null;
 }
 
 export function isImmediateSelfCombatSpell(

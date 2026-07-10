@@ -44,7 +44,7 @@ export function useSessionTabPresentation({
           hasInfoBadge ? 'has-unread-info' : '',
           hasUnreadMessages ? 'has-unread-messages' : '',
         ]
-          .filter(Boolean)
+          .filter((className) => className.length > 0)
           .join(' '),
         ariaLabel: hasUnreadMessages
           ? `${sessionTabLabels[tab]} 새 메시지 ${unreadMessageCount}개`

@@ -116,10 +116,7 @@ describe("SessionCharacterSelectionService", () => {
         userId: "user-1",
       },
     });
-    expect(sessionInventory.replaceSessionInventoryEntries).toHaveBeenCalledWith(
-      "session-character-1",
-      [{ itemDefinitionId: "item-1", quantity: 2 }],
-    );
+    expect(sessionInventory.replaceSessionInventoryEntries).not.toHaveBeenCalled();
     expect(sessionParticipantStatus.clearReadyState).toHaveBeenCalledWith({
       sessionId: "session-1",
       participantId: "participant-1",
@@ -237,5 +234,37 @@ describe("SessionCharacterSelectionService", () => {
       participantId: "participant-1",
     });
     expect(realtimeEvents.emitCharacterUpdated).toHaveBeenCalled();
+  });
+
+  it("rejects malformed inventory before writing the session assignment", async () => {
+    prisma.sessionParticipant.findUnique.mockResolvedValue(participant);
+    prisma.character.findUnique.mockResolvedValue({
+      id: "character-1",
+      ownerUserId: "user-1",
+      name: "Hero",
+      level: 3,
+      maxHp: 24,
+      inventoryJson: "{bad",
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.selectCharacter({
+        sessionId: "session-1",
+        userId: "user-1",
+        sessionStatus: PrismaSessionStatus.RECRUITING,
+        characterId: "character-1",
+        getScenarioForSelectionValidation: jest.fn(async () => ({
+          scenario: {
+            title: "Scenario",
+            startLevel: 1,
+            recommendedEndLevel: 5,
+          },
+        })),
+      }),
+    ).rejects.toThrow("character.inventoryJson is not valid JSON.");
+
+    expect(prisma.sessionCharacter.upsert).not.toHaveBeenCalled();
+    expect(sessionInventory.replaceSessionInventoryEntries).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,13 @@
 import { useCallback } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { CombatResponseDto, VttMapStateDto } from '@trpg/shared-types';
-import type { StoredUser } from '../../../types/session';
+import type { SessionSnapshot, StoredUser } from '../../../types/session';
 import { getCombat } from '../../../services/combatApi';
 import {
   adjustHumanGmCombatHp,
   applyHumanGmCombatCondition,
 } from '../../../services/humanGmApi';
+import { readVttMapFromSessionFlags } from '../utils/sessionStateFlags';
 
 type UseHumanGmCombatAdminActionsParams = {
   user: StoredUser;
@@ -22,14 +23,8 @@ type UseHumanGmCombatAdminActionsParams = {
   onCombatActionLog: (message: string, turnLogId?: string | null) => void;
 };
 
-function extractSnapshotMap(snapshot: unknown): VttMapStateDto | null {
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  const state = (snapshot as { state?: unknown }).state;
-  if (!state || typeof state !== 'object') return null;
-  const flags = (state as { flags?: unknown }).flags;
-  if (!flags || typeof flags !== 'object') return null;
-  const nextMap = (flags as { vttMap?: unknown }).vttMap;
-  return nextMap && typeof nextMap === 'object' ? (nextMap as VttMapStateDto) : null;
+function extractSnapshotMap(snapshot: SessionSnapshot): VttMapStateDto | null {
+  return readVttMapFromSessionFlags(snapshot.state.flags);
 }
 
 export function useHumanGmCombatAdminActions(params: UseHumanGmCombatAdminActionsParams) {
@@ -48,7 +43,7 @@ export function useHumanGmCombatAdminActions(params: UseHumanGmCombatAdminAction
   } = params;
 
   const refreshCombatAfterAdminAction = useCallback(
-    async (snapshot: unknown) => {
+    async (snapshot: SessionSnapshot) => {
       if (!sessionId) return;
       const nextMap = extractSnapshotMap(snapshot);
       if (nextMap) {

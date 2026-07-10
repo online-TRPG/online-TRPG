@@ -288,7 +288,7 @@ export function buildLevelUpCharacterPayload(params: {
       ? { forgottenCantrips: params.draft.forgottenCantrips }
       : {}),
     ...(params.preparedSpellLimit !== null
-      ? { preparedSpells: params.draft.preparedSpells.filter(Boolean) }
+      ? { preparedSpells: params.draft.preparedSpells.filter((spell) => spell.length > 0) }
       : {}),
   };
 }
@@ -315,6 +315,6 @@ export function buildPreparedSpellsUpdatePayload(
   draft: CharacterLevelUpDraft
 ): UpdatePreparedSpellsDto {
   return {
-    preparedSpells: draft.preparedSpells.filter(Boolean),
+    preparedSpells: draft.preparedSpells.filter((spell) => spell.length > 0),
   };
 }

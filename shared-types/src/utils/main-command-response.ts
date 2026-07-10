@@ -28,11 +28,11 @@ export function getMainCommandCheckEffect(response: MainCommandResponseDto | nul
 }
 
 export function isMainCommandCheckEffect(value: unknown): value is MainCommandCheckEffectDto {
-  if (!value || typeof value !== "object") {
+  if (!value || typeof value !== "object" || !("type" in value)) {
     return false;
   }
 
-  const type = (value as { type?: unknown }).type;
+  const type = value.type;
   return (
     type === MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK ||
     type === MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR ||

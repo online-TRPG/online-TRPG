@@ -239,10 +239,15 @@ export class LevelUpService {
   }
 
   private assertHitDie(value: string): HitDie {
-    if (!(value in HIT_DIE_STATS)) {
-      throw new Error("hitDie must be one of d6, d8, d10, or d12.");
+    switch (value) {
+      case "d6":
+      case "d8":
+      case "d10":
+      case "d12":
+        return value;
+      default:
+        throw new Error("hitDie must be one of d6, d8, d10, or d12.");
     }
-    return value as HitDie;
   }
 
   private assertRolledHp(value: number | undefined, level: number): number {

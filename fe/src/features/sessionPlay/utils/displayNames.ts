@@ -1,5 +1,7 @@
 import itemLabelsById from '@trpg/srd-data/generated/srd/item-labels.json';
 
+const itemLabelMap = new Map<string, string>(Object.entries(itemLabelsById));
+
 type ItemNameSource = {
   id?: string | null;
   name?: string | null;
@@ -25,7 +27,7 @@ function looksLikeOpaqueDatabaseId(value: string | null | undefined) {
 function toTitleCase(value: string) {
   return value
     .split(/\s+/)
-    .filter(Boolean)
+    .filter((word) => word.length > 0)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
@@ -38,10 +40,10 @@ export function formatInternalIdAsReadableName(
   if (!normalized) return fallback;
   if (looksLikeOpaqueDatabaseId(normalized)) return fallback;
 
-  const explicitLabel = itemLabelsById[normalized as keyof typeof itemLabelsById];
+  const explicitLabel = itemLabelMap.get(normalized);
   if (explicitLabel) return explicitLabel;
 
-  const tail = normalized.split(/[.:]/).filter(Boolean).at(-1) ?? normalized;
+  const tail = compactStrings(normalized.split(/[.:]/)).at(-1) ?? normalized;
   const readable = tail
     .replace(/__+/g, ' ')
     .replace(/[_-]+/g, ' ')
@@ -213,7 +215,7 @@ function formatCompositeDisplayTokens(
     .split(/[,/|·]+|\s{2,}/)
     .flatMap((token) => token.trim().split(/\s+/))
     .map((token) => token.trim())
-    .filter(Boolean);
+    .flatMap((token) => compactStrings([token]));
 
   if (rawTokens.length <= 1) return null;
 
@@ -229,6 +231,10 @@ function formatCompositeDisplayTokens(
   });
 
   return Array.from(new Set(labels)).join(' / ');
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === 'string' && value.length > 0 ? [value] : []);
 }
 
 export function getUserFacingItemTypeLabel(itemType: string | null | undefined) {

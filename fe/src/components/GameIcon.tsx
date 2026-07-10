@@ -15,6 +15,11 @@ type GameIconProps = {
   style?: CSSProperties;
 };
 
+function resolveGameIconName(name: GameIconName) {
+  if (name === 'inventory') return gameIconAliases.inventory;
+  return name;
+}
+
 export function GameIcon({
   name,
   size = 20,
@@ -23,7 +28,7 @@ export function GameIcon({
   style,
 }: GameIconProps) {
   // 버튼별 아이콘 교체가 쉬워지도록, 자주 쓰는 RPG 아이콘은 짧은 별칭으로 한 번 더 감쌉니다.
-  const icon = name in gameIconAliases ? gameIconAliases[name as keyof typeof gameIconAliases] : name;
+  const icon = resolveGameIconName(name);
   const accessibilityProps = title
     ? { role: 'img', 'aria-label': title }
     : { 'aria-hidden': true };

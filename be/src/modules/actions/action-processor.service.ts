@@ -13,6 +13,7 @@ import {
   DiceAdvantageState,
   TurnLogResponseDto,
   VttMapStateDto,
+  isRecord,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { AiService } from "../ai/ai.service";
@@ -28,15 +29,28 @@ import { CharacterResourceService } from "../rules/character-resource.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
 import { getExecutableItemDefinition } from "../rules/p3-item-manifest";
-import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
+import {
+  P3_ITEM_RUNTIME_FLAGS_KEY,
+  parseP3ItemRuntimeFlagsFromFlags,
+} from "./inventory-item-policy";
+import { PENDING_READY_ACTIONS_FLAG, ReadyActionService } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
 import { BagOfHoldingIntegrity } from "../rules/rule-engine.types";
-import { SpellSlotService } from "../rules/spell-slot.service";
+import {
+  SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG,
+  SpellSlotService,
+} from "../rules/spell-slot.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
-import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
+import { clearRestBoundMonsterLimitedUsesFromFlags } from "../combat/combat-monster-resource.service";
 import { badRequest, conflict, notFound } from "../../common/exceptions/domain-error";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
+import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
 
 type RuntimeTurnStateKey = {
   combatId: string;
@@ -164,6 +178,7 @@ export class ActionProcessorService {
     private readonly mapPositions: MapPositionService,
     private readonly spellSlots: SpellSlotService,
     private readonly ruleEngine: RuleEngineService,
+    private readonly readyActions: ReadyActionService,
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -569,8 +584,11 @@ export class ActionProcessorService {
   ): RuleTargetCharacter[] {
     const participantBySessionCharacterId = new Map(
       combatParticipants
-        .filter((participant) => participant.sessionCharacterId)
-        .map((participant) => [participant.sessionCharacterId as string, participant]),
+        .flatMap((participant) =>
+          typeof participant.sessionCharacterId === "string"
+            ? [[participant.sessionCharacterId, participant] as const]
+            : [],
+        ),
     );
     const sessionTargets = sessionCharacters.map((sessionCharacter) => {
       const participant = participantBySessionCharacterId.get(sessionCharacter.id);
@@ -640,9 +658,7 @@ export class ActionProcessorService {
     if (this.hasInventoryMapRuntimeEffects(effects)) {
       mapUpdate = await this.applyInventoryMapRuntimeEffectsAtomically(
         params,
-        allEffects.filter((effect): effect is InventoryMapAtomicRuntimeEffect =>
-          this.isInventoryMapAtomicRuntimeEffect(effect),
-        ),
+        this.collectInventoryMapAtomicRuntimeEffects(allEffects),
         client,
       );
       effects = effects.filter((effect) => !this.isInventoryMapRuntimeEffect(effect));
@@ -848,9 +864,7 @@ export class ActionProcessorService {
     );
     this.assertMapRuntimeEffectsApplicable(
       baselineMap,
-      laterEffects.filter((effect): effect is InventoryMapRuntimeEffect =>
-        this.isInventoryMapRuntimeEffect(effect),
-      ),
+      this.collectInventoryMapRuntimeEffects(laterEffects),
     );
   }
 
@@ -975,6 +989,16 @@ export class ActionProcessorService {
     return effect.type === "SPEND_ACTION" || this.isInventoryMapRuntimeEffect(effect);
   }
 
+  private collectInventoryMapRuntimeEffects(effects: ActionRuntimeEffect[]): InventoryMapRuntimeEffect[] {
+    return effects.flatMap((effect) => this.isInventoryMapRuntimeEffect(effect) ? [effect] : []);
+  }
+
+  private collectInventoryMapAtomicRuntimeEffects(
+    effects: ActionRuntimeEffect[],
+  ): InventoryMapAtomicRuntimeEffect[] {
+    return effects.flatMap((effect) => this.isInventoryMapAtomicRuntimeEffect(effect) ? [effect] : []);
+  }
+
   private isInventoryRuntimeEffect(effect: ActionRuntimeEffect): boolean {
     return effect.type === "ADD_ITEM" || effect.type === "REMOVE_ITEM";
   }
@@ -1019,7 +1043,7 @@ export class ActionProcessorService {
       if (!currentState) {
         throw notFound("STATE_404", "세션 게임 상태를 찾을 수 없습니다.");
       }
-      const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+      const flags = parseJsonRecordOrThrow(currentState?.flagsJson, {}, "gameState.flagsJson");
       const currentVersion = currentState.version ?? state.version;
       const normalizedMap = this.sessionsService.normalizeVttMap(
         nextMap,
@@ -1382,9 +1406,15 @@ export class ActionProcessorService {
 
   private toRuleIntegrity(value: string): BagOfHoldingIntegrity {
     const normalized = value.trim().toLowerCase();
-    return ["intact", "pierced", "torn", "overloaded"].includes(normalized)
-      ? (normalized as BagOfHoldingIntegrity)
-      : "intact";
+    switch (normalized) {
+      case "intact":
+      case "pierced":
+      case "torn":
+      case "overloaded":
+        return normalized;
+      default:
+        return "intact";
+    }
   }
 
   private async syncSessionInventorySnapshotWithClient(
@@ -1490,23 +1520,11 @@ export class ActionProcessorService {
   }
 
   private parseFeatureIds(featuresJson: string | null | undefined): Set<string> {
-    if (!featuresJson) {
-      return new Set();
-    }
-    try {
-      const parsed = JSON.parse(featuresJson) as unknown;
-      if (!Array.isArray(parsed)) {
-        return new Set();
-      }
-      return new Set(
-        parsed
-          .filter((feature): feature is string => typeof feature === "string")
-          .map((feature) => feature.trim().toLowerCase())
-          .filter(Boolean),
-      );
-    } catch {
-      return new Set();
-    }
+    return new Set(
+      parseJsonOrThrow(featuresJson, [], decodeStringArray, "character.featuresJson")
+        .map((feature) => feature.trim().toLowerCase())
+        .filter((feature) => feature.length > 0),
+    );
   }
 
   private async storePendingReadyAction(
@@ -1518,16 +1536,10 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const current = Array.isArray(flags[PENDING_READY_ACTIONS_FLAG])
-      ? flags[PENDING_READY_ACTIONS_FLAG]
-      : [];
-    const readyActions = current.filter(
-      (candidate): candidate is Record<string, unknown> =>
-        typeof candidate === "object" &&
-        candidate !== null &&
-        candidate["id"] !== pending.id,
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const readyActions = this.readyActions
+      .readPendingReadyActionsFromFlags(flags)
+      .filter((candidate) => candidate.id !== pending.id);
 
     await client.gameState.update({
       where: { sessionScenarioId },
@@ -1549,19 +1561,13 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const spellSlotsBySessionCharacterId = this.spellSlots.readSpellSlotsFromFlags(flags);
     const hasSpellSlotsFlag = Object.prototype.hasOwnProperty.call(
       flags,
-      "spellSlotsBySessionCharacterId",
+      SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG,
     );
-    const limitedUseRecovery = this.clearRestBoundMonsterLimitedUses(
-      flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
-      "long",
-    );
+    const limitedUseRecovery = clearRestBoundMonsterLimitedUsesFromFlags(flags, "long");
     const hasSpellSlotOverride = Object.prototype.hasOwnProperty.call(
       spellSlotsBySessionCharacterId,
       sessionCharacterId,
@@ -1586,7 +1592,7 @@ export class ActionProcessorService {
             : {}),
           ...(hasSpellSlotOverride || hasSpellSlotsFlag
             ? {
-                spellSlotsBySessionCharacterId: hasSpellSlotOverride
+                [SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG]: hasSpellSlotOverride
                   ? remainingSpellSlotsBySessionCharacterId
                   : spellSlotsBySessionCharacterId,
               }
@@ -1604,11 +1610,8 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const limitedUseRecovery = this.clearRestBoundMonsterLimitedUses(
-      flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
-      "short",
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const limitedUseRecovery = clearRestBoundMonsterLimitedUsesFromFlags(flags, "short");
 
     if (!limitedUseRecovery.changed) {
       return;
@@ -1648,11 +1651,8 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const spellSlotsBySessionCharacterId = this.spellSlots.readSpellSlotsFromFlags(flags);
     if (
       !Object.prototype.hasOwnProperty.call(
         spellSlotsBySessionCharacterId,
@@ -1671,7 +1671,7 @@ export class ActionProcessorService {
       data: {
         flagsJson: JSON.stringify({
           ...flags,
-          spellSlotsBySessionCharacterId: remainingSpellSlotsBySessionCharacterId,
+          [SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG]: remainingSpellSlotsBySessionCharacterId,
         }),
       },
     });
@@ -1687,11 +1687,8 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const byCharacter = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const byCharacter = this.spellSlots.readSpellSlotsFromFlags(flags);
     const maximum = await this.resolveSpellSlotMaximum(
       sessionCharacterId,
       slotLevel,
@@ -1711,7 +1708,7 @@ export class ActionProcessorService {
       data: {
         flagsJson: JSON.stringify({
           ...flags,
-          spellSlotsBySessionCharacterId: {
+          [SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG]: {
             ...byCharacter,
             [sessionCharacterId]: {
               ...current,
@@ -1721,58 +1718,6 @@ export class ActionProcessorService {
         }),
       },
     });
-  }
-
-  private clearRestBoundMonsterLimitedUses(value: unknown, restKind: "short" | "long"): {
-    value: Record<string, Record<string, unknown>>;
-    changed: boolean;
-    hasFlag: boolean;
-  } {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return { value: {}, changed: false, hasFlag: false };
-    }
-
-    let changed = false;
-    const remaining: Record<string, Record<string, unknown>> = {};
-    for (const [participantId, actions] of Object.entries(value)) {
-      if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
-        changed = true;
-        continue;
-      }
-
-      const remainingActions: Record<string, unknown> = {};
-      for (const [actionId, entry] of Object.entries(actions)) {
-        if (this.isRestBoundMonsterLimitedUse(entry, restKind)) {
-          changed = true;
-          continue;
-        }
-        remainingActions[actionId] = entry;
-      }
-
-      if (Object.keys(remainingActions).length > 0) {
-        remaining[participantId] = remainingActions;
-      } else {
-        changed = true;
-      }
-    }
-
-    return { value: remaining, changed, hasFlag: true };
-  }
-
-  private isRestBoundMonsterLimitedUse(entry: unknown, restKind: "short" | "long"): boolean {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return false;
-    }
-    const usage = (entry as { usage?: unknown }).usage;
-    if (typeof usage !== "string") {
-      return false;
-    }
-    const match = usage.trim().match(/^\d+\s*\/\s*(day|rest)$/i);
-    if (!match) {
-      return false;
-    }
-    const scope = match[1]?.toLowerCase();
-    return scope === "rest" || (restKind === "long" && scope === "day");
   }
 
   private async spendSpellSlot(
@@ -1789,11 +1734,8 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const spellSlotsBySessionCharacterId = this.spellSlots.readSpellSlotsFromFlags(flags);
     const slotKey = String(slotLevel);
     const maximumSlots = await this.resolveSpellSlotMaximum(
       sessionCharacterId,
@@ -1816,7 +1758,7 @@ export class ActionProcessorService {
       data: {
         flagsJson: JSON.stringify({
           ...flags,
-          spellSlotsBySessionCharacterId: {
+          [SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG]: {
             ...spellSlotsBySessionCharacterId,
             [sessionCharacterId]: {
               ...currentSlots,
@@ -1841,11 +1783,8 @@ export class ActionProcessorService {
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
-    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
-    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(state?.flagsJson, {}, "gameState.flagsJson");
+    const spellSlotsBySessionCharacterId = this.spellSlots.readSpellSlotsFromFlags(flags);
     const slotKey = String(slotLevel);
     const maximumSlots = await this.resolveSpellSlotMaximum(
       sessionCharacterId,
@@ -1895,11 +1834,8 @@ export class ActionProcessorService {
     current: Record<string, number>;
     maximums: Record<string, number>;
   } {
-    const flags = this.parseJson<Record<string, unknown>>(flagsJson, {});
-    const byCharacter = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(flagsJson, {}, "gameState.flagsJson");
+    const byCharacter = this.spellSlots.readSpellSlotsFromFlags(flags);
     const overrides = byCharacter[sessionCharacterId] ?? {};
     const maximums: Record<string, number> = {};
     const current: Record<string, number> = {};
@@ -1935,24 +1871,9 @@ export class ActionProcessorService {
     if (!state) {
       return;
     }
-    const flags = this.parseJson<Record<string, unknown>>(
-      state.flagsJson,
-      {},
-    );
-    const rawRuntime =
-      flags.p3ItemRuntime &&
-      typeof flags.p3ItemRuntime === "object" &&
-      !Array.isArray(flags.p3ItemRuntime)
-        ? (flags.p3ItemRuntime as Record<string, unknown>)
-        : {};
-    const currentCharges =
-      rawRuntime.chargesByItemEntryId &&
-      typeof rawRuntime.chargesByItemEntryId === "object" &&
-      !Array.isArray(rawRuntime.chargesByItemEntryId)
-        ? {
-            ...(rawRuntime.chargesByItemEntryId as Record<string, unknown>),
-          }
-        : {};
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
+    const itemRuntime = parseP3ItemRuntimeFlagsFromFlags(flags);
+    const currentCharges = { ...itemRuntime.chargesByItemEntryId };
     let changed = false;
     for (const entry of entries) {
       const definition = getExecutableItemDefinition(
@@ -1972,8 +1893,8 @@ export class ActionProcessorService {
       data: {
         flagsJson: JSON.stringify({
           ...flags,
-          p3ItemRuntime: {
-            ...rawRuntime,
+          [P3_ITEM_RUNTIME_FLAGS_KEY]: {
+            ...itemRuntime,
             chargesByItemEntryId: currentCharges,
           },
         }),
@@ -1981,15 +1902,15 @@ export class ActionProcessorService {
     });
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
+  private decodeNumberRecord(value: unknown): Record<string, number> {
+    if (!isRecord(value)) {
+      return {};
     }
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, numericValue]) =>
+        typeof numericValue === "number" && Number.isFinite(numericValue) ? [[key, numericValue] as const] : [],
+      ),
+    );
   }
 
   private toRuntimeResource(resource: {
@@ -2035,8 +1956,8 @@ export class ActionProcessorService {
   private toErrorMessage(error: unknown): string {
     if (error instanceof HttpException) {
       const response = error.getResponse();
-      if (typeof response === "object" && response && "message" in response) {
-        const message = (response as { message?: unknown }).message;
+      if (isRecord(response)) {
+        const message = response.message;
         if (Array.isArray(message)) {
           return message.join(", ");
         }

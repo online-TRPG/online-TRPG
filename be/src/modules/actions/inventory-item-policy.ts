@@ -1,3 +1,8 @@
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+} from "../../common/utils/json-runtime";
+
 export const P3_ITEM_RUNTIME_FLAGS_KEY = "p3ItemRuntime";
 
 export type P3ItemRuntimeFlags = {
@@ -51,54 +56,29 @@ type ItemEffectForPolicy =
   | { type: "spell"; spellId: string; slotLevel: number }
   | { type: "terrain"; terrainEffectId: string; sizeFt: number };
 
-export function parseJson<T>(
-  value: string | null | undefined,
-  fallback: T,
-): T {
-  if (!value) {
-    return fallback;
-  }
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 export function parseP3ItemRuntimeFlags(value: unknown): P3ItemRuntimeFlags {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRuntimeRecord(value)) {
     return {
       attunedItemEntryIdsByCharacter: {},
       chargesByItemEntryId: {},
     };
   }
 
-  const record = value as Record<string, unknown>;
   const attuned =
-    record.attunedItemEntryIdsByCharacter &&
-    typeof record.attunedItemEntryIdsByCharacter === "object" &&
-    !Array.isArray(record.attunedItemEntryIdsByCharacter)
+    isRuntimeRecord(value.attunedItemEntryIdsByCharacter)
       ? Object.fromEntries(
-          Object.entries(
-            record.attunedItemEntryIdsByCharacter as Record<string, unknown>,
-          ).map(([characterId, entryIds]) => [
+          Object.entries(value.attunedItemEntryIdsByCharacter).map(([characterId, entryIds]) => [
             characterId,
             Array.isArray(entryIds)
-              ? entryIds.filter(
-                  (entryId): entryId is string => typeof entryId === "string",
-                )
+              ? entryIds.flatMap((entryId) => typeof entryId === "string" ? [entryId] : [])
               : [],
           ]),
         )
       : {};
   const charges =
-    record.chargesByItemEntryId &&
-    typeof record.chargesByItemEntryId === "object" &&
-    !Array.isArray(record.chargesByItemEntryId)
+    isRuntimeRecord(value.chargesByItemEntryId)
       ? Object.fromEntries(
-          Object.entries(
-            record.chargesByItemEntryId as Record<string, unknown>,
-          ).flatMap(([entryId, charge]) =>
+          Object.entries(value.chargesByItemEntryId).flatMap(([entryId, charge]) =>
             typeof charge === "number" &&
             Number.isInteger(charge) &&
             charge >= 0
@@ -112,6 +92,17 @@ export function parseP3ItemRuntimeFlags(value: unknown): P3ItemRuntimeFlags {
     attunedItemEntryIdsByCharacter: attuned,
     chargesByItemEntryId: charges,
   };
+}
+
+export function parseP3ItemRuntimeFlagsFromFlags(flags: unknown): P3ItemRuntimeFlags {
+  if (!isRuntimeRecord(flags)) {
+    return parseP3ItemRuntimeFlags(null);
+  }
+  return parseP3ItemRuntimeFlags(flags[P3_ITEM_RUNTIME_FLAGS_KEY]);
+}
+
+function isRuntimeRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export function getAttunedItemEntryIds(
@@ -170,7 +161,7 @@ export function resolveItemChargeUsage(params: {
 export function buildItemSearchKey(item: InventoryItemSearchSource): string {
   const properties = parseStringArrayJson(item.propertiesJson);
   return [item.id, item.name, item.itemType, ...properties]
-    .filter(Boolean)
+    .filter((value) => value.length > 0)
     .join(" ")
     .toLowerCase();
 }
@@ -504,17 +495,7 @@ export function buildWebItemSpellLogModel(
 }
 
 function parseStringArrayJson(value: string | null): string[] {
-  if (!value) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((entry): entry is string => typeof entry === "string")
-      : [];
-  } catch {
-    return [];
-  }
+  return parseJsonOrThrow(value, [], decodeStringArray, "itemDefinition.propertiesJson");
 }
 
 function resolveTerrainSizePx(gridSize: number, sizeFt: number): number {

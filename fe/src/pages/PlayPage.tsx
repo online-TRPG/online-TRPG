@@ -10,7 +10,6 @@
  * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Ref } from 'react';
 import type {
   ClassDefinitionResponseDto,
   CombatReactionPromptDto,
@@ -24,6 +23,7 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import {
+  decodeCombatResponse,
   isAiGmMode,
   isEndedCombatStatus,
   isHumanGmMode,
@@ -150,6 +150,7 @@ import {
   isMainCommandIntentAvailable,
   isMainCommandHelperGroupAvailable,
   reconcileMainCommandCategoryState,
+  toMainCommandIntent,
   type MainCommandHelperGroup,
 } from '../features/sessionPlay/utils/mainCommandModel';
 import {
@@ -412,6 +413,7 @@ export function PlayPage({
     economyState,
     campaignCalendarState,
     snapshotVttMap,
+    completedCombatNodeIds: snapshotCompletedCombatNodeIds,
     isPartyDefeated,
   } = useSessionStateFlagsProjection({
     flags: snapshot?.state.flags,
@@ -880,7 +882,7 @@ export function PlayPage({
     sessionId: session?.id,
     sessionExists: Boolean(session),
     isRecruiting,
-    stateFlags: snapshot?.state.flags,
+    completedCombatNodeIds: snapshotCompletedCombatNodeIds,
   });
   const {
     mainCommandText,
@@ -1121,7 +1123,15 @@ export function PlayPage({
 
   useEffect(() => {
     function handleCombatUpdated(event: Event) {
-      const detail = (event as CustomEvent<CombatResponseDto>).detail;
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+      let detail: CombatResponseDto;
+      try {
+        detail = decodeCombatResponse(event.detail);
+      } catch {
+        return;
+      }
       if (detail?.sessionId === session?.id) {
         setCombat(detail);
         setCombatError(null);
@@ -2345,7 +2355,7 @@ export function PlayPage({
 
                     {mainCommandAutocompleteEntryPresentations.length ? (
                       <div
-                        ref={mainCommandAutocompleteRef as Ref<HTMLDivElement>}
+                        ref={mainCommandAutocompleteRef}
                         className="main-command-autocomplete"
                         role="listbox"
                         aria-label={mainCommandText.autocompleteAriaLabel}
@@ -2395,7 +2405,15 @@ export function PlayPage({
                             <span>{mainCommandText.targetFieldLabel}</span>
                             <select
                               value={selectedMainTargetId}
-                              onChange={(event) => setSelectedMainTargetId(event.target.value)}
+                              onChange={(event) => {
+                                const nextTargetId = event.target.value;
+                                if (
+                                  !nextTargetId ||
+                                  visibleTargetOptions.some((target) => target.id === nextTargetId)
+                                ) {
+                                  setSelectedMainTargetId(nextTargetId);
+                                }
+                              }}
                             >
                               <option value="">{mainCommandText.selectPlaceholder}</option>
                               {visibleTargetOptions.map((target) => (
@@ -2412,7 +2430,15 @@ export function PlayPage({
                             <span>{mainCommandText.itemFieldLabel}</span>
                             <select
                               value={selectedMainItemId}
-                              onChange={(event) => setSelectedMainItemId(event.target.value)}
+                              onChange={(event) => {
+                                const nextItemId = event.target.value;
+                                if (
+                                  !nextItemId ||
+                                  selectedCharacterInventory.some((item) => item.id === nextItemId)
+                                ) {
+                                  setSelectedMainItemId(nextItemId);
+                                }
+                              }}
                             >
                               <option value="">{mainCommandText.selectPlaceholder}</option>
                               {selectedCharacterInventory.map((item) => (
@@ -2440,7 +2466,16 @@ export function PlayPage({
                             <span>{mainCommandText.relatedIntentFieldLabel}</span>
                             <select
                               value={selectedMainRelatedIntent}
-                              onChange={(event) => setSelectedMainRelatedIntent(event.target.value)}
+                              onChange={(event) => {
+                                if (!event.target.value) {
+                                  setSelectedMainRelatedIntent('');
+                                  return;
+                                }
+                                const nextIntent = toMainCommandIntent(event.target.value);
+                                if (nextIntent) {
+                                  setSelectedMainRelatedIntent(nextIntent);
+                                }
+                              }}
                             >
                               <option value="">
                                 {mainCommandText.relatedIntentPlaceholder}

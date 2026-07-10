@@ -3,6 +3,7 @@ import type {
   RulebookDocumentResponseDto,
   RulebookIndexResponseDto,
 } from '@trpg/shared-types';
+import { decodeArray, isRecord, readNumber, readString } from '@trpg/shared-types/frontend';
 import dndLogo from '../assets/images/DnD5e_Logo.webp';
 import './RulebookPage.css';
 
@@ -18,6 +19,56 @@ type StaticRulebookExport = {
   version: number;
   rulebooks: StaticRulebookCollection[];
 };
+
+function readNullableStringField(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${key} must be a string or null.`);
+  }
+  return value;
+}
+
+function decodeStaticRulebookDocument(value: unknown): RulebookDocumentResponseDto {
+  if (!isRecord(value)) {
+    throw new Error('rulebook document must be an object.');
+  }
+  return {
+    slug: readString(value, 'slug'),
+    title: readString(value, 'title'),
+    description: readNullableStringField(value, 'description'),
+    category: readString(value, 'category'),
+    updatedAt: readString(value, 'updatedAt'),
+    ruleSetId: readString(value, 'ruleSetId'),
+    content: readString(value, 'content'),
+  };
+}
+
+function decodeStaticRulebookCollection(value: unknown): StaticRulebookCollection {
+  if (!isRecord(value)) {
+    throw new Error('rulebook collection must be an object.');
+  }
+  return {
+    ruleSetId: readString(value, 'ruleSetId'),
+    title: readString(value, 'title'),
+    description: readNullableStringField(value, 'description'),
+    attribution: readNullableStringField(value, 'attribution'),
+    defaultDocumentSlug: readString(value, 'defaultDocumentSlug'),
+    documents: decodeArray(value.documents, decodeStaticRulebookDocument, 'rulebook.documents'),
+  };
+}
+
+function decodeStaticRulebookExport(value: unknown): StaticRulebookExport {
+  if (!isRecord(value)) {
+    throw new Error('rulebook export must be an object.');
+  }
+  return {
+    version: readNumber(value, 'version'),
+    rulebooks: decodeArray(value.rulebooks, decodeStaticRulebookCollection, 'rulebooks'),
+  };
+}
 
 type RulebookPane = 'translated' | 'original' | 'copyright';
 
@@ -184,7 +235,7 @@ function parseMarkdown(markdown: string): { blocks: MarkdownBlock[]; headings: H
 
 function renderInline(text: string) {
   const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
-  const segments = text.split(tokenPattern).filter(Boolean);
+  const segments = text.split(tokenPattern).filter((segment) => segment.length > 0);
 
   return segments.map((segment, index) => {
     if (segment.startsWith('`') && segment.endsWith('`')) {
@@ -214,8 +265,17 @@ function renderInline(text: string) {
 }
 
 function renderHeading(level: number, id: string, text: string, key: string) {
-  const safeLevel = Math.min(Math.max(level, 1), 6) as 1 | 2 | 3 | 4 | 5 | 6;
-  return createElement(`h${safeLevel}`, { key, id }, text);
+  const tagName = getHeadingTagName(level);
+  return createElement(tagName, { key, id }, text);
+}
+
+function getHeadingTagName(level: number): 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' {
+  if (level <= 1) return 'h1';
+  if (level === 2) return 'h2';
+  if (level === 3) return 'h3';
+  if (level === 4) return 'h4';
+  if (level === 5) return 'h5';
+  return 'h6';
 }
 
 function getRulebookAssetUrl(ruleSetId: string) {
@@ -338,7 +398,8 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
           throw new Error(`룰북 데이터를 불러오지 못했습니다. (${response.status})`);
         }
 
-        return (await response.json()) as StaticRulebookExport;
+        const body: unknown = await response.json();
+        return decodeStaticRulebookExport(body);
       })
       .then((payload) => {
         if (cancelled) {

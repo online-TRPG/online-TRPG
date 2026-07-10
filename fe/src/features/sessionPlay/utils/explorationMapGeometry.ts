@@ -111,7 +111,10 @@ export function findReachableTokenMove(
   ];
 
   while (queue.length) {
-    const current = queue.shift()!;
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
     if (current.column === destination.column && current.row === destination.row) {
       return {
         x: Math.min(Math.max(destination.column * map.gridSize, 0), map.width - token.size),

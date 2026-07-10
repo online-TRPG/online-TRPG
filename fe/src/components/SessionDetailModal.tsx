@@ -136,7 +136,9 @@ export function SessionDetailModal({
     getIntroductionMaxLength(rawScenarioIntroduction),
   );
   const gmModeLabel = detail
-    ? GM_MODE_LABEL[detail.session.gmMode as GmMode] ?? (isAiGmMode(detail.session.gmMode) ? GM_MODE_LABEL[GmMode.AI] : GM_MODE_LABEL[GmMode.HUMAN])
+    ? isAiGmMode(detail.session.gmMode)
+      ? GM_MODE_LABEL[GmMode.AI]
+      : GM_MODE_LABEL[GmMode.HUMAN]
     : GM_MODE_LABEL[GmMode.AI];
   const difficultyLabel = visual.difficulty === "Hard" ? "어려움" : visual.difficulty === "Normal" ? "보통" : visual.difficulty;
   const durationLabel = getDurationLabel(visualTitle, difficultyLabel);

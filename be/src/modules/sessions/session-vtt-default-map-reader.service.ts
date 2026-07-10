@@ -1,5 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import { VttMapStateDto } from "@trpg/shared-types";
+import {
+  decodeLenientScenarioNodeCheckOptionsConfig,
+  ScenarioCheckOptionDto,
+  VttMapStateDto,
+} from "@trpg/shared-types";
+import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
 
@@ -32,34 +37,19 @@ export class SessionVttDefaultMapReaderService {
   }
 
   extractVttMapFromCheckOptions(value: string): VttMapStateDto | null {
-    const parsed = this.parseJson<unknown>(value, []);
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-      return null;
-    }
-
-    return this.mapNormalization.toVttMapOrNull((parsed as Record<string, unknown>).vttMap);
+    const config = parseJsonOrFallback(
+      value,
+      { checks: [], vttMap: null },
+      decodeLenientScenarioNodeCheckOptionsConfig,
+    );
+    return this.mapNormalization.toVttMapOrNull(config.vttMap);
   }
 
-  extractChecksFromCheckOptions(value: string): Record<string, unknown>[] {
-    const parsed = this.parseJson<unknown>(value, []);
-    if (Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>[];
-    }
-    if (parsed && typeof parsed === "object") {
-      const checks = (parsed as Record<string, unknown>).checks;
-      return Array.isArray(checks) ? (checks as Record<string, unknown>[]) : [];
-    }
-    return [];
-  }
-
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+  extractChecksFromCheckOptions(value: string): ScenarioCheckOptionDto[] {
+    return parseJsonOrFallback(
+      value,
+      { checks: [], vttMap: null },
+      decodeLenientScenarioNodeCheckOptionsConfig,
+    ).checks;
   }
 }

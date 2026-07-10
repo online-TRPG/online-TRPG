@@ -41,6 +41,7 @@ import {
   HumanGmPrivateNoteDto,
   JoinSessionDto,
   MoveSessionTokenDto,
+  PaginatedResponse,
   ParticipantStatusResponseDto,
   PlayerScenarioViewDto,
   RequestCharacterTransferDto,
@@ -89,7 +90,7 @@ export class SessionsController {
     @Query("ruleSetId") ruleSetId?: string,
     @Query("page") page = "0",
     @Query("size") size = "10",
-  ): Promise<ApiResponse<Record<string, unknown>>> {
+  ): Promise<ApiResponse<PaginatedResponse<SessionListItemResponseDto>>> {
     const currentPage = this.toPageNumber(page);
     const pageSize = this.toPageSize(size);
     const result = await this.sessionsService.listAvailableSessions({

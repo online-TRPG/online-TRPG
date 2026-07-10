@@ -146,7 +146,7 @@ export class CommandParserService {
     return {
       type: "check",
       checkName,
-      dc: this.parseDc(args[1], 10),
+      dc: this.parseDc(args[1], 10, 5, 30),
     };
   }
 
@@ -154,14 +154,14 @@ export class CommandParserService {
     return {
       type: "attack",
       target: args[0] ?? null,
-      dc: this.parseDc(args[1], 10),
+      dc: this.parseDc(args[1], 10, 1, 40),
     };
   }
 
   private parseSave(args: string[]): ParsedCommand {
     const target = args[0];
     const ability = args[1]?.toLowerCase();
-    const dc = this.parseDc(args[2], 0);
+    const dc = this.parseDc(args[2], 0, 1, 40);
     if (!target || !this.isSavingThrowAbility(ability) || dc < 1) {
       throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
         reason: "SAVE_TARGET_ABILITY_AND_DC_REQUIRED",
@@ -221,13 +221,13 @@ export class CommandParserService {
       type: "cast_spell",
       spellId,
       target,
-      targetDistanceFt: this.parseOptionalPositiveInteger(
+      targetDistanceFt: this.parseOptionalNonNegativeInteger(
         args[2],
         selfTargeted ? 0 : 90,
         "INVALID_TARGET_DISTANCE",
       ),
       slotLevel: args[3]
-        ? this.parseOptionalPositiveInteger(args[3], 0, "INVALID_SPELL_SLOT_LEVEL")
+        ? this.parseOptionalIntegerInRange(args[3], 1, 9, "INVALID_SPELL_SLOT_LEVEL")
         : null,
     };
   }
@@ -246,19 +246,14 @@ export class CommandParserService {
     const targetIds = targetToken
       .split(",")
       .map((targetId) => targetId.trim())
-      .filter(Boolean);
+      .filter((targetId) => targetId.length > 0);
     if (targetIds.length === 0) {
       throw badRequest("ACTION_400", "잘못된 명령입니다.", {
         reason: "CAST_AREA_TARGETS_REQUIRED",
       });
     }
 
-    const saveDc = this.parseOptionalPositiveInteger(saveDcToken, 0, "INVALID_SPELL_SAVE_DC");
-    if (saveDc < 1) {
-      throw badRequest("ACTION_400", "잘못된 명령입니다.", {
-        reason: "INVALID_SPELL_SAVE_DC",
-      });
-    }
+    const saveDc = this.parseOptionalIntegerInRange(saveDcToken, 1, 40, "INVALID_SPELL_SAVE_DC");
 
     return {
       type: "cast_area_spell",
@@ -266,7 +261,7 @@ export class CommandParserService {
       saveDc,
       targetIds,
       slotLevel: args[3]
-        ? this.parseOptionalPositiveInteger(args[3], 0, "INVALID_SPELL_SLOT_LEVEL")
+        ? this.parseOptionalIntegerInRange(args[3], 1, 9, "INVALID_SPELL_SLOT_LEVEL")
         : null,
     };
   }
@@ -403,11 +398,11 @@ export class CommandParserService {
   }
 
   private parseCondition(args: string[]): ParsedCommand {
-    const operation = args[0] as "add" | "remove";
+    const operation = this.parseConditionOperation(args[0]);
     const target = args[1];
     const condition = args[2];
 
-    if (!["add", "remove"].includes(operation) || !target || !condition) {
+    if (!operation || !target || !condition) {
       throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
         reason: "CONDITION_OPERATION_TARGET_AND_NAME_REQUIRED",
       });
@@ -416,7 +411,11 @@ export class CommandParserService {
     return { type: "condition", operation, target, condition };
   }
 
-  private parseDc(value: string | undefined, fallback: number): number {
+  private parseConditionOperation(value: string | undefined): "add" | "remove" | null {
+    return value === "add" || value === "remove" ? value : null;
+  }
+
+  private parseDc(value: string | undefined, fallback: number, min: number, max: number): number {
     if (!value) {
       return fallback;
     }
@@ -425,7 +424,7 @@ export class CommandParserService {
       ? value.slice("dc=".length)
       : value;
     const dc = Number(normalized);
-    if (!Number.isInteger(dc) || dc < 1) {
+    if (!Number.isInteger(dc) || dc < min || dc > max) {
       throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
         reason: "INVALID_DC",
       });
@@ -444,10 +443,40 @@ export class CommandParserService {
     }
 
     const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw badRequest("ACTION_400", "잘못된 명령입니다.", { reason });
+    }
+
+    return parsed;
+  }
+
+  private parseOptionalNonNegativeInteger(
+    value: string | undefined,
+    fallback: number,
+    reason: string,
+  ): number {
+    if (!value) {
+      return fallback;
+    }
+
+    const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < 0) {
       throw badRequest("ACTION_400", "잘못된 명령입니다.", { reason });
     }
 
+    return parsed;
+  }
+
+  private parseOptionalIntegerInRange(
+    value: string | undefined,
+    min: number,
+    max: number,
+    reason: string,
+  ): number {
+    const parsed = this.parseOptionalPositiveInteger(value, min, reason);
+    if (parsed < min || parsed > max) {
+      throw badRequest("ACTION_400", "잘못된 명령입니다.", { reason });
+    }
     return parsed;
   }
 
@@ -465,7 +494,7 @@ export class CommandParserService {
     if (!last || Number.isNaN(Number(last))) {
       return null;
     }
-    return this.parseOptionalPositiveInteger(last, 0, "INVALID_READY_RANGE");
+    return this.parseOptionalNonNegativeInteger(last, 0, "INVALID_READY_RANGE");
   }
 
   private normalizeReadyTriggerType(

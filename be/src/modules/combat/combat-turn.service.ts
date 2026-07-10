@@ -10,8 +10,10 @@ import {
   DiceRollResponseDto,
   TurnAdvanceResponseDto,
   VttMapStateDto,
+  isRecord,
 } from "@trpg/shared-types";
 import { conflict, unprocessable } from "../../common/exceptions/domain-error";
+import { parseJsonRecordOrThrow } from "../../common/utils/json-runtime";
 import type { AoeDirection } from "../rules/aoe-targeting.service";
 import type { ConditionInstance } from "../rules/condition-runtime.service";
 import type { SavingThrowAbility } from "../rules/rule-engine.types";
@@ -32,6 +34,10 @@ type MonsterActionConditionRiderApplication = {
 };
 
 const COMBAT_CONDITION_DODGE = "combat:dodge";
+
+function toDiceResultRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
 const COMBAT_CONDITION_DISENGAGE = "combat:disengage";
 
 @Injectable()
@@ -153,9 +159,13 @@ export class CombatTurnService {
     const heroismTempHpGranted = next
       ? await this.applyHeroismTurnStartTempHp(runtime, next)
       : 0;
+    const noMonsterConditionDamage: { total: number; rolls: DiceRollResponseDto[] } = {
+      total: 0,
+      rolls: [],
+    };
     const monsterConditionDamage = next
       ? await this.applyMonsterConditionTurnStartDamage(runtime, updated, next)
-      : { total: 0, rolls: [] as DiceRollResponseDto[] };
+      : noMonsterConditionDamage;
     const turnStartTerrainApplication = next
       ? await runtime.applyTurnStartTerrainEffects(sessionId, updated, next)
       : {
@@ -184,7 +194,7 @@ export class CombatTurnService {
     ];
 
     const turnMessage =
-      [
+      compactStrings([
         runtime.combatTerrain.describeLifecycle("턴 종료", turnEndTerrainApplication),
         runtime.combatTerrain.describeLifecycle("턴 시작", turnStartTerrainApplication),
         this.describeMonsterRecharge(monsterRecharge),
@@ -202,9 +212,7 @@ export class CombatTurnService {
           ? `집중 효과 ${expiredConcentrationEffectCount}개가 종료되었습니다.`
           : null,
         readyActionPrompts.length > 0 ? `준비행동 ${readyActionPrompts.length}개가 발동 대기 중입니다.` : null,
-      ]
-        .filter((message): message is string => Boolean(message))
-        .join(" / ") || undefined;
+      ]).join(" / ") || undefined;
     const turnStartTerrainEffects = runtime.combatTerrain.toResult("on_turn_start", turnStartTerrainApplication);
     const turnEndTerrainEffects = runtime.combatTerrain.toResult("on_turn_end", turnEndTerrainApplication);
     const response: TurnAdvanceResponseDto = {
@@ -251,7 +259,13 @@ export class CombatTurnService {
             eventParticipantId: prompt.moverParticipantId,
           })),
         },
-        diceResult: (turnEndTerrainApplication.damageRoll ?? turnStartTerrainApplication.damageRoll ?? conditionSaveEnds.rolls[0] ?? monsterRecharge.diceRolls[0] ?? null) as unknown as Record<string, unknown> | null,
+        diceResult: toDiceResultRecord(
+          turnEndTerrainApplication.damageRoll ??
+            turnStartTerrainApplication.damageRoll ??
+            conditionSaveEnds.rolls[0] ??
+            monsterRecharge.diceRolls[0] ??
+            null,
+        ),
         stateDiff: null,
         outcome: ActionOutcome.NO_ROLL,
         narration: response.message,
@@ -398,8 +412,10 @@ export class CombatTurnService {
       await runtime.combatConditions.readCombatConditionEntries(participant),
     );
     const amount = conditionTags
-      .map((tag) => /^temporary_hp:turn_start:(\d+)$/.exec(tag)?.[1])
-      .filter((value): value is string => Boolean(value))
+      .flatMap((tag) => {
+        const value = /^temporary_hp:turn_start:(\d+)$/.exec(tag)?.[1];
+        return typeof value === "string" ? [value] : [];
+      })
       .map(Number)
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
@@ -562,15 +578,7 @@ export class CombatTurnService {
     const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
     const token = runtime.combatTargeting.findParticipantToken(map, attacker);
     const { state } = await runtime.sessionsService.getGameStateEntityOrThrow(session.id);
-    let flags: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(state.flagsJson ?? "{}") as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        flags = parsed as Record<string, unknown>;
-      }
-    } catch {
-      flags = {};
-    }
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const action = runtime.combatMonsterActions.resolveMonsterActionForParticipant(
       attacker,
       token,
@@ -905,10 +913,10 @@ export class CombatTurnService {
     if (error instanceof Error && error.message) {
       return error.message;
     }
-    if (error && typeof error === "object" && "response" in error) {
-      const response = (error as { response?: unknown }).response;
-      if (response && typeof response === "object" && "message" in response) {
-        const message = (response as { message?: unknown }).message;
+    if (isRecord(error)) {
+      const response = error.response;
+      if (isRecord(response)) {
+        const message = response.message;
         if (typeof message === "string" && message.trim()) {
           return message;
         }
@@ -1093,7 +1101,9 @@ export class CombatTurnService {
     target: CombatParticipantEntity,
     action: SrdEngineExecutableMonsterAction,
   ): Promise<MonsterActionConditionRiderApplication> {
-    const conditionRiders = Array.isArray(action.conditionRiders) ? action.conditionRiders.filter(Boolean) : [];
+    const conditionRiders = Array.isArray(action.conditionRiders)
+      ? compactStrings(action.conditionRiders)
+      : [];
     if (conditionRiders.length === 0) {
       return { saveRolls: [], appliedConditionTags: [] };
     }
@@ -1188,7 +1198,12 @@ export class CombatTurnService {
   }
 
   resolveMonsterActionSaveDc(runtime: CombatTurnRuntime, action: SrdEngineExecutableMonsterAction): number | null {
-    if (typeof action.save?.fixedDc === "number" && Number.isInteger(action.save.fixedDc)) {
+    if (
+      typeof action.save?.fixedDc === "number" &&
+      Number.isInteger(action.save.fixedDc) &&
+      action.save.fixedDc >= 1 &&
+      action.save.fixedDc <= 40
+    ) {
       return action.save.fixedDc;
     }
     const tagDc = (action.effectTags ?? []).map((tag) => /^save_dc:(\d+)$/.exec(tag)?.[1] ?? null).find((value): value is string => value !== null);
@@ -1196,7 +1211,7 @@ export class CombatTurnService {
       return null;
     }
     const dc = Number(tagDc);
-    return Number.isInteger(dc) ? dc : null;
+    return Number.isInteger(dc) && dc >= 1 && dc <= 40 ? dc : null;
   }
 
   toSavingThrowAbility(runtime: CombatTurnRuntime, value: string | null | undefined): SavingThrowAbility | null {
@@ -1762,10 +1777,21 @@ export class CombatTurnService {
     const dy = target.y - source.y;
     const horizontal = dx > 0 ? "east" : dx < 0 ? "west" : "";
     const vertical = dy > 0 ? "south" : dy < 0 ? "north" : "";
-    if (horizontal && vertical) {
-      return `${vertical}_${horizontal}` as AoeDirection;
-    }
-    return (horizontal || vertical || "north") as AoeDirection;
+    return this.toAoeDirection(vertical, horizontal, "north");
+  }
+
+  private toAoeDirection(
+    vertical: "north" | "south" | "",
+    horizontal: "east" | "west" | "",
+    fallback: AoeDirection,
+  ): AoeDirection {
+    if (vertical === "north" && horizontal === "east") return "north_east";
+    if (vertical === "north" && horizontal === "west") return "north_west";
+    if (vertical === "south" && horizontal === "east") return "south_east";
+    if (vertical === "south" && horizontal === "west") return "south_west";
+    if (vertical) return vertical;
+    if (horizontal) return horizontal;
+    return fallback;
   }
 
   private resolveMonsterAreaSizeFt(effectTags: string[]): number | null {
@@ -2109,14 +2135,16 @@ export class CombatTurnService {
     const current = await runtime.combatConditions.readCombatConditionEntries(participant);
     const removedConditionTags: string[] = [];
     const remaining = current.filter((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      if (!isRecord(entry)) {
         return true;
       }
-      const condition = entry as Partial<ConditionInstance>;
-      if (!condition.sourceId || !sourceIds.has(condition.sourceId) || !condition.tags?.includes("condition_ends:on_exit")) {
+      const condition = entry;
+      const sourceId = typeof condition.sourceId === "string" ? condition.sourceId : null;
+      const tags = Array.isArray(condition.tags) ? condition.tags : [];
+      if (!sourceId || !sourceIds.has(sourceId) || !tags.includes("condition_ends:on_exit")) {
         return true;
       }
-      if (condition.conditionId) {
+      if (typeof condition.conditionId === "string") {
         removedConditionTags.push(condition.conditionId);
       }
       return false;
@@ -2130,4 +2158,8 @@ export class CombatTurnService {
       removedConditionTags: Array.from(new Set(removedConditionTags)),
     };
   }
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return values.flatMap((value) => typeof value === "string" && value.length > 0 ? [value] : []);
 }

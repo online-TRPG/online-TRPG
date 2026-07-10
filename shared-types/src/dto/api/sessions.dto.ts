@@ -48,6 +48,7 @@ import {
   VttMapInteractionKind,
 } from "../../constants/vtt-map";
 import { SessionCharacterResponseDto } from "./characters.dto";
+import type { MainCommandCheckOptionDto, MainCommandResponseDataDto } from "./gameplay.dto";
 import { ScenarioSummaryResponseDto } from "./scenarios.dto";
 import { UserResponseDto } from "./users.dto";
 
@@ -1003,7 +1004,7 @@ export class RevealSessionContentDto {
   @IsString()
   @IsIn(["clue", "item", "event"])
   @MaxLength(40)
-  contentKind?: string;
+  contentKind?: "clue" | "item" | "event";
 
   @ApiPropertyOptional({ enum: ["party", "user", "character"], default: "party" })
   @IsOptional()
@@ -1034,10 +1035,10 @@ export class SessionRevealResponseDto {
   contentId!: string;
 
   @ApiProperty()
-  contentKind!: string;
+  contentKind!: "clue" | "item" | "event";
 
   @ApiProperty()
-  scope!: string;
+  scope!: "party" | "user" | "character";
 
   @ApiPropertyOptional({ nullable: true })
   recipientId!: string | null;
@@ -1293,6 +1294,23 @@ export class CampaignArchiveAnalyticsDto {
   sessionCharacterCount!: number;
 }
 
+export class CampaignArchivePublicRevisionLineageDto {
+  @ApiPropertyOptional({ nullable: true })
+  sourceScenarioId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  sourceRevisionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  forkedFromScenarioId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  forkedAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  forkedByUserId!: string | null;
+}
+
 export class CampaignArchiveSnapshotDto {
   @ApiProperty()
   stateVersion!: number;
@@ -1331,8 +1349,8 @@ export class CampaignArchiveSnapshotDto {
     nodeVisitCount: number;
   };
 
-  @ApiPropertyOptional({ type: Object, nullable: true })
-  publicRevisionLineage!: Record<string, unknown> | null;
+  @ApiPropertyOptional({ type: CampaignArchivePublicRevisionLineageDto, nullable: true })
+  publicRevisionLineage!: CampaignArchivePublicRevisionLineageDto | null;
 }
 
 export class CampaignArchiveResponseDto {
@@ -2465,8 +2483,8 @@ export class VttMapInteractionResponseDto {
   map?: VttMapStateDto | null;
 
   @ApiPropertyOptional({ type: [Object] })
-  checkOptions?: Record<string, unknown>[];
+  checkOptions?: MainCommandCheckOptionDto[];
 
   @ApiPropertyOptional({ type: Object, nullable: true })
-  data?: Record<string, unknown> | null;
+  data?: MainCommandResponseDataDto | null;
 }

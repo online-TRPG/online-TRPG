@@ -36,13 +36,17 @@ function getNormalizedInventoryProperties(item: InventoryItemDto) {
 function readRangeProperty(properties: string[], prefix: 'range:' | 'range-long:' | 'range_long:') {
   const value = properties.find((property) => property.startsWith(prefix))?.slice(prefix.length);
   const rangeFt = Number(value);
-  return Number.isInteger(rangeFt) && rangeFt >= 0 ? rangeFt : null;
+  return isNonNegativeInteger(rangeFt) ? rangeFt : null;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 export function getWeaponRangeFt(item: InventoryItemDto) {
   const properties = getNormalizedInventoryProperties(item);
   const explicitRange = item.rangeFt ?? readRangeProperty(properties, 'range:');
-  if (typeof explicitRange === 'number') return explicitRange;
+  if (isNonNegativeInteger(explicitRange)) return explicitRange;
 
   const legacyFallback = getLegacyWeaponRuleFallback(item);
   if (legacyFallback?.rangeFt) return legacyFallback.rangeFt;
@@ -74,7 +78,7 @@ export function getThrowableLongRangeFt(item: InventoryItemDto) {
     item.longRangeFt ??
     readRangeProperty(normalizedProperties, 'range-long:') ??
     readRangeProperty(normalizedProperties, 'range_long:');
-  if (typeof explicitLongRange === 'number') return explicitLongRange;
+  if (isNonNegativeInteger(explicitLongRange)) return explicitLongRange;
 
   const legacyFallback = getLegacyWeaponRuleFallback(item);
   if (legacyFallback?.longRangeFt) return legacyFallback.longRangeFt;

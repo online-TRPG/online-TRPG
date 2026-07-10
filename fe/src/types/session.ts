@@ -67,7 +67,7 @@ function normalizeSessionPublicId(session: Session): Session {
   return {
     ...session,
     publicId: session.publicId ?? session.id,
-    status: normalizeSessionStatus(session.status) as Session["status"],
+    status: normalizeSessionStatus(session.status),
   };
 }
 

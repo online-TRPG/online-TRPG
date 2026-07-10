@@ -9,6 +9,7 @@ import {
   VttMapInteractionResponseDto,
   VttMapStateDto,
 } from "@trpg/shared-types";
+import { parseJsonRecordOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "./sessions.service";
@@ -34,9 +35,9 @@ export class MapRuntimeService {
     const resolvedSessionId = session.id;
     await this.sessionsService.ensureMembership(userId, resolvedSessionId);
     const { state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = this.sessionsService.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const previousMap = await this.sessionsService.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
-    const requestedMap = this.sessionsService.normalizeVttMap(dto.map, state.currentNodeId ?? null);
+    const requestedMap = this.sessionsService.normalizeInputVttMap(dto.map, state.currentNodeId ?? null, "vttMap");
     const hasActiveCombat = Boolean(
       await this.prisma.combat.findFirst({
         where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
@@ -94,7 +95,7 @@ export class MapRuntimeService {
       ({ state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId));
     }
 
-    const flags = this.sessionsService.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const previousMap = await this.sessionsService.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const controlledTokenIds = await this.sessionsService.getControlledSessionCharacterIds(userId, resolvedSessionId);
     const token = previousMap.tokens.find((candidate) => {
@@ -111,10 +112,11 @@ export class MapRuntimeService {
       throw new ForbiddenException("Players can only move their own tokens.");
     }
 
+    const moveTo = this.sessionsService.readVttMapPointInput(dto.to, "moveToken.to");
     const requestedToken = {
       ...token,
-      x: this.sessionsService.clampNumber(Math.floor(dto.to.x), 0, Math.max(0, previousMap.width - token.size)),
-      y: this.sessionsService.clampNumber(Math.floor(dto.to.y), 0, Math.max(0, previousMap.height - token.size)),
+      x: this.sessionsService.clampNumber(Math.floor(moveTo.x), 0, Math.max(0, previousMap.width - token.size)),
+      y: this.sessionsService.clampNumber(Math.floor(moveTo.y), 0, Math.max(0, previousMap.height - token.size)),
     };
     this.sessionsService.ensureTokenPathIsReachable(previousMap, token, requestedToken);
 
@@ -146,7 +148,7 @@ export class MapRuntimeService {
     const resolvedSessionId = session.id;
     await this.sessionsService.ensureMembership(userId, resolvedSessionId);
     const { state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = this.sessionsService.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const previousMap = await this.sessionsService.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const now = Date.now();
     const map: VttMapStateDto = {
@@ -157,8 +159,16 @@ export class MapRuntimeService {
           .slice(-4),
         {
           id: `ping:${randomUUID()}`,
-          x: this.sessionsService.clampNumber(Math.floor(dto.x), 0, previousMap.width),
-          y: this.sessionsService.clampNumber(Math.floor(dto.y), 0, previousMap.height),
+          x: this.sessionsService.clampNumber(
+            Math.floor(this.sessionsService.readVttMapNumberInput(dto.x, "ping.x")),
+            0,
+            previousMap.width,
+          ),
+          y: this.sessionsService.clampNumber(
+            Math.floor(this.sessionsService.readVttMapNumberInput(dto.y, "ping.y")),
+            0,
+            previousMap.height,
+          ),
           label: dto.label?.trim().slice(0, 8) || "!",
           expiresAt: new Date(now + 2200).toISOString(),
         },
@@ -188,7 +198,7 @@ export class MapRuntimeService {
   async saveSystemVttMap(sessionId: string, map: VttMapStateDto): Promise<VttMapStateDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    const flags = this.sessionsService.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const normalizedMap = this.sessionsService.normalizeVttMap(map, state.currentNodeId ?? null);
     const previousMap = await this.sessionsService.getVttMapBaseline(session.id, sessionScenario.id, state);
     const result = await this.sessionsService.finalizeRuntimeVttMapChange({

@@ -16,6 +16,13 @@ import type {
   SetHumanGmDifficultyClassDto,
   UpdateSessionNodeDto,
 } from '@trpg/shared-types';
+import {
+  decodeHumanGmAiAssistSuggestion,
+  decodeHumanGmAiAssistSuggestionArray,
+  decodeHumanGmNodeMoveOptionArray,
+  decodeHumanGmPrivateNoteArray,
+  decodeSessionSnapshot,
+} from '@trpg/shared-types/frontend';
 import type {
   SessionSnapshot,
   StoredUser,
@@ -34,6 +41,7 @@ export async function updateHumanGm(
     user,
     accessToken,
     body: { gmUserId },
+    decode: decodeSessionSnapshot,
   });
 
   return normalizeSessionSnapshot(snapshot);
@@ -51,6 +59,7 @@ export async function updateHumanGmSessionNode(
     user,
     accessToken,
     body: payload,
+    decode: decodeSessionSnapshot,
   });
 
   return normalizeSessionSnapshot(snapshot);
@@ -67,6 +76,7 @@ export async function createHumanGmMessage(
     user,
     accessToken,
     body: payload,
+    decode: decodeSessionSnapshot,
   });
 
   return normalizeSessionSnapshot(snapshot);
@@ -81,6 +91,7 @@ export function getHumanGmNodeMoveOptions(
     method: 'GET',
     user,
     accessToken,
+    decode: decodeHumanGmNodeMoveOptionArray,
   });
 }
 
@@ -97,6 +108,7 @@ export async function grantHumanGmInventoryItem(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -116,6 +128,7 @@ export async function applyHumanGmEconomyAction(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -135,6 +148,7 @@ export async function applyHumanGmCombatCondition(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -154,6 +168,7 @@ export async function removeHumanGmInventoryItem(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -173,6 +188,7 @@ export async function setHumanGmDifficultyClass(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -188,6 +204,7 @@ export function getHumanGmPrivateNotes(
     method: 'GET',
     user,
     accessToken,
+    decode: decodeHumanGmPrivateNoteArray,
   });
 }
 
@@ -202,6 +219,7 @@ export function createHumanGmAiAssistSuggestion(
     user,
     accessToken,
     body: payload,
+    decode: decodeHumanGmAiAssistSuggestion,
   });
 }
 
@@ -218,6 +236,7 @@ export function generateHumanGmAiAssistSuggestion(
       user,
       accessToken,
       body: payload,
+      decode: decodeHumanGmAiAssistSuggestion,
     }
   );
 }
@@ -231,6 +250,7 @@ export function getHumanGmAiAssistSuggestions(
     method: 'GET',
     user,
     accessToken,
+    decode: decodeHumanGmAiAssistSuggestionArray,
   });
 }
 
@@ -247,6 +267,7 @@ export async function acceptHumanGmAiAssistSuggestion(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -266,6 +287,7 @@ export async function reportHumanGmAiAssistApplicationFailure(
       user,
       accessToken,
       body: payload,
+      decode: decodeSessionSnapshot,
     }
   );
 
@@ -277,11 +299,14 @@ export async function adjustHumanGmCombatHp(
   sessionId: string,
   payload: AdjustHumanGmCombatHpDto,
   accessToken?: string | null
-): Promise<SessionSnapshotDto> {
-  return requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/combat/hp`, {
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/combat/hp`, {
     method: 'POST',
     user,
     accessToken,
     body: payload,
+    decode: decodeSessionSnapshot,
   });
+
+  return normalizeSessionSnapshot(snapshot);
 }

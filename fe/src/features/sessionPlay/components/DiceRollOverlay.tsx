@@ -142,7 +142,7 @@ function DiceRollOverlayInner({
       isSelected && isCrit ? 'is-crit' : '',
       isSelected && isFumble ? 'is-fumble' : '',
     ]
-      .filter(Boolean)
+      .filter((className) => className.length > 0)
       .join(' ');
   }
 

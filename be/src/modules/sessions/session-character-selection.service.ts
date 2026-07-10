@@ -12,9 +12,11 @@ import {
 } from "@prisma/client";
 import {
   InventoryItemDto,
+  isRecord,
   SessionParticipantResponseDto,
 } from "@trpg/shared-types";
 import { mapSessionCharacter } from "../../common/mappers/domain.mapper";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { CampaignArchiveRuntimeService } from "./campaign-archive-runtime.service";
@@ -121,6 +123,13 @@ export class SessionCharacterSelectionService {
       characterLevel: character.level,
       scenario: activeScenario.scenario,
     });
+    const inventory = parseJsonOrThrow(
+      character.inventoryJson,
+      [],
+      decodeInventoryItemsForSelection,
+      "character.inventoryJson",
+    );
+    const inventorySnapshotJson = JSON.stringify(inventory);
 
     const sessionCharacter = await this.prisma.sessionCharacter.upsert({
       where: {
@@ -135,7 +144,7 @@ export class SessionCharacterSelectionService {
         currentHp: character.maxHp,
         tempHp: 0,
         conditionsJson: JSON.stringify([]),
-        inventorySnapshotJson: character.inventoryJson,
+        inventorySnapshotJson,
       },
       create: {
         sessionId: params.sessionId,
@@ -145,14 +154,14 @@ export class SessionCharacterSelectionService {
         currentHp: character.maxHp,
         tempHp: 0,
         conditionsJson: JSON.stringify([]),
-        inventorySnapshotJson: character.inventoryJson,
+        inventorySnapshotJson,
       },
       include: { character: true },
     });
 
     await this.sessionInventory.replaceSessionInventoryEntries(
       sessionCharacter.id,
-      this.parseJson<InventoryItemDto[]>(character.inventoryJson, []),
+      inventory,
     );
     const sessionCharacterWithInventory =
       await this.prisma.sessionCharacter.findUniqueOrThrow({
@@ -178,14 +187,57 @@ export class SessionCharacterSelectionService {
     return mappedParticipant;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) {
-      return fallback;
-    }
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
+}
+
+function decodeInventoryItemsForSelection(value: unknown): InventoryItemDto[] {
+  if (!Array.isArray(value)) {
+    throw new Error("character inventory must be an array.");
   }
+  return value.flatMap((entry) => decodeInventoryItemForSelection(entry));
+}
+
+function decodeInventoryItemForSelection(value: unknown): InventoryItemDto[] {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") {
+    return [];
+  }
+  const item: InventoryItemDto = {
+    id: value.id,
+    name: value.name,
+    quantity: readPositiveIntegerOrFallback(value.quantity, 1),
+  };
+  if (typeof value.itemDefinitionId === "string") item.itemDefinitionId = value.itemDefinitionId;
+  if (typeof value.itemType === "string") item.itemType = value.itemType;
+  if (typeof value.description === "string") item.description = value.description;
+  if (isNonNegativeFiniteNumber(value.weightLb)) item.weightLb = value.weightLb;
+  if (isNonNegativeFiniteNumber(value.volumeCuFt)) item.volumeCuFt = value.volumeCuFt;
+  if (typeof value.damageDice === "string") item.damageDice = value.damageDice;
+  if (typeof value.damageType === "string") item.damageType = value.damageType;
+  if (isNonNegativeInteger(value.rangeFt)) item.rangeFt = value.rangeFt;
+  if (isNonNegativeInteger(value.longRangeFt)) item.longRangeFt = value.longRangeFt;
+  if (isNonNegativeInteger(value.armorClassBase)) item.armorClassBase = value.armorClassBase;
+  if (isFiniteNumber(value.armorClassBonus)) item.armorClassBonus = value.armorClassBonus;
+  if (isNonNegativeInteger(value.armorStrengthRequirement)) item.armorStrengthRequirement = value.armorStrengthRequirement;
+  if (typeof value.armorStealthDisadvantage === "boolean") item.armorStealthDisadvantage = value.armorStealthDisadvantage;
+  if (typeof value.useEffect === "string") item.useEffect = value.useEffect;
+  return [item];
+}
+
+function readPositiveIntegerOrFallback(value: unknown, fallback: number): number {
+  return isPositiveInteger(value) ? value : fallback;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
 }

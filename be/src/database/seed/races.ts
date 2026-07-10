@@ -83,8 +83,11 @@ export async function seedRaces(prisma: PrismaClient): Promise<void> {
     });
   }
 
-  for (const race of raceSeeds.filter((r) => r.parentKey)) {
-    const parent = await prisma.race.findUnique({ where: { key: race.parentKey! } });
+  for (const race of raceSeeds) {
+    if (!race.parentKey) {
+      continue;
+    }
+    const parent = await prisma.race.findUnique({ where: { key: race.parentKey } });
     if (!parent) {
       throw new Error(`Parent race not found for subrace ${race.key}: ${race.parentKey}`);
     }

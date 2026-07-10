@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { decodeJsonObject, type JsonObject } from "@trpg/shared-types";
 
 export type GmOverrideKind =
   | "scene_text"
@@ -22,8 +23,8 @@ export type GmOverrideInput = {
   publicNarration: string;
   privateNote?: string | null;
   targetId?: string | null;
-  statePatch?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
+  statePatch?: JsonObject | null;
+  metadata?: JsonObject | null;
 };
 
 export type GmOverrideResolution = {
@@ -39,14 +40,14 @@ export type GmOverrideResolution = {
       targetId: string | null;
       public: true;
       hasPrivateNote: boolean;
-      metadata: Record<string, unknown>;
+      metadata: JsonObject;
     };
     outcome: "SUCCESS";
     narration: string;
   };
   stateDiff: {
     reason: string;
-    diff: Record<string, unknown>;
+    diff: JsonObject;
   } | null;
   audit: {
     actorUserId: string;
@@ -95,12 +96,14 @@ export class GmOverrideService {
       return { accepted: false, rejectedReason: "missing_target" };
     }
 
-    const statePatch = input.statePatch ?? null;
+    const statePatch = input.statePatch === undefined || input.statePatch === null
+      ? null
+      : decodeJsonObject(input.statePatch, "gmOverride.statePatch");
     if (STATE_PATCH_REQUIRED_KINDS.has(input.kind) && !statePatch) {
       return { accepted: false, rejectedReason: "missing_state_patch" };
     }
 
-    const metadata = { ...(input.metadata ?? {}) };
+    const metadata = decodeJsonObject(input.metadata ?? {}, "gmOverride.metadata");
 
     return {
       accepted: true,

@@ -1,11 +1,12 @@
 import type { DiceRollResponseDto } from "@trpg/shared-types";
+import type { ConditionStateEntry } from "../rules/condition-runtime.service";
 
 export type CombatConcentrationCheckResult = {
   diceResult: DiceRollResponseDto;
   modifierRolls?: DiceRollResponseDto[];
   concentrationState: unknown;
   concentrationMaintained: boolean;
-  removedConditions: unknown[];
+  removedConditions: ConditionStateEntry[];
 };
 
 export type CombatTerrainEffectApplication = {

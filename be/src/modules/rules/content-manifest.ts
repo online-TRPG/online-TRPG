@@ -131,15 +131,16 @@ export function buildExecutableContentManifest(
     new Set(
       catalog
         .listEntries("monster_abilities")
-        .filter((entry) => entry.levelRequirement.monsterId)
-        .map((entry) => entry.levelRequirement.monsterId as string),
+        .flatMap((entry) =>
+          typeof entry.levelRequirement.monsterId === "string" ? [entry.levelRequirement.monsterId] : [],
+        ),
     ),
   ).sort();
   const itemIds = Array.from(
     new Set(
       Array.from(executableItemIds)
         .map((itemId) => itemId.trim())
-        .filter(Boolean),
+        .filter((itemId) => itemId.length > 0),
     ),
   ).sort();
 

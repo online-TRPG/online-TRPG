@@ -34,7 +34,10 @@ import { MainCommandInterpreterRouteResponseService } from "./main-command-inter
 import { MainCommandInterpreterRouterService } from "./main-command-interpreter-router.service";
 import { MainCommandInventoryLabelService } from "./main-command-inventory-label.service";
 import type { ResolvedInterpreterActionRoute } from "./main-command-interpreter-router.service";
-import { MainCommandIntentHandlersService } from "./main-command-intent-handlers.service";
+import {
+  MainCommandIntentHandlersService,
+  type MainCommandIntentHandlersRuntime,
+} from "./main-command-intent-handlers.service";
 import { MainCommandNpcDialogueService } from "./main-command-npc-dialogue.service";
 import { MainCommandPersistenceService } from "./main-command-persistence.service";
 import { MAIN_COMMAND_CONFIDENCE } from "./main-command-policy.constants";
@@ -167,7 +170,7 @@ export class MainCommandsService {
     private readonly mainCommandVttCheckResult: MainCommandVttCheckResultService,
   ) {}
 
-  private createMainCommandIntentHandlersRuntime() {
+  private createMainCommandIntentHandlersRuntime(): MainCommandIntentHandlersRuntime {
     return {
       aiService: this.aiService,
       sessionsService: this.sessionsService,

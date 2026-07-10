@@ -10,7 +10,53 @@ import {
   VttHazardCheckEffectDto,
   VttObjectCheckEffectDto,
   VTT_CHECK_EFFECT_ACTIONS,
+  isRecord,
 } from "@trpg/shared-types";
+
+const mainCommandIntentValues: readonly MainCommandIntent[] = [
+  MainCommandIntent.GENERAL_GM_REQUEST,
+  MainCommandIntent.TALK_TO_NPC,
+  MainCommandIntent.SOCIAL_PERSUADE,
+  MainCommandIntent.SOCIAL_INTIMIDATE,
+  MainCommandIntent.SOCIAL_DECEIVE,
+  MainCommandIntent.READ_EMOTION,
+  MainCommandIntent.ASK_SCENE_INFO,
+  MainCommandIntent.INSPECT_STORY_OBJECT,
+  MainCommandIntent.DECLARE_RP_ACTION,
+  MainCommandIntent.ASK_HINT,
+  MainCommandIntent.ASK_SUMMARY,
+  MainCommandIntent.REQUEST_SCENE_TRANSITION,
+  MainCommandIntent.OBSERVE_AREA,
+  MainCommandIntent.INVESTIGATE_OBJECT,
+  MainCommandIntent.LISTEN,
+  MainCommandIntent.DETECT_DANGER,
+  MainCommandIntent.SPECIAL_MOVE,
+  MainCommandIntent.INTERACT_OBJECT,
+  MainCommandIntent.USE_TOOL,
+  MainCommandIntent.USE_ITEM_EXPLORE,
+  MainCommandIntent.SPLIT_PARTY_TASK,
+  MainCommandIntent.COMBAT_MANEUVER,
+  MainCommandIntent.ENVIRONMENT_USE,
+  MainCommandIntent.IMPROVISED_ATTACK,
+  MainCommandIntent.CALLED_SHOT,
+  MainCommandIntent.READY_ACTION,
+  MainCommandIntent.REACTION_REQUEST,
+  MainCommandIntent.COMBAT_TALK,
+  MainCommandIntent.USE_ITEM_COMBAT,
+  MainCommandIntent.USE_SPELL_CREATIVELY,
+  MainCommandIntent.TACTIC_QUERY,
+  MainCommandIntent.ASK_RULE,
+];
+
+const mainCommandScreenTypeValues: readonly MainCommandScreenType[] = [
+  MainCommandScreenType.STORY,
+  MainCommandScreenType.EXPLORATION,
+  MainCommandScreenType.COMBAT,
+];
+
+function isOneOf<T extends string>(value: string, values: readonly T[]): value is T {
+  return values.some((candidate) => candidate === value);
+}
 
 @Injectable()
 export class MainCommandCheckEffectParserService {
@@ -32,24 +78,25 @@ export class MainCommandCheckEffectParserService {
       !intent ||
       !screenType ||
       !playerText ||
-      !Object.values(MainCommandIntent).includes(intent as MainCommandIntent) ||
-      !Object.values(MainCommandScreenType).includes(screenType as MainCommandScreenType)
+      !isOneOf(intent, mainCommandIntentValues) ||
+      !isOneOf(screenType, mainCommandScreenTypeValues)
     ) {
       return null;
     }
 
     const mapPoint = this.readPoint(value.mapPoint);
-    const checkOption = value.checkOption && typeof value.checkOption === "object" ? this.parseCheckOption(value.checkOption as Record<string, unknown>) : null;
-    const actionCandidate =
-      value.actionCandidate && typeof value.actionCandidate === "object" ? this.parseActionCandidate(value.actionCandidate as Record<string, unknown>) : null;
+    const checkOptionRecord = this.readRecord(value.checkOption);
+    const actionCandidateRecord = this.readRecord(value.actionCandidate);
+    const checkOption = checkOptionRecord ? this.parseCheckOption(checkOptionRecord) : null;
+    const actionCandidate = actionCandidateRecord ? this.parseActionCandidate(actionCandidateRecord) : null;
 
     return {
       type: MAIN_COMMAND_CHECK_EFFECT_TYPES.MAIN_COMMAND_CHECK,
       requestId,
       nodeId,
       sessionCharacterId: this.readString(value.sessionCharacterId) ?? "",
-      intent: intent as MainCommandIntent,
-      screenType: screenType as MainCommandScreenType,
+      intent,
+      screenType,
       playerText,
       actionSummary: actionSummary ?? playerText,
       targetId: this.readString(value.targetId),
@@ -77,18 +124,14 @@ export class MainCommandCheckEffectParserService {
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
+    const point = this.readPoint(mapPoint);
     if (
       type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_DOOR ||
       typeof doorId !== "string" ||
       typeof nodeId !== "string" ||
       (effect !== VTT_CHECK_EFFECT_ACTIONS.OPEN && effect !== VTT_CHECK_EFFECT_ACTIONS.BROKEN) ||
-      !mapPoint ||
-      typeof mapPoint !== "object"
+      !point
     ) {
-      return null;
-    }
-    const point = mapPoint as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") {
       return null;
     }
     return {
@@ -96,7 +139,7 @@ export class MainCommandCheckEffectParserService {
       doorId,
       effect,
       nodeId,
-      mapPoint: { x: point.x, y: point.y },
+      mapPoint: point,
     };
   }
 
@@ -110,18 +153,14 @@ export class MainCommandCheckEffectParserService {
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
+    const point = this.readPoint(mapPoint);
     if (
       type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_HAZARD ||
       typeof hazardId !== "string" ||
       typeof nodeId !== "string" ||
       effect !== VTT_CHECK_EFFECT_ACTIONS.DISARM ||
-      !mapPoint ||
-      typeof mapPoint !== "object"
+      !point
     ) {
-      return null;
-    }
-    const point = mapPoint as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") {
       return null;
     }
     return {
@@ -129,7 +168,7 @@ export class MainCommandCheckEffectParserService {
       hazardId,
       effect,
       nodeId,
-      mapPoint: { x: point.x, y: point.y },
+      mapPoint: point,
     };
   }
 
@@ -143,18 +182,14 @@ export class MainCommandCheckEffectParserService {
     const effect = value.effect;
     const nodeId = value.nodeId;
     const mapPoint = value.mapPoint;
+    const point = this.readPoint(mapPoint);
     if (
       type !== MAIN_COMMAND_CHECK_EFFECT_TYPES.VTT_OBJECT ||
       typeof objectId !== "string" ||
       typeof nodeId !== "string" ||
       effect !== VTT_CHECK_EFFECT_ACTIONS.BROKEN ||
-      !mapPoint ||
-      typeof mapPoint !== "object"
+      !point
     ) {
-      return null;
-    }
-    const point = mapPoint as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") {
       return null;
     }
     return {
@@ -162,7 +197,7 @@ export class MainCommandCheckEffectParserService {
       objectId,
       effect,
       nodeId,
-      mapPoint: { x: point.x, y: point.y },
+      mapPoint: point,
     };
   }
 
@@ -200,19 +235,29 @@ export class MainCommandCheckEffectParserService {
   }
 
   private readRecord(value: unknown): Record<string, unknown> | null {
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+    return isRecord(value) ? value : null;
   }
 
   private readStringArray(value: unknown): string[] {
-    return Array.isArray(value) ? value.map((item) => this.readString(item)).filter((item): item is string => Boolean(item)) : [];
+    return Array.isArray(value) ? value.flatMap((item) => this.readStringEntry(item)) : [];
+  }
+
+  private readStringEntry(value: unknown): string[] {
+    const item = this.readString(value);
+    return item ? [item] : [];
   }
 
   private readPoint(value: unknown): { x: number; y: number } | null {
-    if (!value || typeof value !== "object") {
+    const point = this.readRecord(value);
+    if (!point) {
       return null;
     }
-    const point = value as Record<string, unknown>;
-    return typeof point.x === "number" && typeof point.y === "number" ? { x: point.x, y: point.y } : null;
+    return typeof point.x === "number" &&
+      typeof point.y === "number" &&
+      Number.isInteger(point.x) &&
+      Number.isInteger(point.y)
+      ? { x: point.x, y: point.y }
+      : null;
   }
 
   private readDc(value: unknown): number | null {

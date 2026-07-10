@@ -167,7 +167,7 @@ export class MainCommandCheckRevealService {
     const sections = [
       clueLines.length ? `새 단서를 발견했습니다.\n${clueLines.join("\n")}` : null,
       itemLines.length ? `아이템을 획득했습니다. 인벤토리에 추가되었습니다.\n${itemLines.join("\n")}` : null,
-    ].filter((section): section is string => Boolean(section));
+    ].flatMap((section) => section ? [section] : []);
 
     return {
       ...response,

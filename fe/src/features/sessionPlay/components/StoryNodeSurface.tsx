@@ -71,6 +71,14 @@ type VisibleStoryRpUtterance = StoryRpUtterance & {
   isFading: boolean;
 };
 
+function readClampedInteger(value: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return Math.min(Math.max(fallback, min), max);
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
 export type StoryNodeMoveOption = {
   nodeId: string;
   title: string;
@@ -341,14 +349,11 @@ export function StoryNodeSurface({
               value={clampedShortRestHitDiceToSpend}
               disabled={isBusy || !restTargetCharacterId}
               aria-label={storyPresentation.shortRestHitDiceAriaLabel}
-              onChange={(event) => {
-                const nextValue = Number(event.target.value);
-                setShortRestHitDiceToSpend(
-                  Number.isInteger(nextValue)
-                    ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
-                    : 0
-                );
-              }}
+              onChange={(event) =>
+                setShortRestHitDiceToSpend((current) =>
+                  readClampedInteger(event.target.value, current, 0, restHitDiceMaximum)
+                )
+              }
             />
           </label>
           <button

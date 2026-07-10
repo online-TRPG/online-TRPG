@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { ActionOutcome as PrismaActionOutcome, Prisma } from "@prisma/client";
-import type { CampaignArchiveResponseDto } from "@trpg/shared-types";
+import {
+  decodeStateDiffResponse,
+  decodeTurnLogStateDiff,
+  decodeTurnLogStructuredAction,
+  type CampaignArchiveResponseDto,
+} from "@trpg/shared-types";
 
 @Injectable()
 export class SessionCampaignArchiveAuditService {
@@ -20,6 +25,31 @@ export class SessionCampaignArchiveAuditService {
       orderBy: { turnNumber: "desc" },
       select: { turnNumber: true },
     });
+    const stateDiff = decodeStateDiffResponse({
+      baseVersion: params.baseVersion,
+      nextVersion: params.nextVersion,
+      reason: "p6_campaign_archive",
+      diff: {
+        sessionCompletedAt: params.archive.completedAt,
+        p6CampaignArchive: {
+          archiveId: params.archive.archiveId,
+          characterCount: params.archive.characters.length,
+          analytics: params.archive.analytics,
+        },
+      },
+    });
+    const persistedDiff = decodeStateDiffResponse({
+      baseVersion: params.baseVersion,
+      nextVersion: params.nextVersion,
+      reason: "p6_campaign_archive",
+      diff: {
+        p6CampaignArchive: {
+          archiveId: params.archive.archiveId,
+          completedAt: params.archive.completedAt,
+          characterCount: params.archive.characters.length,
+        },
+      },
+    });
     const created = await tx.turnLog.create({
       data: {
         sessionId: params.sessionId,
@@ -27,25 +57,13 @@ export class SessionCampaignArchiveAuditService {
         actorUserId: params.actorUserId,
         turnNumber: (latest?.turnNumber ?? 0) + 1,
         rawInput: "/campaign complete",
-        structuredActionJson: JSON.stringify({
+        structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction({
           type: "p6_campaign_archive",
           archiveId: params.archive.archiveId,
           shareScope: params.archive.shareScope,
           allowCharacterTransfer: params.archive.allowCharacterTransfer,
-        }),
-        stateDiffJson: JSON.stringify({
-          baseVersion: params.baseVersion,
-          nextVersion: params.nextVersion,
-          reason: "p6_campaign_archive",
-          diff: {
-            sessionCompletedAt: params.archive.completedAt,
-            p6CampaignArchive: {
-              archiveId: params.archive.archiveId,
-              characterCount: params.archive.characters.length,
-              analytics: params.archive.analytics,
-            },
-          },
-        }),
+        })),
+        stateDiffJson: JSON.stringify(decodeTurnLogStateDiff(stateDiff)),
         outcome: PrismaActionOutcome.SUCCESS,
         narration: params.archive.epilogue,
       },
@@ -57,13 +75,7 @@ export class SessionCampaignArchiveAuditService {
         baseVersion: params.baseVersion,
         nextVersion: params.nextVersion,
         reason: "p6_campaign_archive",
-        diffJson: JSON.stringify({
-          p6CampaignArchive: {
-            archiveId: params.archive.archiveId,
-            completedAt: params.archive.completedAt,
-            characterCount: params.archive.characters.length,
-          },
-        }),
+        diffJson: JSON.stringify(persistedDiff.diff),
       },
     });
   }

@@ -150,7 +150,7 @@ export class CharacterFeatureSnapshotService {
   }): string[] {
     const featSelections = (params.requested ?? [])
       .map((featId) => featId.trim().toLowerCase())
-      .filter(Boolean);
+      .filter((featId) => featId.length > 0);
     if (featSelections.length > params.asiLevels.length) {
       throw new BadRequestException({
         code: "LEVEL_UP_TOO_MANY_FEATS",

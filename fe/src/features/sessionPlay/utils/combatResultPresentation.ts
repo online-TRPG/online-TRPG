@@ -1,58 +1,57 @@
 import type {
   CombatActionResultDto,
-  CombatMoveResultDto,
   CombatReactionPromptDto,
   CombatResponseDto,
 } from '@trpg/shared-types';
+import {
+  decodeCombatActionResult,
+  decodeCombatReactionPrompt,
+  decodeCombatResponse,
+  isRecord,
+} from '@trpg/shared-types/frontend';
 import type { Character } from '../../../types/session';
 
-export function getCompletedCombatNodeIds(flags: Record<string, unknown> | undefined): Set<string> {
-  const value = flags?.completedCombatNodeIds;
-  return new Set(
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-  );
-}
-
 export function isCombatResponseDto(value: unknown): value is CombatResponseDto {
-  if (!value || typeof value !== 'object') return false;
-  return (
-    'combatId' in value &&
-    'participants' in value &&
-    Array.isArray((value as { participants?: unknown }).participants)
-  );
+  try {
+    decodeCombatResponse(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function isCombatActionResultDto(value: unknown): value is CombatActionResultDto {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      'combat' in value &&
-      'message' in value &&
-      typeof (value as { message?: unknown }).message === 'string'
-  );
+  try {
+    decodeCombatActionResult(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function isCombatReactionPromptDto(value: unknown): value is CombatReactionPromptDto {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      typeof (value as { id?: unknown }).id === 'string' &&
-      ['opportunity_attack', 'shield', 'ready_action', 'counterspell'].includes(
-        String((value as { type?: unknown }).type)
-      ) &&
-      typeof (value as { reactorParticipantId?: unknown }).reactorParticipantId === 'string' &&
-      typeof (value as { message?: unknown }).message === 'string'
-  );
+  try {
+    decodeCombatReactionPrompt(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function getCombatReactionPrompts(result: {
-  pendingReaction?: CombatReactionPromptDto | null;
-  pendingReactions?: CombatReactionPromptDto[] | null;
-}): CombatReactionPromptDto[] {
+export function getCombatReactionPrompts(result: unknown): CombatReactionPromptDto[] {
+  if (!isRecord(result)) {
+    return [];
+  }
   const prompts = [
     ...(Array.isArray(result.pendingReactions) ? result.pendingReactions : []),
     result.pendingReaction,
-  ].filter(isCombatReactionPromptDto);
+  ].flatMap((candidate): CombatReactionPromptDto[] => {
+    try {
+      return [decodeCombatReactionPrompt(candidate)];
+    } catch {
+      return [];
+    }
+  });
   const seen = new Set<string>();
   return prompts.filter((prompt) => {
     if (seen.has(prompt.id)) return false;
@@ -150,17 +149,12 @@ export function logCombatRequestSucceeded(sessionId: string, combat: CombatRespo
 }
 
 export function formatCombatMoveResultMessage(result: unknown): string {
-  const source = result && typeof result === 'object'
-    ? (result as {
-        message?: string | null;
-        movementDistanceFt?: number | null;
-        movementCostFt?: number | null;
-      })
-    : {};
-  const baseMessage = source.message?.trim() || '전투 이동을 처리했습니다.';
-  const movementDistanceFt =
-    typeof source.movementDistanceFt === 'number' ? source.movementDistanceFt : null;
-  const movementCostFt = typeof source.movementCostFt === 'number' ? source.movementCostFt : null;
+  const source = isRecord(result) ? result : {};
+  const baseMessage = typeof source.message === 'string' && source.message.trim()
+    ? source.message.trim()
+    : '전투 이동을 처리했습니다.';
+  const movementDistanceFt = readFiniteNumberOrNull(source.movementDistanceFt);
+  const movementCostFt = readFiniteNumberOrNull(source.movementCostFt);
 
   if (
     movementDistanceFt !== null &&
@@ -177,21 +171,27 @@ export function formatCombatMoveResultMessage(result: unknown): string {
 export function formatCombatActionResultMessage(result: CombatActionResultDto): string {
   const baseMessage = result.message?.trim() || '전투 행동을 처리했습니다.';
   const details: string[] = [];
+  const attackTotal = readFiniteNumberOrNull(result.attackTotal);
+  const damageTotal = readFiniteNumberOrNull(result.damageTotal);
 
   if (
-    typeof result.attackTotal === 'number' &&
+    attackTotal !== null &&
     !/(명중|공격|attack)\s*(굴림|총합|total)?\s*\d+/i.test(baseMessage)
   ) {
-    details.push(`명중 ${result.attackTotal}`);
+    details.push(`명중 ${attackTotal}`);
   }
 
   if (
-    typeof result.damageTotal === 'number' &&
-    result.damageTotal > 0 &&
+    damageTotal !== null &&
+    damageTotal > 0 &&
     !/(피해|damage)\s*\d+/i.test(baseMessage)
   ) {
-    details.push(`피해 ${result.damageTotal}`);
+    details.push(`피해 ${damageTotal}`);
   }
 
   return details.length ? `${baseMessage} / ${details.join(' / ')}` : baseMessage;
+}
+
+function readFiniteNumberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }

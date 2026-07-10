@@ -5,7 +5,14 @@ import {
   resolvePreparedSpellAbility,
   resolveSpellcastingAbility,
 } from "@trpg/srd-data/rules";
+import { isRecord } from "@trpg/shared-types";
 import { conflict, notFound } from "../../common/exceptions/domain-error";
+import {
+  decodeStringArray,
+  parseJsonOrThrow,
+  parseJsonRecordOrFallback,
+  parseJsonRecordOrThrow,
+} from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 import type { RuleCatalogEntry } from "../rules/rule-catalog.types";
@@ -13,7 +20,18 @@ import type { SavingThrowAbility } from "../rules/rule-engine.types";
 import { SessionsService } from "../sessions/sessions.service";
 import { SpellScalingService } from "../rules/spell-scaling.service";
 import type { SpellScalingResult, SpellScalingRule } from "../rules/spell-scaling.service";
-import { SpellSlotService } from "../rules/spell-slot.service";
+import {
+  SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG,
+  SpellSlotService,
+} from "../rules/spell-slot.service";
+
+type CharacterSpellList = {
+  cantrips?: string[];
+  spells?: string[];
+  preparedSpells?: string[];
+};
+
+type CombatSpellDurationUnit = Extract<SpellScalingRule, { mode: "duration" }>["unit"];
 
 type SpellSessionCharacter = {
   character: {
@@ -68,10 +86,7 @@ export class CombatSpellService {
     if (!allowed.has(spellId)) {
       throw conflict("COMBAT_409", "MVP 범위 밖의 주문입니다.", { reason: "SPELL_NOT_MVP", spellId });
     }
-    const spells = this.parseJson<{ cantrips?: string[]; spells?: string[]; preparedSpells?: string[] } | null>(
-      sessionCharacter.character.spellsJson,
-      null,
-    );
+    const spells = this.parseCharacterSpellList(sessionCharacter.character.spellsJson);
     const knownCantrips = (spells?.cantrips ?? []).map((value) => this.normalizeSpellId(value));
     const knownSpells = (spells?.spells ?? []).map((value) => this.normalizeSpellId(value));
     if (knownCantrips.includes(spellId)) return;
@@ -159,7 +174,7 @@ export class CombatSpellService {
   resolveCombatSpellLevel(spellDefinition: RuleCatalogEntry | null): number | null {
     const spellLevelTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("spell_level:"));
     const spellLevel = Number(spellLevelTag?.slice("spell_level:".length));
-    return Number.isInteger(spellLevel) && spellLevel >= 0 ? spellLevel : null;
+    return Number.isInteger(spellLevel) && spellLevel >= 0 && spellLevel <= 9 ? spellLevel : null;
   }
 
   resolveCombatSpellScalingFromCatalog(
@@ -292,7 +307,7 @@ export class CombatSpellService {
   }
 
   resolveSpellcastingAbilityModifierForCharacter(sessionCharacter: SpellSessionCharacter): number {
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
+    const abilities = this.parseNumberRecord(sessionCharacter.character.abilitiesJson);
     const classKey = normalizeSrdCharacterClassKey(sessionCharacter.character.className);
     const abilityKey = resolveSpellcastingAbility(classKey) ?? "int";
     return resolveAbilityModifier(abilities[abilityKey] ?? 10);
@@ -331,10 +346,7 @@ export class CombatSpellService {
     ) {
       return 0;
     }
-    const featureIds = this.parseJson<string[]>(
-      sessionCharacter.character.featuresJson,
-      [],
-    );
+    const featureIds = this.parseStringArray(sessionCharacter.character.featuresJson);
     const runtimeTags = this.ruleCatalog.resolveRuntimeTags(featureIds);
     if (
       !runtimeTags.includes("trigger:spell_damage_matching_ancestry") ||
@@ -360,10 +372,7 @@ export class CombatSpellService {
     ) {
       return false;
     }
-    const featureIds = this.parseJson<string[]>(
-      sessionCharacter.character.featuresJson,
-      [],
-    );
+    const featureIds = this.parseStringArray(sessionCharacter.character.featuresJson);
     return this.ruleCatalog
       .resolveRuntimeTags(featureIds)
       .includes("damage:half_on_success");
@@ -387,11 +396,8 @@ export class CombatSpellService {
     maximumSlots?: number,
   ): Promise<void> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const spellSlots = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
+    const spellSlots = this.spellSlots.readSpellSlotsFromFlags(flags);
     const key = String(slotLevel);
     const resolvedMaximumSlots = maximumSlots ?? await this.resolveSpellSlotMaximum(sessionCharacterId, slotLevel);
     const characterSlots = spellSlots[sessionCharacterId] ?? { [key]: resolvedMaximumSlots };
@@ -402,7 +408,7 @@ export class CombatSpellService {
     spellSlots[sessionCharacterId] = { ...characterSlots, [key]: remaining - 1 };
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
-      data: { flagsJson: JSON.stringify({ ...flags, spellSlotsBySessionCharacterId: spellSlots }) },
+      data: { flagsJson: JSON.stringify({ ...flags, [SPELL_SLOTS_BY_SESSION_CHARACTER_ID_FLAG]: spellSlots }) },
     });
   }
 
@@ -427,11 +433,8 @@ export class CombatSpellService {
     maximumSlots?: number,
   ): Promise<number> {
     const { state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const spellSlots = this.parseJson<Record<string, Record<string, number>>>(
-      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
-      {},
-    );
+    const flags = parseJsonRecordOrFallback(state.flagsJson, {});
+    const spellSlots = this.spellSlots.readSpellSlotsFromFlags(flags);
     const resolvedMaximumSlots = maximumSlots ?? await this.resolveSpellSlotMaximum(sessionCharacterId, slotLevel);
     return Math.max(
       0,
@@ -528,10 +531,10 @@ export class CombatSpellService {
           ? [{ mode, amount: table.amount, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
           : [];
       case "duration":
-        return typeof table.unit === "string" && typeof table.amountPerSlotAbove === "number"
+        return this.isCombatSpellDurationUnit(table.unit) && typeof table.amountPerSlotAbove === "number"
           ? [{
               mode,
-              unit: table.unit as "round" | "minute" | "hour" | "day",
+              unit: table.unit,
               amountPerSlotAbove: table.amountPerSlotAbove,
               perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove),
             }]
@@ -545,12 +548,50 @@ export class CombatSpellService {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
   }
 
-  private parseJson<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) return fallback;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
+  private parseCharacterSpellList(value: string | null | undefined): CharacterSpellList | null {
+    return parseJsonOrThrow(value, null, (parsed) => {
+      if (parsed === null) {
+        return null;
+      }
+      if (!isRecord(parsed)) {
+        throw new Error("character spells must be an object.");
+      }
+      return {
+        cantrips: this.readOptionalStringArray(parsed.cantrips),
+        spells: this.readOptionalStringArray(parsed.spells),
+        preparedSpells: this.readOptionalStringArray(parsed.preparedSpells),
+      };
+    }, "character.spellsJson");
+  }
+
+  private parseNumberRecord(value: string | null | undefined): Record<string, number> {
+    return parseJsonOrThrow(value, {}, (parsed) => this.decodeNumberRecord(parsed), "character.abilitiesJson");
+  }
+
+  private decodeNumberRecord(value: unknown): Record<string, number> {
+    if (!isRecord(value)) {
+      throw new Error("number record must be an object.");
     }
+    return Object.fromEntries(Object.entries(value).map(([key, numericValue]) => {
+      if (typeof numericValue !== "number" || !Number.isFinite(numericValue)) {
+        throw new Error(`${key} must be a finite number.`);
+      }
+      return [key, numericValue];
+    }));
+  }
+
+  private parseStringArray(value: string | null | undefined): string[] {
+    return parseJsonOrThrow(value, [], decodeStringArray, "character.featuresJson");
+  }
+
+  private readOptionalStringArray(value: unknown): string[] | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    return decodeStringArray(value);
+  }
+
+  private isCombatSpellDurationUnit(value: unknown): value is CombatSpellDurationUnit {
+    return value === "round" || value === "minute" || value === "hour" || value === "day";
   }
 }

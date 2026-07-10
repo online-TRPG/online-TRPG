@@ -16,7 +16,6 @@ import {
   getAttunedItemEntryIds,
   isBackendUsableInventoryItem,
   isPackLikeInventoryItem,
-  parseJson,
   parseP3ItemRuntimeFlags,
   resolveItemChargeUsage,
   resolveMapDistanceFt,
@@ -25,14 +24,6 @@ import {
 } from "./inventory-item-policy";
 
 describe("inventory item policy", () => {
-  it("parses json with a fallback", () => {
-    expect(parseJson('{"enabled":true}', {})).toEqual({ enabled: true });
-    expect(parseJson("not-json", { fallback: true })).toEqual({
-      fallback: true,
-    });
-    expect(parseJson(null, [])).toEqual([]);
-  });
-
   it("normalizes p3 item runtime flags", () => {
     expect(
       parseP3ItemRuntimeFlags({

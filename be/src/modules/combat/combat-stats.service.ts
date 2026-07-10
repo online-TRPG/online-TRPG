@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import type { VttMapStateDto } from "@trpg/shared-types";
+import { isRecord, type VttMapStateDto } from "@trpg/shared-types";
+import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { SrdEngineLoaderService } from "./srd-engine-loader.service";
 
 const DEFAULT_MONSTER_AC = 10;
@@ -46,8 +47,8 @@ export class CombatStatsService {
       return { monsterTokens, excludedTokenIds: [], applied: false };
     }
 
-    const basePartySize = this.clampNumber(Number(scaling.basePartySize) || 4, 1, 12);
-    const minMonsterCount = this.clampNumber(Number(scaling.minMonsterCount) || 1, 0, monsterTokens.length);
+    const basePartySize = this.readIntegerInRange(scaling.basePartySize, 1, 12, 4);
+    const minMonsterCount = this.readIntegerInRange(scaling.minMonsterCount, 0, monsterTokens.length, 1);
     const fixedTokens = monsterTokens.filter((token) => token.encounterRole === "fixed");
     const scalableEntries = monsterTokens
       .map((token, index) => ({ token, index }))
@@ -110,7 +111,7 @@ export class CombatStatsService {
   }
 
   resolveMonsterDexterityModifier(token: VttMapToken): number {
-    const monster = token.monster as Record<string, unknown> | null | undefined;
+    const monster = isRecord(token.monster) ? token.monster : null;
     const score =
       this.resolveDexterityScoreFromUnknown(monster) ??
       this.parseAbilityScoreFromText("dex", token.monster?.basicRaw) ??
@@ -139,11 +140,11 @@ export class CombatStatsService {
   }
 
   private resolveDexterityScoreFromUnknown(source: unknown): number | null {
-    if (!source || typeof source !== "object") {
+    if (!isRecord(source)) {
       return null;
     }
 
-    const record = source as Record<string, unknown>;
+    const record = source;
     const directScore =
       this.parseNumericValue(record.dex) ??
       this.parseNumericValue(record.dexterity) ??
@@ -189,18 +190,14 @@ export class CombatStatsService {
   }
 
   private parseJsonObject(value: string | null | undefined): Record<string, unknown> | null {
-    if (!value) {
-      return null;
-    }
+    return parseJsonOrThrow(value, null, this.decodeJsonObject, "character.abilitiesJson");
+  }
 
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null;
-    } catch {
-      return null;
+  private decodeJsonObject(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) {
+      throw new Error("value must be an object.");
     }
+    return value;
   }
 
   private parseNumericValue(value: unknown): number | null {
@@ -233,5 +230,11 @@ export class CombatStatsService {
       return min;
     }
     return Math.min(Math.max(value, min), max);
+  }
+
+  private readIntegerInRange(value: unknown, min: number, max: number, fallback: number): number {
+    return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+      ? value
+      : fallback;
   }
 }

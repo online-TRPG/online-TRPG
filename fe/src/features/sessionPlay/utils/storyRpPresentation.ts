@@ -27,22 +27,21 @@ export function buildStoryRpUtterances(params: {
     .slice()
     .reverse()
     .filter((log) => isFreshStoryRpLog(log, nowMs, freshWindowMs))
-    .map((log) => {
+    .flatMap((log) => {
       const participant = participants.find((item) => item.user.displayName === log.title);
       const character = participant
         ? sessionCharacters.find((item) => item.userId === participant.userId)
         : null;
 
-      if (!character) return null;
+      if (!character) return [];
 
-      return {
+      return [{
         id: log.id,
         characterId: character.id,
         message: stripScopePrefix(log.message),
         createdAt: log.createdAt,
-      };
-    })
-    .filter((utterance): utterance is StoryRpUtterance => Boolean(utterance));
+      }];
+    });
 }
 
 function isFreshStoryRpLog(log: LogEntry, nowMs: number, freshWindowMs: number): boolean {

@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { ActionOutcome, MainCommandResponseDto, MainCommandStatus, SubmitMainCommandDto } from "@trpg/shared-types";
+import { ActionOutcome, MainCommandResponseDto, MainCommandStatus, SubmitMainCommandDto, isRecord } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
@@ -88,8 +88,7 @@ export class MainCommandPersistenceService {
   private resolvePersistedMainCommand(dto: SubmitMainCommandDto, response: MainCommandResponseDto): EffectiveMainCommandData {
     const fallback = this.buildEffectiveMainCommandData(dto);
     const data = response.data;
-    const effectiveMainCommand =
-      data?.effectiveMainCommand && typeof data.effectiveMainCommand === "object" ? (data.effectiveMainCommand as Partial<EffectiveMainCommandData>) : null;
+    const effectiveMainCommand = isRecord(data?.effectiveMainCommand) ? data.effectiveMainCommand : null;
 
     if (!effectiveMainCommand) {
       return fallback;
@@ -97,12 +96,26 @@ export class MainCommandPersistenceService {
 
     return {
       commandId: typeof effectiveMainCommand.commandId === "string" ? effectiveMainCommand.commandId : fallback.commandId,
-      category: effectiveMainCommand.category ?? fallback.category,
-      intent: effectiveMainCommand.intent ?? fallback.intent,
-      screenType: effectiveMainCommand.screenType ?? fallback.screenType,
+      category:
+        typeof effectiveMainCommand.category === "string" && effectiveMainCommand.category === fallback.category
+          ? effectiveMainCommand.category
+          : fallback.category,
+      intent:
+        typeof effectiveMainCommand.intent === "string" && effectiveMainCommand.intent === fallback.intent
+          ? effectiveMainCommand.intent
+          : fallback.intent,
+      screenType:
+        typeof effectiveMainCommand.screenType === "string" && effectiveMainCommand.screenType === fallback.screenType
+          ? effectiveMainCommand.screenType
+          : fallback.screenType,
       targetId:
         typeof effectiveMainCommand.targetId === "string" ? effectiveMainCommand.targetId : effectiveMainCommand.targetId === null ? null : fallback.targetId,
-      targetType: effectiveMainCommand.targetType ?? fallback.targetType,
+      targetType:
+        effectiveMainCommand.targetType === fallback.targetType
+          ? fallback.targetType
+          : effectiveMainCommand.targetType === null
+            ? null
+            : fallback.targetType,
       itemId: typeof effectiveMainCommand.itemId === "string" ? effectiveMainCommand.itemId : effectiveMainCommand.itemId === null ? null : fallback.itemId,
       spellId:
         typeof effectiveMainCommand.spellId === "string" ? effectiveMainCommand.spellId : effectiveMainCommand.spellId === null ? null : fallback.spellId,

@@ -21,6 +21,19 @@ import type {
   UploadScenarioNodeImageDto,
   UpsertScenarioCollaboratorDto,
 } from '@trpg/shared-types';
+import {
+  decodePlayerScenarioView,
+  decodeScenarioAssetResponse,
+  decodeScenarioAssetResponseArray,
+  decodeScenarioCollaborationState,
+  decodeScenarioModerationActionResponse,
+  decodeScenarioModerationAppealResponse,
+  decodeScenarioModerationQueueItemArray,
+  decodeScenarioModerationReportResponse,
+  decodeScenarioNodeImageUploadResponse,
+  decodeScenarioResponse,
+  decodeScenarioSummaryArray,
+} from '@trpg/shared-types/frontend';
 import type { PlayerScenarioView, Scenario, ScenarioDetail, StoredUser } from '../types/session';
 import { requestJson } from './httpClient';
 
@@ -44,6 +57,7 @@ export function listScenarios(
   return requestJson<Scenario[]>(`/scenarios${search ? `?${search}` : ''}`, {
     user,
     accessToken,
+    decode: decodeScenarioSummaryArray,
   });
 }
 
@@ -77,6 +91,7 @@ export function getScenario(
   return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`, {
     user,
     accessToken,
+    decode: decodeScenarioResponse,
   });
 }
 
@@ -88,6 +103,7 @@ export function getPlayerScenario(
   return requestJson<PlayerScenarioViewDto>(`/sessions/${sessionId}/player-scenario`, {
     user,
     accessToken,
+    decode: decodePlayerScenarioView,
   });
 }
 
@@ -107,6 +123,7 @@ export function listMyScenarios(
   return requestJson<Scenario[]>(`/scenarios/mine${query ? `?${query}` : ''}`, {
     user,
     accessToken,
+    decode: decodeScenarioSummaryArray,
   });
 }
 
@@ -120,6 +137,7 @@ export function createScenario(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioResponse,
   });
 }
 
@@ -134,6 +152,7 @@ export function updateScenario(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioResponse,
   });
 }
 
@@ -148,6 +167,7 @@ export function publishScenario(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioResponse,
   });
 }
 
@@ -160,6 +180,7 @@ export function unpublishScenarioRevision(
     method: 'POST',
     user,
     accessToken,
+    decode: decodeScenarioResponse,
   });
 }
 
@@ -171,6 +192,7 @@ export function getScenarioCollaborationState(
   return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/collaboration`, {
     user,
     accessToken,
+    decode: decodeScenarioCollaborationState,
   });
 }
 
@@ -185,6 +207,7 @@ export function upsertScenarioCollaborator(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioCollaborationState,
   });
 }
 
@@ -200,6 +223,7 @@ export function removeScenarioCollaborator(
       method: 'DELETE',
       user,
       accessToken,
+      decode: decodeScenarioCollaborationState,
     }
   );
 }
@@ -215,6 +239,7 @@ export function createScenarioReview(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioCollaborationState,
   });
 }
 
@@ -229,6 +254,7 @@ export function reportScenario(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioModerationReportResponse,
   });
 }
 
@@ -245,6 +271,7 @@ export function appealScenarioModeration(
       user,
       accessToken,
       body: payload,
+      decode: decodeScenarioModerationAppealResponse,
     }
   );
 }
@@ -256,6 +283,7 @@ export function listScenarioModerationQueue(
   return requestJson<ScenarioModerationQueueItemDto[]>('/scenarios/moderation/queue', {
     user,
     accessToken,
+    decode: decodeScenarioModerationQueueItemArray,
   });
 }
 
@@ -270,6 +298,7 @@ export function applyScenarioModerationAction(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioModerationActionResponse,
   });
 }
 
@@ -284,6 +313,7 @@ export function forkScenario(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioResponse,
   });
 }
 
@@ -311,6 +341,7 @@ export function uploadScenarioNodeImage(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioNodeImageUploadResponse,
   });
 }
 
@@ -326,6 +357,7 @@ export function listScenarioAssets(
   return requestJson<ScenarioAssetResponseDto[]>(`/scenarios/${scenarioId}/assets${search}`, {
     user,
     accessToken,
+    decode: decodeScenarioAssetResponseArray,
   });
 }
 
@@ -340,6 +372,7 @@ export function uploadScenarioAsset(
     user,
     accessToken,
     body: payload,
+    decode: decodeScenarioAssetResponse,
   });
 }
 

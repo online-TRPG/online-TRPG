@@ -1,10 +1,17 @@
 import { Injectable } from "@nestjs/common";
+import {
+  isRecord,
+  parseJsonWithDecoder,
+} from "@trpg/shared-types";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  SrdEngineDamageEntry,
   SrdEngineExecutableMonsterAction,
   SrdEngineMonsterCombatStats,
+  SrdEngineMonsterAction,
   SrdEngineMonsterProfile,
+  SrdEngineActionConfidence,
 } from "./srd-engine.types";
 
 const MVP_MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
@@ -150,8 +157,10 @@ export class SrdEngineLoaderService {
       if (!trimmed) {
         continue;
       }
-      const profile = JSON.parse(trimmed) as SrdEngineMonsterProfile;
-      profiles.set(profile.id, profile);
+      const profile = parseJsonWithDecoder(trimmed, decodeSrdEngineMonsterProfile, "srd engine monster profile");
+      if (profile) {
+        profiles.set(profile.id, profile);
+      }
     }
 
     this.monsterProfiles = profiles;
@@ -170,4 +179,205 @@ export class SrdEngineLoaderService {
   private asPositiveInteger(value: unknown): number | null {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
   }
+}
+
+function decodeSrdEngineMonsterProfile(value: unknown): SrdEngineMonsterProfile | null {
+  if (!isRecord(value) || typeof value.id !== "string" || value.type !== "monster" || typeof value.schemaVersion !== "string") {
+    return null;
+  }
+  const name = decodeMonsterName(value.name);
+  if (!name) {
+    return null;
+  }
+  const statBlock = decodeMonsterStatBlock(value.statBlock);
+  const features = decodeMonsterFeatures(value.features);
+  return {
+    id: value.id,
+    type: "monster",
+    schemaVersion: value.schemaVersion,
+    name,
+    ...(statBlock ? { statBlock } : {}),
+    ...(features ? { features } : {}),
+  };
+}
+
+function decodeMonsterName(value: unknown): SrdEngineMonsterProfile["name"] | null {
+  if (!isRecord(value) || typeof value.en !== "string") {
+    return null;
+  }
+  const aliases = Array.isArray(value.aliases) ? decodeStringArray(value.aliases) : undefined;
+  return {
+    en: value.en,
+    ...(typeof value.ko === "string" || value.ko === null ? { ko: value.ko } : {}),
+    ...(aliases ? { aliases } : {}),
+  };
+}
+
+function decodeMonsterStatBlock(value: unknown): SrdEngineMonsterProfile["statBlock"] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const armorClass = decodeArmorClass(value.armorClass);
+  const hitPoints = decodeHitPoints(value.hitPoints);
+  const speed = decodeMonsterSpeed(value.speed);
+  return {
+    ...(armorClass ? { armorClass } : {}),
+    ...(hitPoints ? { hitPoints } : {}),
+    ...(speed ? { speed } : {}),
+  };
+}
+
+function decodeArmorClass(value: unknown): NonNullable<NonNullable<SrdEngineMonsterProfile["statBlock"]>["armorClass"]> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const armorClassValue = readPositiveInteger(value.value);
+  const decoded = {
+    ...(armorClassValue !== undefined ? { value: armorClassValue } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  };
+  return Object.keys(decoded).length ? decoded : undefined;
+}
+
+function decodeHitPoints(value: unknown): NonNullable<NonNullable<SrdEngineMonsterProfile["statBlock"]>["hitPoints"]> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const average = readPositiveInteger(value.average);
+  const decoded = {
+    ...(average !== undefined ? { average } : {}),
+    ...(typeof value.formula === "string" ? { formula: value.formula } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  };
+  return Object.keys(decoded).length ? decoded : undefined;
+}
+
+function decodeMonsterSpeed(value: unknown): NonNullable<SrdEngineMonsterProfile["statBlock"]>["speed"] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const modes = isRecord(value.modes)
+    ? Object.fromEntries(
+        Object.entries(value.modes).flatMap(([key, mode]) => {
+          if (!isRecord(mode)) {
+            return [];
+          }
+          const ft = readPositiveInteger(mode.ft);
+          return ft !== undefined ? [[key, { ft }] as const] : [];
+        }),
+      )
+    : undefined;
+  return {
+    ...(modes && Object.keys(modes).length ? { modes } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  };
+}
+
+function decodeMonsterFeatures(value: unknown): SrdEngineMonsterProfile["features"] | undefined {
+  if (!isRecord(value) || !Array.isArray(value.actions)) {
+    return undefined;
+  }
+  return {
+    actions: value.actions.flatMap((action) => {
+      const decoded = decodeMonsterAction(action);
+      return decoded ? [decoded] : [];
+    }),
+  };
+}
+
+function decodeMonsterAction(value: unknown): SrdEngineMonsterAction | null {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return null;
+  }
+  const combatParsed = decodeCombatParsedAction(value.combatParsed);
+  return {
+    id: value.id,
+    ...(typeof value.nameEn === "string" ? { nameEn: value.nameEn } : {}),
+    ...(typeof value.rawName === "string" ? { rawName: value.rawName } : {}),
+    ...(typeof value.rawText === "string" ? { rawText: value.rawText } : {}),
+    ...(combatParsed ? { combatParsed } : {}),
+  };
+}
+
+function decodeCombatParsedAction(value: unknown): SrdEngineMonsterAction["combatParsed"] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const confidence = isActionConfidence(value.confidence)
+    ? value.confidence
+    : undefined;
+  return {
+    ...(typeof value.isAttack === "boolean" ? { isAttack: value.isAttack } : {}),
+    ...(typeof value.attackKind === "string" || value.attackKind === null ? { attackKind: value.attackKind } : {}),
+    ...(isRecord(value.attackRoll) ? { attackRoll: decodeAttackRoll(value.attackRoll) } : {}),
+    ...(isRecord(value.range) ? { range: decodeActionRange(value.range) } : {}),
+    ...(Array.isArray(value.damage) ? { damage: value.damage.flatMap(decodeDamageEntryEntry) } : {}),
+    ...(confidence ? { confidence } : {}),
+  };
+}
+
+function isActionConfidence(value: unknown): value is SrdEngineActionConfidence {
+  return value === "high" || value === "medium" || value === "low" || value === "none";
+}
+
+function decodeAttackRoll(value: Record<string, unknown>): NonNullable<NonNullable<SrdEngineMonsterAction["combatParsed"]>["attackRoll"]> {
+  const toHit = readFiniteInteger(value.toHit);
+  return {
+    ...(toHit !== undefined ? { toHit } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  };
+}
+
+function decodeActionRange(value: Record<string, unknown>): NonNullable<NonNullable<SrdEngineMonsterAction["combatParsed"]>["range"]> {
+  const normalRangeFt = isRecord(value.rangeFt) ? readNonNegativeInteger(value.rangeFt.normal) : undefined;
+  const longRangeFt = isRecord(value.rangeFt) ? readNonNegativeInteger(value.rangeFt.long) : undefined;
+  const reachFt = readNonNegativeInteger(value.reachFt);
+  const rangeFt = isRecord(value.rangeFt)
+    ? {
+        ...(normalRangeFt !== undefined ? { normal: normalRangeFt } : {}),
+        ...(longRangeFt !== undefined ? { long: longRangeFt } : {}),
+      }
+    : undefined;
+  return {
+    ...(reachFt !== undefined ? { reachFt } : {}),
+    ...(rangeFt ? { rangeFt } : {}),
+  };
+}
+
+function decodeDamageEntry(value: unknown): SrdEngineDamageEntry | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const average = readNonNegativeFiniteNumber(value.average);
+  return {
+    ...(average !== undefined ? { average } : {}),
+    ...(typeof value.dice === "string" ? { dice: value.dice } : {}),
+    ...(typeof value.type === "string" ? { type: value.type } : {}),
+    ...(typeof value.raw === "string" ? { raw: value.raw } : {}),
+  };
+}
+
+function decodeDamageEntryEntry(value: unknown): SrdEngineDamageEntry[] {
+  const decoded = decodeDamageEntry(value);
+  return decoded ? [decoded] : [];
+}
+
+function decodeStringArray(value: readonly unknown[]): string[] {
+  return value.flatMap((entry) => (typeof entry === "string" ? [entry] : []));
+}
+
+function readNonNegativeFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function readFiniteInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
+function readNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function readPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
