@@ -9,6 +9,7 @@
 | `README.md` | 문서 지도 |
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
+| `user_experience_remediation_plan.md` | 사용자 온보딩, 세션 운영, 안전, 접근성, AI 신뢰를 포함한 공개 베타 준비 개선 계획 |
 | `performance_scalability_remediation_plan.md` | 데이터 10배·100배 증가 대비 성능·확장성 개선 계획 |
 | `performance_scalability_followup_remediation_plan.md` | 성능 확장성 변경 정적 검토에서 확인된 데이터·실시간 동기화 문제의 후속 보완 계획 |
 | `completed/future_plan_srd_character_rules_single_source.md` | 완료된 캐릭터 생성/레벨업/주문 진행 규칙 단일 원천화 계획 기록 |
