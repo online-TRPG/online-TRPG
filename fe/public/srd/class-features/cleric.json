@@ -1,0 +1,627 @@
+[
+  {
+    "id": "class.cleric.feature.신성_변환",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "신성 변환",
+    "category": "class",
+    "summaryKo": "2레벨부터 성표를 내보이며 신성한 힘을 불러낸다. 사용 가능한 효과는 권역에 따라 달라지고, 기본적으로 언데드 퇴치(Turn Undead)를 사용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "신성_변환"
+    ],
+    "availableAtLevels": [
+      2,
+      6,
+      18
+    ]
+  },
+  {
+    "id": "class.cleric.feature.신성한_개입",
+    "classKey": "cleric",
+    "level": 10,
+    "nameKo": "신성한 개입",
+    "category": "class",
+    "summaryKo": "10레벨부터 신에게 도움을 요청할 수 있다. d100을 굴려 클레릭 레벨 이하가 나오면 개입이 성공한다. 성공 후에는 7일 동안 다시 사용할 수 없고, 실패하면 긴 휴식 후 다시 사용할 수 있다. 20레벨부터는 자동 성공한다.",
+    "source": "srd",
+    "aliases": [
+      "신성한_개입"
+    ],
+    "availableAtLevels": [
+      10,
+      20
+    ]
+  },
+  {
+    "id": "class.cleric.feature.언데드_퇴치",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "언데드 퇴치",
+    "category": "class",
+    "summaryKo": "행동으로 성표를 들고 언데드를 꾸짖는 기도를 한다. 30피트 이내에서 자신을 보거나 들을 수 있는 각 언데드는 지혜 내성 굴림을 해야 한다. 실패하면 1분 동안 또는 피해를 받을 때까지 퇴치된다. 퇴치된 크리처는 가능한 멀리 이동하려 해야 하며, 자발적으로 30피트 이내로 접근할 수 없고 반응을 사용할 수 없다. 행동은 질주 또는 이동 방해 효과에서 벗어나려는 시도만 가능하다. 이동할 곳이 없으면 회피 행동을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "언데드_퇴치"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.ability_score_improvement",
+    "classKey": "cleric",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.ability_score_improvement_12",
+    "classKey": "cleric",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.ability_score_improvement_14",
+    "classKey": "cleric",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.ability_score_improvement_16",
+    "classKey": "cleric",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.ability_score_improvement_19",
+    "classKey": "cleric",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.ability_score_improvement_8",
+    "classKey": "cleric",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.channel_divinity",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "신성 변환",
+    "category": "class",
+    "summaryKo": "2레벨부터 성표를 내보이며 신성한 힘을 불러낸다. 사용 가능한 효과는 권역에 따라 달라지고, 기본적으로 언데드 퇴치(Turn Undead)를 사용할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "신성_변환",
+      "class.cleric.feature.신성_변환",
+      "channel_divinity"
+    ],
+    "availableAtLevels": [
+      2,
+      6,
+      18
+    ]
+  },
+  {
+    "id": "class.cleric.feature.channel_divinity_uses_2",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "신성 변환 2회",
+    "category": "class",
+    "summaryKo": "휴식 사이 사용할 수 있는 신성 변환 횟수가 두 번으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "channel_divinity_uses_2"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.destroy_undead",
+    "classKey": "cleric",
+    "level": 5,
+    "nameKo": "언데드 파괴",
+    "category": "class",
+    "summaryKo": "언데드 퇴치에 실패한 낮은 CR의 언데드를 즉시 파괴할 수 있게 됩니다. 적용 가능한 CR은 레벨에 따라 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "언데드_파괴",
+      "destroy_undead"
+    ],
+    "availableAtLevels": [
+      5,
+      8,
+      17
+    ]
+  },
+  {
+    "id": "class.cleric.feature.destroy_undead_cr_1",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "언데드 파괴 CR 1",
+    "category": "class",
+    "summaryKo": "언데드 퇴치에 실패한 CR 1 이하 언데드를 즉시 파괴할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "destroy_undead_cr_1"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.destroy_undead_cr_2",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "언데드 파괴 CR 2",
+    "category": "class",
+    "summaryKo": "언데드 퇴치에 실패한 CR 2 이하 언데드를 즉시 파괴할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "destroy_undead_cr_2"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.destroy_undead_cr_3",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "언데드 파괴 CR 3",
+    "category": "class",
+    "summaryKo": "언데드 퇴치에 실패한 CR 3 이하 언데드를 즉시 파괴할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "destroy_undead_cr_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.destroy_undead_cr_4",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "언데드 파괴 CR 4",
+    "category": "class",
+    "summaryKo": "언데드 퇴치에 실패한 CR 4 이하 언데드를 즉시 파괴할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "destroy_undead_cr_4"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.divine_domain",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "신성 권역",
+    "category": "class",
+    "summaryKo": "1레벨에 클레릭 권역을 선택해 권역 주문과 추가 기능을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "신성_권역",
+      "divine_domain"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.feature.divine_domain_feature",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "신성 권역 기능",
+    "category": "class",
+    "summaryKo": "선택한 신성 권역에서 제공하는 추가 주문, 숙련, 신성 변환 선택지, 권역 특성을 얻습니다.",
+    "source": "derived",
+    "aliases": [
+      "신성_권역_기능"
+    ],
+    "availableAtLevels": [
+      2,
+      6,
+      8,
+      17
+    ]
+  },
+  {
+    "id": "class.cleric.feature.divine_intervention",
+    "classKey": "cleric",
+    "level": 10,
+    "nameKo": "신성한 개입",
+    "category": "class",
+    "summaryKo": "10레벨부터 신에게 도움을 요청할 수 있다. d100을 굴려 클레릭 레벨 이하가 나오면 개입이 성공한다. 성공 후에는 7일 동안 다시 사용할 수 없고, 실패하면 긴 휴식 후 다시 사용할 수 있다. 20레벨부터는 자동 성공한다.",
+    "source": "runtime",
+    "aliases": [
+      "신성한_개입",
+      "class.cleric.feature.신성한_개입",
+      "divine_intervention"
+    ],
+    "availableAtLevels": [
+      10,
+      20
+    ]
+  },
+  {
+    "id": "class.cleric.feature.divine_intervention_improvement",
+    "classKey": "cleric",
+    "level": 20,
+    "nameKo": "신성한 개입",
+    "category": "class",
+    "summaryKo": "10레벨부터 신에게 도움을 요청할 수 있다. d100을 굴려 클레릭 레벨 이하가 나오면 개입이 성공한다. 성공 후에는 7일 동안 다시 사용할 수 없고, 실패하면 긴 휴식 후 다시 사용할 수 있다. 20레벨부터는 자동 성공한다.",
+    "source": "runtime",
+    "aliases": [
+      "신성한_개입_향상",
+      "class.cleric.feature.신성한_개입",
+      "divine_intervention_improvement"
+    ],
+    "availableAtLevels": [
+      10,
+      20
+    ]
+  },
+  {
+    "id": "class.cleric.feature.spellcasting",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "클레릭은 지혜를 주문시전 능력치로 사용하며, 긴 휴식 후 클레릭 주문 목록에서 준비 주문을 바꿀 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "주문시전",
+      "spellcasting"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.권역_주문",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "권역 주문",
+    "category": "subclass",
+    "summaryKo": "권역 주문을 항상 준비한 것으로 간주한다.",
+    "source": "srd",
+    "aliases": [
+      "권역_주문"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.생명_보존",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "생명 보존",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 30피트 이내 크리처들의 HP를 총 클레릭 레벨 x 5만큼 나누어 회복시킨다. 최대 HP 절반 초과로는 회복시킬 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "생명_보존"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.생명의_사도",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "생명의 사도",
+    "category": "subclass",
+    "summaryKo": "1레벨 이상 주문으로 HP를 회복시킬 때 2 + 주문 레벨만큼 추가 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "생명의_사도"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.신성한_일격",
+    "classKey": "cleric",
+    "level": 8,
+    "nameKo": "신성한 일격",
+    "category": "subclass",
+    "summaryKo": "턴마다 한 번 무기 공격 명중 시 추가 광휘 피해 1d8, 14레벨부터 2d8.",
+    "source": "srd",
+    "aliases": [
+      "신성한_일격"
+    ],
+    "availableAtLevels": [
+      8
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.최고_치유",
+    "classKey": "cleric",
+    "level": 17,
+    "nameKo": "최고 치유",
+    "category": "subclass",
+    "summaryKo": "회복 주문의 주사위가 최대값으로 나온 것으로 취급한다.",
+    "source": "srd",
+    "aliases": [
+      "최고_치유"
+    ],
+    "availableAtLevels": [
+      17
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.추가_숙련",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "중장 숙련을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "추가_숙련"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.축복받은_치유자",
+    "classKey": "cleric",
+    "level": 6,
+    "nameKo": "축복받은 치유자",
+    "category": "subclass",
+    "summaryKo": "다른 크리처를 회복시키는 1레벨 이상 주문을 시전하면 자신도 2 + 주문 레벨만큼 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "축복받은_치유자"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.blessed_healer",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "축복받은 치유자",
+    "category": "subclass",
+    "summaryKo": "다른 크리처를 회복시키는 1레벨 이상 주문을 시전하면 자신도 2 + 주문 레벨만큼 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "blessed_healer"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.bonus_proficiency",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "권역 주문",
+    "category": "subclass",
+    "summaryKo": "권역 주문을 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "bonus_proficiency"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.disciple_of_life",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "중장 숙련을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "disciple_of_life"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.divine_strike",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "신성한 일격",
+    "category": "subclass",
+    "summaryKo": "턴마다 한 번 무기 공격 명중 시 추가 광휘 피해 1d8, 14레벨부터 2d8.",
+    "source": "runtime",
+    "aliases": [
+      "divine_strike"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.divine_strike_2d8",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "신성한 일격",
+    "category": "subclass",
+    "summaryKo": "턴마다 한 번 무기 공격 명중 시 추가 광휘 피해 1d8, 14레벨부터 2d8.",
+    "source": "runtime",
+    "aliases": [
+      "divine_strike_2d8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.domain_spells_level_9",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "권역 주문",
+    "category": "subclass",
+    "summaryKo": "권역 주문을 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "domain_spells_level_9"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.preserve_life",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "생명 보존",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 30피트 이내 크리처들의 HP를 총 클레릭 레벨 x 5만큼 나누어 회복시킨다. 최대 HP 절반 초과로는 회복시킬 수 없다.",
+    "source": "runtime",
+    "aliases": [
+      "preserve_life"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.subclass_feature.supreme_healing",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "최고 치유",
+    "category": "subclass",
+    "summaryKo": "회복 주문의 주사위가 최대값으로 나온 것으로 취급한다.",
+    "source": "runtime",
+    "aliases": [
+      "supreme_healing"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.blessed_healer",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "축복받은 치유자",
+    "category": "subclass",
+    "summaryKo": "다른 크리처를 회복시키는 1레벨 이상 주문을 시전하면 자신도 2 + 주문 레벨만큼 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "blessed_healer"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.bonus_proficiency",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "권역 주문",
+    "category": "subclass",
+    "summaryKo": "권역 주문을 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "bonus_proficiency"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.disciple_of_life",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "중장 숙련을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "disciple_of_life"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.divine_strike",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "신성한 일격",
+    "category": "subclass",
+    "summaryKo": "턴마다 한 번 무기 공격 명중 시 추가 광휘 피해 1d8, 14레벨부터 2d8.",
+    "source": "runtime",
+    "aliases": [
+      "divine_strike"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.divine_strike_2d8",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "신성한 일격",
+    "category": "subclass",
+    "summaryKo": "턴마다 한 번 무기 공격 명중 시 추가 광휘 피해 1d8, 14레벨부터 2d8.",
+    "source": "runtime",
+    "aliases": [
+      "divine_strike_2d8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.domain_spells_level_9",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "권역 주문",
+    "category": "subclass",
+    "summaryKo": "권역 주문을 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "domain_spells_level_9"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.preserve_life",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "생명 보존",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 30피트 이내 크리처들의 HP를 총 클레릭 레벨 x 5만큼 나누어 회복시킨다. 최대 HP 절반 초과로는 회복시킬 수 없다.",
+    "source": "runtime",
+    "aliases": [
+      "preserve_life"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.cleric.life.feature.supreme_healing",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "최고 치유",
+    "category": "subclass",
+    "summaryKo": "회복 주문의 주사위가 최대값으로 나온 것으로 취급한다.",
+    "source": "runtime",
+    "aliases": [
+      "supreme_healing"
+    ],
+    "availableAtLevels": []
+  }
+]

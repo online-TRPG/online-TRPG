@@ -1569,9 +1569,7 @@ describe("CombatService lifecycle", () => {
       "session-1",
       expect.objectContaining({ expression: "1d6", total: 4 }),
     );
-    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", {
-      sessionId: "session-1",
-    });
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
   });
 
   it("skips poison cloud damage and condition when the terrain saving throw succeeds", async () => {
@@ -1749,7 +1747,7 @@ describe("CombatService lifecycle", () => {
       where: { id: mover.id },
       data: { conditionsJson: JSON.stringify([unrelatedPoison]) },
     });
-    expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
+    expect(sessionsService.buildSnapshot).not.toHaveBeenCalled();
   });
 
   it("resolves concentration checks when terrain movement deals damage", async () => {
@@ -4061,7 +4059,7 @@ describe("CombatService lifecycle", () => {
     });
     expect(prisma.sessionCharacter.update).toHaveBeenCalledWith({
       where: { id: "session-character-2" },
-      data: { currentHp: 18 },
+      data: { currentHp: 18, status: "ACTIVE" },
     });
     expect(prisma.combatParticipant.update).toHaveBeenCalledWith({
       where: { id: "participant-2" },
@@ -4429,6 +4427,7 @@ describe("CombatService lifecycle", () => {
       {
         id: "session-character-1",
         currentHp: 24,
+        tempHp: 7,
         conditionsJson: JSON.stringify([concentration]),
         character: {
           className: "Wizard",
@@ -4444,6 +4443,7 @@ describe("CombatService lifecycle", () => {
 
     expect(result.participants[0]).toMatchObject({
       sessionEntityId: "participant-1",
+      tempHp: 7,
       conditions: expect.arrayContaining([
         "condition.concentration",
         "concentration",
@@ -5185,9 +5185,7 @@ describe("CombatService lifecycle", () => {
       "session-1",
       expect.objectContaining({ expression: "1d20+0", total: 5 }),
     );
-    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", {
-      sessionId: "session-1",
-    });
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
   });
 
   it("does not spend a Fireball spell slot when the AoE has no targets", async () => {
@@ -8087,7 +8085,7 @@ describe("CombatService lifecycle", () => {
         ]),
       }),
     );
-    expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
+    expect(sessionsService.buildSnapshot).not.toHaveBeenCalled();
     expect(result.message).toContain("condition.poisoned 적용");
     expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
       expect.objectContaining({

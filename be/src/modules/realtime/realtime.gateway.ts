@@ -12,7 +12,12 @@ import {
   WebSocketServer,
   WsException,
 } from "@nestjs/websockets";
-import { CHAT_MESSAGE_MAX_LENGTH, ChatSendMessageDto, SessionJoinMessageDto } from "@trpg/shared-types";
+import {
+  CHAT_MESSAGE_MAX_LENGTH,
+  ChatSendMessageDto,
+  SessionJoinMessageDto,
+  VTT_MAP_DELTA_V2_CAPABILITY,
+} from "@trpg/shared-types";
 import { ConnectionStatus as PrismaConnectionStatus } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { Server, Socket } from "socket.io";
@@ -108,6 +113,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     // 같은 세션 참가자끼리만 이벤트를 받도록 세션별 room에 입장시킨다.
     await client.join(this.realtimeEvents.getRoomName(dto.sessionId));
     await client.join(this.realtimeEvents.getUserRoomName(dto.sessionId, userId));
+    if (dto.capabilities?.includes(VTT_MAP_DELTA_V2_CAPABILITY)) {
+      await client.join(this.realtimeEvents.getVttDeltaRoomName(dto.sessionId));
+      await client.join(this.realtimeEvents.getUserVttDeltaRoomName(dto.sessionId, userId));
+    }
     this.sessionMembershipBySocket.set(client.id, {
       sessionId: dto.sessionId,
       userId,
@@ -116,6 +125,24 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     // 방에 들어온 직후에는 전체 상태를 한 번 통째로 내려준다.
     // 그래야 중간에 새로 접속한 클라이언트도 현재 세션 상태를 바로 복원할 수 있고,
     // 그 다음부터는 변경 이벤트만 받아도 화면을 최신 상태로 유지할 수 있다.
+    const snapshot = await this.sessionsService.buildSnapshot(dto.sessionId);
+    client.emit("session.snapshot", {
+      sessionId: dto.sessionId,
+      snapshot,
+    });
+  }
+
+  @SubscribeMessage("session.resync")
+  async handleSessionResync(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() dto: SessionJoinMessageDto,
+  ): Promise<void> {
+    const membership = this.sessionMembershipBySocket.get(client.id);
+    if (!membership || membership.sessionId !== dto.sessionId) {
+      throw new WsException("You must join the session before requesting a resync.");
+    }
+
+    await this.sessionsService.ensureMembership(membership.userId, dto.sessionId);
     const snapshot = await this.sessionsService.buildSnapshot(dto.sessionId);
     client.emit("session.snapshot", {
       sessionId: dto.sessionId,

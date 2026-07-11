@@ -1496,6 +1496,28 @@
   opacity: 0.68;
 }
 
+.session-log-window-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.session-log-window-button {
+  justify-self: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #b8c4d2;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #243246;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.session-log-window-button:hover {
+  background: #e1e8f0;
+}
+
 .session-prep-layout .session-sidebar-description.has-history-button .session-log-history-button {
   min-height: 32px !important;
   display: inline-flex !important;

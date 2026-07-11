@@ -444,6 +444,12 @@ export class AiTraceListQueryDto {
   @Min(1)
   @Max(100)
   size?: number;
+
+  @ApiPropertyOptional({ description: "이전 응답의 nextCursor 값" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  cursor?: string;
 }
 
 export class AiTraceListResponseDto {
@@ -452,6 +458,9 @@ export class AiTraceListResponseDto {
 
   @ApiProperty()
   size!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  nextCursor!: string | null;
 }
 
 export class AiTraceQualityMetricsResponseDto {

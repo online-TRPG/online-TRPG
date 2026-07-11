@@ -498,7 +498,7 @@ export class MainCommandTransitionEvaluatorService {
     return polarity === "MUST_NOT" ? !positiveResult : positiveResult;
   }
 
-  private isAutoTransitionCondition(condition: string): boolean {
+  isAutoTransitionCondition(condition: string): boolean {
     return AUTO_TRANSITION_CONDITIONS.has(this.normalizeTransitionConditionText(condition));
   }
 

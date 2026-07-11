@@ -114,6 +114,14 @@ Interpreter에 전달할 컨텍스트는 다음으로 제한한다.
 
 긴 룰북 전문이나 전체 세션 로그는 전달하지 않는다.
 
+장면 전환의 진행 증거도 후보 조건에 맞춰 제한한다.
+
+- 구조화 조건은 필요한 단서 ID와 방문 노드 ID만 DB에서 조회한다.
+- 전투 완료와 flag 조건은 이미 로드된 `GameState.flagsJson`에서 판정한다.
+- 조건 없는 자동 전환은 공개 단서·방문 노드 이력을 조회하지 않는다.
+- 자연어 조건 fallback은 최근 공개 단서 50개와 최근 TurnLog 12개만 사용한다.
+- 현재 장면의 모든 단서 공개 여부는 현재 노드에 속한 단서 ID만 정확 조회한다.
+
 #### 4단계: Interpreter 호출
 
 Interpreter는 자연어를 `StructuredAction`으로 변환한다.
@@ -202,6 +210,29 @@ type SessionEvent =
   | { type: "turn_completed"; sessionId: string; turnLog: TurnLog }
   | { type: "turn_failed"; sessionId: string; message: string };
 ```
+
+#### 세션 상태 delta와 snapshot 복구
+
+- 참가자 준비·접속 상태는 `participant.updated`, 캐릭터 상세 변경은 `character.updated`로 병합한다.
+- `state.diff.applied`는 shared parser가 검증한 canonical `characters[]` HP·임시 HP·조건·사망 patch만 자동 적용한다. Human GM의 기존 `sessionCharacters[]`, `combatParticipants[]` shape도 같은 canonical patch로 정규화하며 식별자·타입·생존 상태가 충돌하면 거부한다.
+- FE의 현재 GameState version이 `baseVersion`과 다르거나 entity ID가 없거나 diff shape가 알려지지 않았으면 로컬에서 추측 적용하지 않고 `session.resync`를 요청한다.
+- `combat.updated`는 전투 tracker와 session character의 HP·조건을 함께 갱신한다. assignment 상태 변경은 명시적인 `markDead` StateDiff만 담당한다.
+- 일반 공격·피해·이동·Dodge·Hide·몬스터 공격과 Human GM의 HP·조건 변경은 전체 snapshot을 발행하지 않는다. Human GM REST 응답의 기존 snapshot 계약은 유지한다.
+- 전투 시작·종료, 준비행동 flags, 주문 슬롯, 클래스 자원, 인벤토리처럼 추가 GameState/character projection이 바뀌는 경로는 snapshot fallback을 유지한다.
+- 맵과 일반 상태의 resync 요청 상태는 분리해 한 도메인의 정상 이벤트가 다른 도메인의 복구 요청을 취소하지 않는다.
+
+#### VTT 맵 동기화
+
+- 클라이언트는 `session.join`에서 `vtt-map-delta-v2` capability를 선언할 수 있다.
+- capability가 없는 클라이언트는 기존 `vtt.map.updated` 전체 맵 이벤트를 받는다.
+- capability가 있는 클라이언트는 이전 맵과 다음 맵의 `updatedAt`이 이어질 때 `vtt.map.delta.v2`를 받는다.
+- delta는 변경·삭제된 token/object cell, entity 순서, 변경된 나머지 최상위 맵 필드만 포함한다.
+- 맵 ID가 바뀌거나 안전한 delta를 만들 수 없으면 서버는 전체 맵 이벤트로 fallback한다.
+- 클라이언트의 현재 `updatedAt`과 delta의 `baseUpdatedAt`이 다르면 delta를 추측 적용하지 않는다.
+- version 불일치 클라이언트는 `session.resync`를 요청하고 서버는 authoritative `session.snapshot`을 다시 보낸다.
+- REST 응답으로 이미 같은 `updatedAt` 맵을 적용한 클라이언트가 자기 Socket delta를 다시 받으면 성공한 echo로 처리한다.
+
+전체 snapshot은 최초 접속과 version gap 복구용 계약으로 유지한다. 정상적인 단일 토큰 이동은 v2 클라이언트에 전체 맵을 반복 전송하지 않는다.
 
 ### Timeout 정책
 

@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from "class-validator";
 import { CHAT_MESSAGE_MAX_LENGTH } from "../../constants/runtime-limits";
 import { SessionCharacterResponseDto } from "../api/characters.dto";
 import {
@@ -14,13 +22,24 @@ import {
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
+  VttMapDeltaDto,
   VttMapStateDto,
 } from "../api/sessions.dto";
+import { VTT_MAP_DELTA_V2_CAPABILITY } from "../../constants/realtime";
+
+export { VTT_MAP_DELTA_V2_CAPABILITY } from "../../constants/realtime";
 
 export class SessionJoinMessageDto {
   @ApiProperty()
   @IsString()
   sessionId!: string;
+
+  @ApiPropertyOptional({ type: [String], enum: [VTT_MAP_DELTA_V2_CAPABILITY] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsIn([VTT_MAP_DELTA_V2_CAPABILITY], { each: true })
+  capabilities?: string[];
 }
 
 export class ChatSendMessageDto {
@@ -180,4 +199,12 @@ export class VttMapUpdatedEventDto {
 
   @ApiProperty({ type: VttMapStateDto })
   map!: VttMapStateDto;
+}
+
+export class VttMapDeltaEventDto {
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty({ type: VttMapDeltaDto })
+  delta!: VttMapDeltaDto;
 }

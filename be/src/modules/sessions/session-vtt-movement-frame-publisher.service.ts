@@ -21,6 +21,7 @@ export class SessionVttMovementFramePublisherService {
 
     let frameMap = params.map;
     for (const step of params.path) {
+      const previousFrameMap = frameMap;
       frameMap = {
         ...frameMap,
         tokens: frameMap.tokens.map((token) =>
@@ -37,6 +38,8 @@ export class SessionVttMovementFramePublisherService {
 
       this.realtimeEvents.emitVttMapUpdated(params.sessionId, {
         hostUserId: params.hostUserId,
+        previousHostMap: previousFrameMap,
+        previousPlayerMap: params.redactVttMapForPlayer(previousFrameMap),
         hostMap: frameMap,
         playerMap: params.redactVttMapForPlayer(frameMap),
       });

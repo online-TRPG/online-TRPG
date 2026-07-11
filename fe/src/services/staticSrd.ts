@@ -665,8 +665,45 @@ export async function loadClassOptions(): Promise<ClassOption[]> {
   return normalizeClassOptions(payload);
 }
 
-export async function loadClassFeatureManifest(): Promise<CanonicalClassFeatureEntry[]> {
-  return fetchStaticAsset<CanonicalClassFeatureEntry[]>('srd/class-features.json', decodeClassFeatureEntries);
+export async function loadClassFeatureManifest(
+  classKeys?: readonly string[],
+): Promise<CanonicalClassFeatureEntry[]> {
+  if (classKeys === undefined) {
+    return fetchStaticAsset<CanonicalClassFeatureEntry[]>(
+      'srd/class-features.json',
+      decodeClassFeatureEntries,
+    );
+  }
+
+  const normalizedClassKeys = Array.from(
+    new Set(
+      classKeys
+        .map((classKey) => classKey.trim().toLowerCase().replace(/^class\./, ''))
+        .filter((classKey) => /^[a-z0-9_-]+$/.test(classKey)),
+    ),
+  ).sort();
+  if (!normalizedClassKeys.length) {
+    return [];
+  }
+
+  try {
+    const manifests = await Promise.all(
+      normalizedClassKeys.map((classKey) =>
+        fetchStaticAsset<CanonicalClassFeatureEntry[]>(
+          `srd/class-features/${classKey}.json`,
+          decodeClassFeatureEntries,
+        ),
+      ),
+    );
+    return manifests.flat();
+  } catch {
+    const fullManifest = await fetchStaticAsset<CanonicalClassFeatureEntry[]>(
+      'srd/class-features.json',
+      decodeClassFeatureEntries,
+    );
+    const requestedKeys = new Set(normalizedClassKeys);
+    return fullManifest.filter((feature) => requestedKeys.has(feature.classKey.toLowerCase()));
+  }
 }
 
 export async function loadRaceData(): Promise<RaceData[]> {

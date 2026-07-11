@@ -1,4 +1,5 @@
 import {
+  Prisma,
   ScenarioLicense as PrismaScenarioLicense,
   ScenarioSourceType as PrismaScenarioSourceType,
 } from "@prisma/client";
@@ -69,6 +70,24 @@ function buildScenario(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildPublication(overrides: Record<string, unknown> = {}) {
+  return {
+    scenarioId: "public-revision",
+    visibility: "PUBLIC",
+    moderationStatus: "VISIBLE",
+    publishedAt: date,
+    revisionNumber: 1,
+    forkCount: 0,
+    reportCount: 0,
+    appealCount: 0,
+    gmMode: "BOTH",
+    tags: [],
+    createdAt: date,
+    updatedAt: date,
+    ...overrides,
+  };
+}
+
 function createService() {
   const prisma = {
     scenario: {
@@ -104,7 +123,13 @@ function createService() {
     },
     turnLog: {
       findFirst: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      groupBy: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
+      createMany: jest.fn(({ data }: { data: unknown[] }) =>
+        Promise.resolve({ count: data.length }),
+      ),
     },
     $transaction: jest.fn(),
   };
@@ -121,6 +146,25 @@ function createService() {
 }
 
 describe("ScenariosService P3 revision publishing", () => {
+  it("blocks projection reads until coverage is complete and then caches readiness", async () => {
+    const { service, prisma } = createService();
+    prisma.scenario.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(0);
+    prisma.scenario.findMany.mockResolvedValue([]);
+
+    await expect(service.listScenarios()).rejects.toThrow(
+      "Scenario projection backfill is incomplete",
+    );
+    await expect(service.listScenarios()).resolves.toEqual([]);
+    await expect(service.listScenarios()).resolves.toEqual([]);
+
+    expect(prisma.scenario.count).toHaveBeenCalledTimes(2);
+    expect(prisma.scenario.count).toHaveBeenCalledWith({
+      where: { publication: { is: null } },
+    });
+  });
+
   it("publishes a draft as an immutable revision copy with rewritten node references", async () => {
     const { service, prisma } = createService();
     const draft = buildScenario();
@@ -129,6 +173,7 @@ describe("ScenariosService P3 revision publishing", () => {
     prisma.scenario.create.mockImplementation(({ data }) =>
       Promise.resolve({
         ...data,
+        publication: data.publication?.create ?? null,
         createdAt: date,
         updatedAt: date,
         nodes: data.nodes.create.map((node: Record<string, unknown>) => ({
@@ -143,6 +188,7 @@ describe("ScenariosService P3 revision publishing", () => {
     const result = await service.publishScenario("creator-1", "scenario_draft", {
       changelog: "Initial release",
       visibility: "public",
+      rightsConfirmed: true,
     });
 
     expect(prisma.scenario.create).toHaveBeenCalledWith(
@@ -200,6 +246,7 @@ describe("ScenariosService P3 revision publishing", () => {
     prisma.scenario.create.mockImplementation(({ data }) =>
       Promise.resolve({
         ...data,
+        publication: data.publication?.create ?? null,
         createdAt: date,
         updatedAt: date,
         nodes: data.nodes.create.map((node: Record<string, unknown>) => ({
@@ -215,6 +262,7 @@ describe("ScenariosService P3 revision publishing", () => {
       service.publishScenario("creator-1", "scenario_draft", {
         changelog: null,
         visibility: "public",
+        rightsConfirmed: true,
       }),
     ).resolves.toMatchObject({
       publishStatus: "public",
@@ -242,6 +290,7 @@ describe("ScenariosService P3 revision publishing", () => {
       service.publishScenario("creator-1", "scenario_draft", {
         changelog: null,
         visibility: "public",
+        rightsConfirmed: true,
       }),
     ).rejects.toThrow("발행할 수 없는 fallback 노드가 있습니다: missing_node");
     expect(prisma.scenario.create).not.toHaveBeenCalled();
@@ -269,6 +318,7 @@ describe("ScenariosService P3 revision publishing", () => {
       service.publishScenario("creator-1", "scenario_draft", {
         changelog: null,
         visibility: "public",
+        rightsConfirmed: true,
       }),
     ).rejects.toThrow("공개 발행 전에 GM/private 전용 데이터 노출 표시를 제거하거나 공개 제외 처리해야 합니다.");
     expect(prisma.scenario.create).not.toHaveBeenCalled();
@@ -282,32 +332,15 @@ describe("ScenariosService P3 revision publishing", () => {
       baseScenarioId: "scenario_draft",
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"changelog":null,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}',
-    });
-    const linkRevision = buildScenario({
-      id: "link-revision",
-      sourceType: PrismaScenarioSourceType.CLONED,
-      baseScenarioId: "scenario_draft",
-      attribution:
-        'P3_REVISION_META:{"revisionNumber":2,"changelog":null,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"link"}',
-    });
-    const unpublishedRevision = buildScenario({
-      id: "unpublished-revision",
-      sourceType: PrismaScenarioSourceType.CLONED,
-      baseScenarioId: "scenario_draft",
-      attribution:
-        'P3_REVISION_META:{"revisionNumber":3,"changelog":null,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"unpublished"}',
+      publication: buildPublication({ scenarioId: "public-revision" }),
     });
     const provided = buildScenario({
       id: "scenario_p3_skybreaker_archive",
       sourceType: PrismaScenarioSourceType.SYSTEM,
       attribution: "Provided",
+      publication: buildPublication({ scenarioId: "scenario_p3_skybreaker_archive" }),
     });
-    prisma.scenario.findMany.mockResolvedValue([
-      publicRevision,
-      linkRevision,
-      unpublishedRevision,
-      provided,
-    ]);
+    prisma.scenario.findMany.mockResolvedValue([publicRevision, provided]);
 
     await expect(service.listScenarios()).resolves.toEqual(
       expect.arrayContaining([
@@ -318,6 +351,16 @@ describe("ScenariosService P3 revision publishing", () => {
     const listed = await service.listScenarios();
     expect(listed.map((scenario) => scenario.id)).not.toContain("link-revision");
     expect(listed.map((scenario) => scenario.id)).not.toContain("unpublished-revision");
+    expect(prisma.scenario.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          publication: expect.objectContaining({
+            visibility: "PUBLIC",
+            moderationStatus: { notIn: ["HIDDEN", "REMOVED"] },
+          }),
+        }),
+      }),
+    );
   });
 
   it("allows link revisions by id, hides private revisions from other users, and keeps owner access", async () => {
@@ -380,9 +423,10 @@ describe("ScenariosService P3 revision publishing", () => {
     expect(prisma.scenario.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "revision-1" },
-        data: {
+        data: expect.objectContaining({
           attribution: expect.stringContaining('"status":"unpublished"'),
-        },
+          publication: expect.objectContaining({ upsert: expect.any(Object) }),
+        }),
       }),
     );
     expect(result).toMatchObject({
@@ -442,6 +486,7 @@ describe("ScenariosService P3 revision publishing", () => {
         where: { id: "scenario_draft" },
         data: expect.objectContaining({
           title: "Editor Updated Adventure",
+          publication: expect.objectContaining({ upsert: expect.any(Object) }),
         }),
       }),
     );
@@ -533,20 +578,7 @@ describe("ScenariosService P3 revision publishing", () => {
       attribution:
         'Original attribution\nP4_COLLAB_META:{"collaborators":[{"userId":"editor-1","role":"editor"}],"reviews":[]}',
     });
-    const unrelatedDraft = buildScenario({
-      id: "unrelated-draft",
-      createdByUserId: "creator-2",
-      attribution: "Original attribution",
-    });
-    const ownPublishedRevision = buildScenario({
-      id: "own-published-revision",
-      createdByUserId: "editor-1",
-      sourceType: PrismaScenarioSourceType.CLONED,
-      baseScenarioId: "own-draft",
-      attribution:
-        'Original attribution\nP3_REVISION_META:{"revisionNumber":1,"changelog":"Initial","publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"editor-1","status":"public"}',
-    });
-    prisma.scenario.findMany.mockResolvedValue([ownDraft, sharedDraft, unrelatedDraft, ownPublishedRevision]);
+    prisma.scenario.findMany.mockResolvedValue([ownDraft, sharedDraft]);
 
     await expect(service.listMyScenarios("editor-1")).resolves.toEqual(
       expect.arrayContaining([
@@ -557,18 +589,31 @@ describe("ScenariosService P3 revision publishing", () => {
     const listed = await service.listMyScenarios("editor-1");
     expect(listed.map((scenario) => scenario.id)).not.toContain("unrelated-draft");
     expect(listed.map((scenario) => scenario.id)).not.toContain("own-published-revision");
+    expect(prisma.scenario.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sourceType: { not: PrismaScenarioSourceType.CLONED },
+          OR: [
+            { createdByUserId: "editor-1" },
+            { collaboratorGrants: { some: { userId: "editor-1" } } },
+          ],
+        }),
+      }),
+    );
   });
 });
 
 describe("ScenariosService P5 public discovery ecosystem", () => {
   function buildPublicRevision(overrides: Record<string, unknown> = {}) {
+    const id = typeof overrides.id === "string" ? overrides.id : "public-revision";
     return buildScenario({
-      id: "public-revision",
+      id,
       createdByUserId: "creator-1",
       sourceType: PrismaScenarioSourceType.CLONED,
       baseScenarioId: "scenario_draft",
       attribution:
         'Original attribution\nP3_REVISION_META:{"revisionNumber":1,"changelog":"Initial","publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}',
+      publication: buildPublication({ scenarioId: id }),
       ...overrides,
     });
   }
@@ -581,15 +626,14 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
       recommendedEndLevel: 16,
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":["high-level","travel"],"estimatedMinutes":300,"gmMode":"BOTH","contentWarnings":["storm"],"ratings":[{"userId":"player-1","rating":5,"review":"Great","updatedAt":"2026-06-23T00:00:00.000Z"},{"userId":"player-2","rating":4,"review":null,"updatedAt":"2026-06-23T00:00:00.000Z"}],"forkCount":2,"moderationStatus":"visible","reports":[],"lineage":{"sourceScenarioId":"scenario_draft","sourceRevisionId":"recommended-revision","forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+      publication: buildPublication({
+        scenarioId: "recommended-revision",
+        forkCount: 2,
+        gmMode: "BOTH",
+        tags: ["high-level", "travel"],
+      }),
     });
-    const hidden = buildPublicRevision({
-      id: "hidden-revision",
-      startLevel: 13,
-      recommendedEndLevel: 16,
-      attribution:
-        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":["high-level"],"estimatedMinutes":240,"gmMode":"AI","contentWarnings":[],"ratings":[{"userId":"player-1","rating":5,"review":null,"updatedAt":"2026-06-23T00:00:00.000Z"}],"forkCount":0,"moderationStatus":"hidden","reports":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
-    });
-    prisma.scenario.findMany.mockResolvedValue([hidden, recommended]);
+    prisma.scenario.findMany.mockResolvedValue([recommended]);
 
     const listed = await service.listScenarios({
       minLevel: 12,
@@ -620,13 +664,15 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
           'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":["p6"],"estimatedMinutes":450,"gmMode":"BOTH","contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
       }),
     );
-    prisma.scenario.findMany.mockResolvedValue(revisions);
+    prisma.scenario.findMany.mockImplementation(({ take }: { take: number }) =>
+      Promise.resolve(revisions.slice(0, take)),
+    );
 
     await expect(service.listScenarios({ sort: "latest" })).resolves.toHaveLength(100);
     await expect(service.listScenarios({ sort: "latest", limit: 5 })).resolves.toHaveLength(5);
     expect(prisma.scenario.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        take: 500,
+        take: 100,
       }),
     );
   });
@@ -638,6 +684,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     prisma.scenario.create.mockImplementation(({ data }) =>
       Promise.resolve({
         ...data,
+        publication: data.publication?.create ?? null,
         createdAt: date,
         updatedAt: date,
         nodes: data.nodes.create.map((node: Record<string, unknown>) => ({
@@ -668,7 +715,10 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     expect(prisma.scenario.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "public-revision" },
-        data: { attribution: expect.stringContaining('"forkCount":1') },
+        data: expect.objectContaining({
+          attribution: expect.stringContaining('"forkCount":1'),
+          publication: expect.objectContaining({ upsert: expect.any(Object) }),
+        }),
       }),
     );
   });
@@ -687,7 +737,10 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     ).resolves.toMatchObject({ scenarioId: "public-revision", status: "received" });
     expect(prisma.scenario.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { attribution: expect.stringContaining('"moderationStatus":"hidden"') },
+        data: expect.objectContaining({
+          attribution: expect.stringContaining('"moderationStatus":"hidden"'),
+          publication: expect.objectContaining({ upsert: expect.any(Object) }),
+        }),
       }),
     );
   });
@@ -709,9 +762,10 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     ).resolves.toMatchObject({ scenarioId: "public-revision", status: "submitted" });
     expect(prisma.scenario.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: {
+        data: expect.objectContaining({
           attribution: expect.stringContaining('"appeals":[{"appealId":"scenario-appeal:'),
-        },
+          publication: expect.objectContaining({ upsert: expect.any(Object) }),
+        }),
       }),
     );
 
@@ -740,6 +794,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     prisma.scenario.create.mockImplementation(({ data }) =>
       Promise.resolve({
         ...data,
+        publication: data.publication?.create ?? null,
         createdAt: date,
         updatedAt: date,
         nodes: data.nodes.create.map((node: Record<string, unknown>) => ({
@@ -764,16 +819,38 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
 
   it("excludes hidden provided scenarios from public discovery", async () => {
     const { service, prisma } = createService();
-    prisma.scenario.findMany.mockResolvedValue([
-      buildScenario({
-        id: "scenario_p5_astral_seal_campaign",
-        sourceType: PrismaScenarioSourceType.SYSTEM,
-        attribution:
-          'P5_PUBLIC_META:{"tags":["p5"],"estimatedMinutes":300,"gmMode":"BOTH","contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
-      }),
-    ]);
+    prisma.scenario.findMany.mockResolvedValue([]);
 
     await expect(service.listScenarios({ tag: "p5" })).resolves.toEqual([]);
+  });
+
+  it("keeps the SQL page row when legacy public metadata disagrees with its projection", async () => {
+    const { service, prisma } = createService();
+    const projected = buildPublicRevision({
+      id: "projection-authoritative-revision",
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":["legacy"],"estimatedMinutes":60,"gmMode":"AI","contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+      publication: buildPublication({
+        scenarioId: "projection-authoritative-revision",
+        visibility: "PUBLIC",
+        moderationStatus: "VISIBLE",
+        forkCount: 7,
+        gmMode: "BOTH",
+        tags: ["projection"],
+      }),
+    });
+    prisma.scenario.findMany.mockResolvedValue([projected]);
+
+    await expect(service.listScenarios()).resolves.toEqual([
+      expect.objectContaining({
+        id: "projection-authoritative-revision",
+        publishStatus: "public",
+        moderationStatus: "visible",
+        forkCount: 7,
+        gmMode: "BOTH",
+        tags: ["projection"],
+      }),
+    ]);
   });
 
   it("requires an operator identity before exposing the P6 moderation queue", async () => {
@@ -787,18 +864,19 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
 
   it("lists reported, appealed, and actioned scenarios in the P6 moderation queue", async () => {
     const { service, prisma } = createService();
-    const clean = buildPublicRevision({
-      id: "clean-revision",
-      attribution:
-        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
-    });
     const reported = buildPublicRevision({
       id: "reported-revision",
       title: "Reported Adventure",
+      publication: buildPublication({
+        scenarioId: "reported-revision",
+        moderationStatus: "REPORTED",
+        reportCount: 1,
+        appealCount: 1,
+      }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":"too much","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"fixed","createdAt":"2026-06-23T01:00:00.000Z","status":"submitted"}],"moderationActions":[{"actionId":"m1","operatorUserId":"operator-1","action":"warning","reason":"needs edit","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"reported","nextStatus":"reported"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
-    prisma.scenario.findMany.mockResolvedValue([clean, reported]);
+    prisma.scenario.findMany.mockResolvedValue([reported]);
 
     await expect(service.listScenarioModerationQueue("operator-1")).resolves.toEqual([
       expect.objectContaining({
@@ -820,23 +898,79 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
       buildPublicRevision({
         id: `reported-revision-${index + 1}`,
         title: `Reported Adventure ${index + 1}`,
+        publication: buildPublication({
+          scenarioId: `reported-revision-${index + 1}`,
+          moderationStatus: "REPORTED",
+          reportCount: 1,
+        }),
         attribution:
           'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
       }),
     );
-    prisma.scenario.findMany.mockResolvedValue(reported);
+    prisma.scenario.findMany.mockImplementation(({ take }: { take: number }) =>
+      Promise.resolve(reported.slice(0, take)),
+    );
 
     await expect(service.listScenarioModerationQueue("operator-1")).resolves.toHaveLength(100);
     expect(prisma.scenario.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        take: 500,
+        take: 100,
       }),
     );
+  });
+
+  it("keeps fail-closed projection rows visible to moderation operators", async () => {
+    const { service, prisma } = createService();
+    const malformed = buildPublicRevision({
+      id: "malformed-revision",
+      attribution: 'P3_REVISION_META:{invalid}\nP5_PUBLIC_META:{invalid}',
+      publication: buildPublication({
+        scenarioId: "malformed-revision",
+        visibility: "UNPUBLISHED",
+        moderationStatus: "HIDDEN",
+      }),
+    });
+    prisma.scenario.findMany.mockResolvedValue([malformed]);
+
+    await expect(service.listScenarioModerationQueue("operator-1")).resolves.toEqual([
+      expect.objectContaining({
+        scenarioId: "malformed-revision",
+        moderationStatus: "hidden",
+        reportCount: 0,
+        appealCount: 0,
+      }),
+    ]);
+  });
+
+  it("allows an operator to remediate a fail-closed projected revision", async () => {
+    const { service, prisma } = createService();
+    const malformed = buildPublicRevision({
+      id: "malformed-revision",
+      attribution: 'P3_REVISION_META:{invalid}\nP5_PUBLIC_META:{invalid}',
+      publication: buildPublication({
+        scenarioId: "malformed-revision",
+        visibility: "UNPUBLISHED",
+        moderationStatus: "HIDDEN",
+      }),
+    });
+    prisma.scenario.findUnique.mockResolvedValue(malformed);
+    prisma.scenario.update.mockResolvedValue(malformed);
+
+    await expect(
+      service.applyScenarioModerationAction("operator-1", "malformed-revision", {
+        action: "restored",
+        reason: "metadata reviewed",
+      }),
+    ).resolves.toMatchObject({
+      scenarioId: "malformed-revision",
+      moderationStatus: "visible",
+    });
   });
 
   it("applies a P6 hidden moderation action with audit history and appeal rejection", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "REPORTED", reportCount: 1, appealCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"please restore","createdAt":"2026-06-23T01:00:00.000Z","status":"submitted"}],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
@@ -845,7 +979,9 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     prisma.sessionScenario.findMany.mockResolvedValue([
       { id: "session-scenario-1", sessionId: "session-1" },
     ]);
-    prisma.turnLog.findFirst.mockResolvedValue({ turnNumber: 7 });
+    prisma.turnLog.groupBy.mockResolvedValue([
+      { sessionId: "session-1", _max: { turnNumber: 7 } },
+    ]);
 
     await expect(
       service.applyScenarioModerationAction("operator-1", "public-revision", {
@@ -868,17 +1004,28 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     expect(updatedAttribution).toContain('"processingStatus":"rejected"');
     expect(updatedAttribution).toContain('"creatorNoticeStatus":"creator_notified"');
     expect(updatedAttribution).toContain('"auditRecordType":"scenario_moderation_action"');
-    expect(prisma.turnLog.create).toHaveBeenCalledWith(
+    expect(prisma.scenario.update.mock.calls[0][0].data.publication.upsert.update).toEqual(
       expect.objectContaining({
-        data: expect.objectContaining({
-          sessionId: "session-1",
-          sessionScenarioId: "session-scenario-1",
-          actorUserId: "operator-1",
-          turnNumber: 8,
-          rawInput: "/scenario moderation hidden",
-          structuredActionJson: expect.stringContaining("p6_scenario_moderation_action"),
-          stateDiffJson: expect.stringContaining("existingSessionSnapshotPreserved"),
-        }),
+        moderationStatus: "HIDDEN",
+        reportCount: 1,
+        appealCount: 0,
+      }),
+    );
+    expect(prisma.turnLog.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            idempotencyKey: expect.stringContaining("session-scenario-1"),
+            sessionId: "session-1",
+            sessionScenarioId: "session-scenario-1",
+            actorUserId: "operator-1",
+            turnNumber: 8,
+            rawInput: "/scenario moderation hidden",
+            structuredActionJson: expect.stringContaining("p6_scenario_moderation_action"),
+            stateDiffJson: expect.stringContaining("existingSessionSnapshotPreserved"),
+          }),
+        ],
+        skipDuplicates: true,
       }),
     );
   });
@@ -886,6 +1033,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
   it("returns the existing P6 moderation action without duplicating audit or TurnLog for repeated requests", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "HIDDEN", reportCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"please restore","createdAt":"2026-06-23T01:00:00.000Z","status":"rejected"}],"moderationActions":[{"actionId":"scenario-moderation-action:existing","operatorUserId":"operator-1","action":"hidden","reason":"unsafe content remains","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"reported","nextStatus":"hidden","processingStatus":"rejected","creatorNoticeStatus":"creator_notified","auditRecordType":"scenario_moderation_action"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
@@ -906,13 +1054,100 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     });
 
     expect(prisma.scenario.update).not.toHaveBeenCalled();
-    expect(prisma.sessionScenario.findMany).not.toHaveBeenCalled();
+    expect(prisma.sessionScenario.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.turnLog.createMany).not.toHaveBeenCalled();
     expect(prisma.turnLog.create).not.toHaveBeenCalled();
+  });
+
+  it("paginates moderation logs beyond 500 linked sessions without per-session latest queries", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "REPORTED", reportCount: 1 }),
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    const linkedSessions = Array.from({ length: 501 }, (_, index) => ({
+      id: `session-scenario-${index + 1}`,
+      sessionId: `session-${index + 1}`,
+    }));
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+    prisma.sessionScenario.findMany
+      .mockResolvedValueOnce(linkedSessions.slice(0, 500))
+      .mockResolvedValueOnce(linkedSessions.slice(500));
+    prisma.turnLog.groupBy.mockImplementation(
+      ({ where }: { where: { sessionId: { in: string[] } } }) =>
+        Promise.resolve(
+          where.sessionId.in.map((sessionId, index) => ({
+            sessionId,
+            _max: { turnNumber: index },
+          })),
+        ),
+    );
+
+    await service.applyScenarioModerationAction("operator-1", "public-revision", {
+      action: "hidden",
+      reason: "unsafe content remains",
+    });
+
+    expect(prisma.sessionScenario.findMany).toHaveBeenCalledTimes(2);
+    expect(prisma.sessionScenario.findMany.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        cursor: { id: "session-scenario-500" },
+        skip: 1,
+        take: 500,
+      }),
+    );
+    expect(prisma.turnLog.groupBy).toHaveBeenCalledTimes(2);
+    expect(prisma.turnLog.createMany).toHaveBeenCalledTimes(2);
+    expect(prisma.turnLog.createMany.mock.calls[0]?.[0]?.data).toHaveLength(500);
+    expect(prisma.turnLog.createMany.mock.calls[1]?.[0]?.data).toHaveLength(1);
+    expect(prisma.turnLog.findFirst).not.toHaveBeenCalled();
+    expect(prisma.turnLog.create).not.toHaveBeenCalled();
+  });
+
+  it("retries only a moderation log skipped by a concurrent turn-number conflict", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "REPORTED", reportCount: 1 }),
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    const uniqueError = new Prisma.PrismaClientKnownRequestError(
+      "Unique constraint failed",
+      { code: "P2002", clientVersion: "test" },
+    );
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+    prisma.sessionScenario.findMany.mockResolvedValue([
+      { id: "session-scenario-1", sessionId: "session-1" },
+    ]);
+    prisma.turnLog.groupBy.mockResolvedValue([
+      { sessionId: "session-1", _max: { turnNumber: 7 } },
+    ]);
+    prisma.turnLog.createMany.mockResolvedValue({ count: 0 });
+    prisma.turnLog.findMany.mockResolvedValue([]);
+    prisma.turnLog.findFirst
+      .mockResolvedValueOnce({ turnNumber: 7 })
+      .mockResolvedValueOnce({ turnNumber: 8 });
+    prisma.turnLog.create
+      .mockRejectedValueOnce(uniqueError)
+      .mockResolvedValueOnce({ id: "turn-log-moderation" });
+
+    await service.applyScenarioModerationAction("operator-1", "public-revision", {
+      action: "hidden",
+      reason: "unsafe content remains",
+    });
+
+    expect(prisma.turnLog.create).toHaveBeenCalledTimes(2);
+    expect(prisma.turnLog.create.mock.calls[0]?.[0]?.data.turnNumber).toBe(8);
+    expect(prisma.turnLog.create.mock.calls[1]?.[0]?.data.turnNumber).toBe(9);
   });
 
   it("lets an operator remove a hidden public revision while preserving the immutable audit snapshot", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "HIDDEN", reportCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"license","comment":"copyright issue","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
@@ -941,6 +1176,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
   it("marks an appealed P6 moderation item as escalated and under review without changing public visibility", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "REPORTED", reportCount: 1, appealCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"other","comment":"needs senior review","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"please review manually","createdAt":"2026-06-23T01:00:00.000Z","status":"submitted"}],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
@@ -968,6 +1204,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
   it("accepts an under-review appeal when a P6 moderation item is restored", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "HIDDEN", reportCount: 1, appealCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"other","comment":"restored after senior review","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"manual review completed","createdAt":"2026-06-23T01:00:00.000Z","status":"under_review"}],"moderationActions":[{"actionId":"m1","operatorUserId":"admin-1","action":"escalated","reason":"needs policy lead review","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"hidden","nextStatus":"hidden","processingStatus":"escalated","creatorNoticeStatus":"creator_notified","auditRecordType":"scenario_moderation_action"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
@@ -995,6 +1232,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
   it("rejects an under-review appeal when a P6 moderation item is upheld as hidden", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "HIDDEN", reportCount: 1, appealCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":"upheld after review","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"manual review requested","createdAt":"2026-06-23T01:00:00.000Z","status":"under_review"}],"moderationActions":[{"actionId":"m1","operatorUserId":"admin-1","action":"escalated","reason":"needs policy lead review","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"hidden","nextStatus":"hidden","processingStatus":"escalated","creatorNoticeStatus":"creator_notified","auditRecordType":"scenario_moderation_action"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
@@ -1022,6 +1260,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
   it("marks creator note moderation actions as requiring creator follow-up", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
+      publication: buildPublication({ moderationStatus: "REPORTED", reportCount: 1 }),
       attribution:
         'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"license","comment":"missing source","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });

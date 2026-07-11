@@ -35,7 +35,7 @@ import {
   ScenarioAssetKind,
   ScenarioLicense,
   ScenarioNodeType,
-} from '@trpg/shared-types';
+} from '@trpg/shared-types/frontend';
 import {
   decodeVttMapState,
   isRecord,

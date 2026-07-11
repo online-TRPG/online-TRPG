@@ -327,7 +327,15 @@ export class SessionsService {
       recordSessionReveal: this.recordSessionReveal.bind(this),
       rectsOverlap: this.rectsOverlap.bind(this),
       refreshSessionInventorySnapshot: this.refreshSessionInventorySnapshot.bind(this),
+      logPerformanceMetric:
+        process.env.PERFORMANCE_DIAGNOSTICS === "1"
+          ? this.logVttPerformanceMetric.bind(this)
+          : undefined,
     };
+  }
+
+  private logVttPerformanceMetric(payload: Record<string, unknown>): void {
+    this.logger.debug(payload);
   }
 
   async createSession(userId: string, dto: CreateSessionDto): Promise<SessionSnapshotDto> {
@@ -1127,7 +1135,10 @@ export class SessionsService {
         include: {
           user: true,
           sessionCharacter: {
-            include: { character: true },
+            select: {
+              id: true,
+              characterId: true,
+            },
           },
         },
       })
@@ -1137,8 +1148,9 @@ export class SessionsService {
 
     const mapped = mapParticipant(participant);
     this.realtimeEvents.emitParticipantUpdated(resolvedSessionId, mapped);
-    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
-    return this.buildSnapshot(resolvedSessionId);
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
   }
 
   async getInviteInfo(userId: string, sessionId: string): Promise<SessionInviteResponseDto> {
@@ -2359,7 +2371,10 @@ export class SessionsService {
           include: {
             user: true,
             sessionCharacter: {
-              include: { character: true },
+              select: {
+                id: true,
+                characterId: true,
+              },
             },
           },
         })
@@ -2374,14 +2389,18 @@ export class SessionsService {
           include: {
             user: true,
             sessionCharacter: {
-              include: { character: true },
+              select: {
+                id: true,
+                characterId: true,
+              },
             },
           },
         });
 
     this.realtimeEvents.emitParticipantUpdated(session.id, mapParticipant(participant));
-    this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
-    return this.buildSnapshot(session.id);
+    const snapshot = await this.buildSnapshot(session.id);
+    this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
+    return snapshot;
   }
 
   private ensureHost(userId: string, hostUserId: string): void {
@@ -2811,6 +2830,8 @@ export class SessionsService {
     this.sessionVttMapPersistence.publishMapUpdated({
       sessionId: params.session.id,
       hostUserId: params.session.hostUserId,
+      previousHostMap: params.previousMap,
+      previousPlayerMap: this.redactVttMapForPlayer(params.previousMap),
       hostMap: map,
       playerMap,
     });

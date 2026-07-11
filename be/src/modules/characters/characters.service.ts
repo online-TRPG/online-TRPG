@@ -646,10 +646,6 @@ export class CharactersService {
           assignment.sessionId,
           mapSessionCharacter(updatedSessionCharacter),
         );
-        this.realtimeEvents.emitSessionSnapshot(
-          assignment.sessionId,
-          await this.sessionsService.buildSnapshot(assignment.sessionId),
-        );
       }
     }
 
@@ -709,10 +705,6 @@ export class CharactersService {
       this.realtimeEvents.emitCharacterUpdated(
         assignment.sessionId,
         mapSessionCharacter(updatedSessionCharacter),
-      );
-      this.realtimeEvents.emitSessionSnapshot(
-        assignment.sessionId,
-        await this.sessionsService.buildSnapshot(assignment.sessionId),
       );
     }
 

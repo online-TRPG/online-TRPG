@@ -426,6 +426,7 @@ export class ActionProcessorService {
         tx,
       );
       const runtimeStateChanged = earlyRuntimeStateChanged || runtimeMutation.changed;
+      const runtimeSnapshotRequired = this.runtimeEffectsRequireSnapshot(resolution);
 
       if (stateDiff) {
         await this.turnLogsService.attachStateDiff(turnLog.turnLogId, { ...stateDiff }, tx);
@@ -455,6 +456,7 @@ export class ActionProcessorService {
         turnLog,
         stateDiff,
         runtimeStateChanged,
+        runtimeSnapshotRequired,
         revealCount,
         mapUpdate: runtimeMutation.mapUpdate,
       };
@@ -470,7 +472,7 @@ export class ActionProcessorService {
       if (mutation.mapUpdate) {
         this.realtimeEvents.emitVttMapUpdated(session.id, mutation.mapUpdate);
       }
-      if (mutation.stateDiff || mutation.runtimeStateChanged || mutation.revealCount > 0) {
+      if (mutation.runtimeSnapshotRequired || mutation.revealCount > 0) {
         const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
         this.realtimeEvents.emitSessionSnapshot(session.id, latestSnapshot);
       }
@@ -643,6 +645,8 @@ export class ActionProcessorService {
     changed: boolean;
     mapUpdate: {
       hostUserId: string;
+      previousHostMap: VttMapStateDto;
+      previousPlayerMap: VttMapStateDto;
       hostMap: VttMapStateDto;
       playerMap: VttMapStateDto;
     } | null;
@@ -650,6 +654,8 @@ export class ActionProcessorService {
     let changed = false;
     let mapUpdate: {
       hostUserId: string;
+      previousHostMap: VttMapStateDto;
+      previousPlayerMap: VttMapStateDto;
       hostMap: VttMapStateDto;
       playerMap: VttMapStateDto;
     } | null = null;
@@ -1016,12 +1022,24 @@ export class ActionProcessorService {
       effect.type === "SPEND_SPELL_SLOT";
   }
 
+  private runtimeEffectsRequireSnapshot(resolution: ActionResolution): boolean {
+    return (resolution.runtimeEffects ?? []).some((effect) =>
+      effect.type !== "SPEND_ACTION" &&
+      effect.type !== "SPEND_BONUS_ACTION" &&
+      effect.type !== "SPEND_REACTION" &&
+      effect.type !== "GRANT_ADDITIONAL_ACTION" &&
+      effect.type !== "SPEND_SNEAK_ATTACK",
+    );
+  }
+
   private async applyInventoryMapRuntimeEffectsAtomically(
     params: RuntimeEffectParams,
     effects: InventoryMapAtomicRuntimeEffect[],
     client?: ActionMutationClient,
   ): Promise<{
     hostUserId: string;
+    previousHostMap: VttMapStateDto;
+    previousPlayerMap: VttMapStateDto;
     hostMap: VttMapStateDto;
     playerMap: VttMapStateDto;
   }> {
@@ -1087,6 +1105,8 @@ export class ActionProcessorService {
     const savedMap = client ? await mutate(client) : await this.prisma.$transaction(mutate);
     const mapUpdate = {
       hostUserId: session.hostUserId,
+      previousHostMap: baselineMap,
+      previousPlayerMap: this.sessionsService.redactVttMapForPlayer(baselineMap),
       hostMap: savedMap,
       playerMap: this.sessionsService.redactVttMapForPlayer(savedMap),
     };

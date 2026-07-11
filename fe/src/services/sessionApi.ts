@@ -20,7 +20,7 @@ import type {
   UseInventoryItemDto,
   UseInventoryItemResponseDto,
 } from '@trpg/shared-types';
-import { GmMode } from '@trpg/shared-types';
+import { GmMode } from '@trpg/shared-types/frontend';
 import type {
   AvailableSessionListItem,
   SessionDetail,

@@ -1219,7 +1219,7 @@ describe("SessionsService HUMAN GM combat conditions", () => {
         ],
       }),
     );
-    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
   });
 
   it("removes a combat participant condition through the GM override path", async () => {
@@ -1355,6 +1355,7 @@ describe("SessionsService HUMAN GM combat conditions", () => {
         ],
       }),
     );
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
   });
 });
 
@@ -1509,6 +1510,7 @@ describe("SessionsService HUMAN GM combat HP override", () => {
         ],
       }),
     );
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
   });
 });
 

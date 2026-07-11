@@ -1,0 +1,480 @@
+[
+  {
+    "id": "class.warlock.feature.계약의_은혜",
+    "classKey": "warlock",
+    "level": 3,
+    "nameKo": "계약의 은혜",
+    "category": "class",
+    "summaryKo": "3레벨에 후원자가 주는 선물을 선택한다. 사슬의 계약(Pact of the Chain): 특별한 패밀리어를 얻는다. 칼날의 계약(Pact of the Blade): 계약 무기를 만들 수 있다. 책의 계약(Pact of the Tome): 그림자의 책과 추가 캔트립을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "계약의_은혜"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.warlock.feature.섬뜩한_영창",
+    "classKey": "warlock",
+    "level": 2,
+    "nameKo": "섬뜩한 영창",
+    "category": "class",
+    "summaryKo": "2레벨부터 금지된 지식의 조각인 섬뜩한 영창(Eldritch Invocations)을 얻는다. 일부 영창은 특정 레벨, 주문, 계약의 은혜 조건을 요구한다. 표 정보 포함.",
+    "source": "srd",
+    "aliases": [
+      "섬뜩한_영창"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.warlock.feature.신비의_비밀",
+    "classKey": "warlock",
+    "level": 11,
+    "nameKo": "신비의 비밀",
+    "category": "class",
+    "summaryKo": "11레벨부터 6레벨 이상의 주문을 각각 한 번씩 시전할 수 있는 신비의 비밀을 얻는다. 사용 후 긴 휴식으로 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "신비의_비밀"
+    ],
+    "availableAtLevels": [
+      11,
+      13,
+      15,
+      17
+    ]
+  },
+  {
+    "id": "class.warlock.feature.ability_score_improvement",
+    "classKey": "warlock",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.feature.ability_score_improvement_12",
+    "classKey": "warlock",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.feature.ability_score_improvement_14",
+    "classKey": "warlock",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.feature.ability_score_improvement_16",
+    "classKey": "warlock",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.feature.ability_score_improvement_19",
+    "classKey": "warlock",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.feature.ability_score_improvement_8",
+    "classKey": "warlock",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.feature.eldritch_invocations",
+    "classKey": "warlock",
+    "level": 2,
+    "nameKo": "섬뜩한 영창",
+    "category": "class",
+    "summaryKo": "2레벨부터 금지된 지식의 조각인 섬뜩한 영창(Eldritch Invocations)을 얻는다. 일부 영창은 특정 레벨, 주문, 계약의 은혜 조건을 요구한다. 표 정보 포함.",
+    "source": "runtime",
+    "aliases": [
+      "섬뜩한_영창",
+      "class.warlock.feature.섬뜩한_영창",
+      "eldritch_invocations"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.warlock.feature.eldritch_master",
+    "classKey": "warlock",
+    "level": 20,
+    "nameKo": "섬뜩한 주인",
+    "category": "class",
+    "summaryKo": "후원자에게 간청해 짧은 의식 후 소모한 계약 마법 슬롯을 회복합니다.",
+    "source": "runtime",
+    "aliases": [
+      "섬뜩한_주인",
+      "eldritch_master"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.warlock.feature.mystic_arcanum_6",
+    "classKey": "warlock",
+    "level": 11,
+    "nameKo": "신비의 비밀",
+    "category": "class",
+    "summaryKo": "11레벨부터 6레벨 이상의 주문을 각각 한 번씩 시전할 수 있는 신비의 비밀을 얻는다. 사용 후 긴 휴식으로 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "신비의_비밀_6레벨",
+      "class.warlock.feature.신비의_비밀",
+      "mystic_arcanum_6"
+    ],
+    "availableAtLevels": [
+      11,
+      13,
+      15,
+      17
+    ]
+  },
+  {
+    "id": "class.warlock.feature.mystic_arcanum_7",
+    "classKey": "warlock",
+    "level": 13,
+    "nameKo": "신비의 비밀",
+    "category": "class",
+    "summaryKo": "11레벨부터 6레벨 이상의 주문을 각각 한 번씩 시전할 수 있는 신비의 비밀을 얻는다. 사용 후 긴 휴식으로 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "신비의_비밀_7레벨",
+      "class.warlock.feature.신비의_비밀",
+      "mystic_arcanum_7"
+    ],
+    "availableAtLevels": [
+      11,
+      13,
+      15,
+      17
+    ]
+  },
+  {
+    "id": "class.warlock.feature.mystic_arcanum_8",
+    "classKey": "warlock",
+    "level": 15,
+    "nameKo": "신비의 비밀",
+    "category": "class",
+    "summaryKo": "11레벨부터 6레벨 이상의 주문을 각각 한 번씩 시전할 수 있는 신비의 비밀을 얻는다. 사용 후 긴 휴식으로 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "신비의_비밀_8레벨",
+      "class.warlock.feature.신비의_비밀",
+      "mystic_arcanum_8"
+    ],
+    "availableAtLevels": [
+      11,
+      13,
+      15,
+      17
+    ]
+  },
+  {
+    "id": "class.warlock.feature.mystic_arcanum_9",
+    "classKey": "warlock",
+    "level": 17,
+    "nameKo": "신비의 비밀",
+    "category": "class",
+    "summaryKo": "11레벨부터 6레벨 이상의 주문을 각각 한 번씩 시전할 수 있는 신비의 비밀을 얻는다. 사용 후 긴 휴식으로 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "신비의_비밀_9레벨",
+      "class.warlock.feature.신비의_비밀",
+      "mystic_arcanum_9"
+    ],
+    "availableAtLevels": [
+      11,
+      13,
+      15,
+      17
+    ]
+  },
+  {
+    "id": "class.warlock.feature.otherworldly_patron",
+    "classKey": "warlock",
+    "level": 1,
+    "nameKo": "다른 세계의 후원자",
+    "category": "class",
+    "summaryKo": "1레벨에 워락 후원자를 선택해 계약의 성격과 서브클래스 기능을 정합니다.",
+    "source": "runtime",
+    "aliases": [
+      "다른_세계의_후원자",
+      "otherworldly_patron"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.warlock.feature.pact_boon",
+    "classKey": "warlock",
+    "level": 3,
+    "nameKo": "계약의 은혜",
+    "category": "class",
+    "summaryKo": "3레벨에 후원자가 주는 선물을 선택한다. 사슬의 계약(Pact of the Chain): 특별한 패밀리어를 얻는다. 칼날의 계약(Pact of the Blade): 계약 무기를 만들 수 있다. 책의 계약(Pact of the Tome): 그림자의 책과 추가 캔트립을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "계약의_은혜",
+      "class.warlock.feature.계약의_은혜",
+      "pact_boon"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.warlock.feature.pact_magic",
+    "classKey": "warlock",
+    "level": 1,
+    "nameKo": "계약 마법",
+    "category": "class",
+    "summaryKo": "워락은 매력을 주문시전 능력치로 사용하며, 짧은 휴식 또는 긴 휴식 후 계약 주문 슬롯을 회복합니다.",
+    "source": "runtime",
+    "aliases": [
+      "계약_마법",
+      "pact_magic"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.악마적_회복력",
+    "classKey": "warlock",
+    "level": 10,
+    "nameKo": "악마적 회복력",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 또는 긴 휴식 후 피해 유형 하나를 선택해 저항을 얻는다. 마법 무기나 은제 무기 피해에는 적용되지 않을 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "악마적_회복력"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.어둠의_운",
+    "classKey": "warlock",
+    "level": 6,
+    "nameKo": "어둠의 운",
+    "category": "subclass",
+    "summaryKo": "능력 판정 또는 내성 굴림에 d10을 더할 수 있다. 짧은 휴식 또는 긴 휴식 후 재사용.",
+    "source": "srd",
+    "aliases": [
+      "어둠의_운"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.어둠의_축복",
+    "classKey": "warlock",
+    "level": 1,
+    "nameKo": "어둠의 축복",
+    "category": "subclass",
+    "summaryKo": "적대적 크리처의 HP를 0으로 만들면 임시 HP를 얻는다. 양은 매력 수정치 + 워락 레벨.",
+    "source": "srd",
+    "aliases": [
+      "어둠의_축복"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.지옥으로_던지기",
+    "classKey": "warlock",
+    "level": 14,
+    "nameKo": "지옥으로 던지기",
+    "category": "subclass",
+    "summaryKo": "공격 명중 시 대상을 순간적으로 하위 차원으로 보낸 뒤 돌아오게 하며 정신 피해를 준다. 긴 휴식 후 재사용.",
+    "source": "srd",
+    "aliases": [
+      "지옥으로_던지기"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.dark_ones_blessing",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "어둠의 축복",
+    "category": "subclass",
+    "summaryKo": "적대적 크리처의 HP를 0으로 만들면 임시 HP를 얻는다. 양은 매력 수정치 + 워락 레벨.",
+    "source": "runtime",
+    "aliases": [
+      "dark_ones_blessing"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.subclass_feature.dark_ones_own_luck",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "어둠의 운",
+    "category": "subclass",
+    "summaryKo": "능력 판정 또는 내성 굴림에 d10을 더할 수 있다. 짧은 휴식 또는 긴 휴식 후 재사용.",
+    "source": "runtime",
+    "aliases": [
+      "dark_ones_own_luck"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.subclass_feature.expanded_spell_list",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "어둠의 축복",
+    "category": "subclass",
+    "summaryKo": "적대적 크리처의 HP를 0으로 만들면 임시 HP를 얻는다. 양은 매력 수정치 + 워락 레벨.",
+    "source": "runtime",
+    "aliases": [
+      "expanded_spell_list"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.subclass_feature.fiendish_resilience",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "악마적 회복력",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 또는 긴 휴식 후 피해 유형 하나를 선택해 저항을 얻는다. 마법 무기나 은제 무기 피해에는 적용되지 않을 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "fiendish_resilience"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.warlock.subclass_feature.hurl_through_hell",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "지옥으로 던지기",
+    "category": "subclass",
+    "summaryKo": "공격 명중 시 대상을 순간적으로 하위 차원으로 보낸 뒤 돌아오게 하며 정신 피해를 준다. 긴 휴식 후 재사용.",
+    "source": "runtime",
+    "aliases": [
+      "hurl_through_hell"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.warlock.fiend.feature.dark_ones_blessing",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "어둠의 축복",
+    "category": "subclass",
+    "summaryKo": "적대적 크리처의 HP를 0으로 만들면 임시 HP를 얻는다. 양은 매력 수정치 + 워락 레벨.",
+    "source": "runtime",
+    "aliases": [
+      "dark_ones_blessing"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.warlock.fiend.feature.dark_ones_own_luck",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "어둠의 운",
+    "category": "subclass",
+    "summaryKo": "능력 판정 또는 내성 굴림에 d10을 더할 수 있다. 짧은 휴식 또는 긴 휴식 후 재사용.",
+    "source": "runtime",
+    "aliases": [
+      "dark_ones_own_luck"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.warlock.fiend.feature.expanded_spell_list",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "어둠의 축복",
+    "category": "subclass",
+    "summaryKo": "적대적 크리처의 HP를 0으로 만들면 임시 HP를 얻는다. 양은 매력 수정치 + 워락 레벨.",
+    "source": "runtime",
+    "aliases": [
+      "expanded_spell_list"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.warlock.fiend.feature.fiendish_resilience",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "악마적 회복력",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 또는 긴 휴식 후 피해 유형 하나를 선택해 저항을 얻는다. 마법 무기나 은제 무기 피해에는 적용되지 않을 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "fiendish_resilience"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.warlock.fiend.feature.hurl_through_hell",
+    "classKey": "warlock",
+    "level": 0,
+    "nameKo": "지옥으로 던지기",
+    "category": "subclass",
+    "summaryKo": "공격 명중 시 대상을 순간적으로 하위 차원으로 보낸 뒤 돌아오게 하며 정신 피해를 준다. 긴 휴식 후 재사용.",
+    "source": "runtime",
+    "aliases": [
+      "hurl_through_hell"
+    ],
+    "availableAtLevels": []
+  }
+]

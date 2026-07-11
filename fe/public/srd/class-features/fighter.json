@@ -1,0 +1,529 @@
+[
+  {
+    "id": "class.fighter.feature.불굴",
+    "classKey": "fighter",
+    "level": 9,
+    "nameKo": "불굴",
+    "category": "class",
+    "summaryKo": "9레벨부터 실패한 내성 굴림을 다시 굴릴 수 있다. 새 결과를 반드시 사용한다.",
+    "source": "srd",
+    "aliases": [
+      "불굴"
+    ],
+    "availableAtLevels": [
+      9,
+      17
+    ]
+  },
+  {
+    "id": "class.fighter.feature.재기의_숨결",
+    "classKey": "fighter",
+    "level": 1,
+    "nameKo": "재기의 숨결",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동으로 `1d10 + 파이터 레벨`만큼 HP를 회복한다. 사용 후 짧은 휴식 또는 긴 휴식을 마쳐야 다시 사용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "재기의_숨결"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.fighter.feature.전투_방식",
+    "classKey": "fighter",
+    "level": 1,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "1레벨에 전투 방식을 하나 선택한다. 나중에 다시 전투 방식을 얻더라도 같은 선택지를 중복 선택할 수 없다. 표 정보 포함.",
+    "source": "srd",
+    "aliases": [
+      "전투_방식"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.fighter.feature.행동_연쇄",
+    "classKey": "fighter",
+    "level": 2,
+    "nameKo": "행동 연쇄",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴에 추가 행동 하나를 얻을 수 있다. 사용 후 짧은 휴식 또는 긴 휴식을 마쳐야 다시 사용할 수 있다. 17레벨부터 휴식 사이 두 번 사용할 수 있지만 한 턴에는 한 번만 사용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "행동_연쇄"
+    ],
+    "availableAtLevels": [
+      2,
+      17
+    ]
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement",
+    "classKey": "fighter",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement_12",
+    "classKey": "fighter",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement_14",
+    "classKey": "fighter",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement_16",
+    "classKey": "fighter",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement_19",
+    "classKey": "fighter",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement_6",
+    "classKey": "fighter",
+    "level": 6,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_6"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.ability_score_improvement_8",
+    "classKey": "fighter",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.action_surge",
+    "classKey": "fighter",
+    "level": 2,
+    "nameKo": "행동 연쇄",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴에 추가 행동 하나를 얻을 수 있다. 사용 후 짧은 휴식 또는 긴 휴식을 마쳐야 다시 사용할 수 있다. 17레벨부터 휴식 사이 두 번 사용할 수 있지만 한 턴에는 한 번만 사용할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "행동_연쇄",
+      "class.fighter.feature.행동_연쇄",
+      "action_surge"
+    ],
+    "availableAtLevels": [
+      2,
+      17
+    ]
+  },
+  {
+    "id": "class.fighter.feature.action_surge_2",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "행동 연쇄 2회",
+    "category": "class",
+    "summaryKo": "휴식 사이 행동 연쇄를 두 번 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "action_surge_2"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.extra_attack",
+    "classKey": "fighter",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 여러 번 공격할 수 있습니다. 파이터는 레벨이 오르면 공격 횟수가 더 늘어납니다.",
+    "source": "runtime",
+    "aliases": [
+      "추가_공격",
+      "extra_attack"
+    ],
+    "availableAtLevels": [
+      5,
+      11,
+      20
+    ]
+  },
+  {
+    "id": "class.fighter.feature.extra_attack_2",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "추가 공격 2회",
+    "category": "class",
+    "summaryKo": "공격 행동을 할 때 세 번 공격할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "extra_attack_2"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.extra_attack_3",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "추가 공격 3회",
+    "category": "class",
+    "summaryKo": "공격 행동을 할 때 네 번 공격할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "extra_attack_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.fighting_style",
+    "classKey": "fighter",
+    "level": 1,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "1레벨에 전투 방식을 하나 선택한다. 나중에 다시 전투 방식을 얻더라도 같은 선택지를 중복 선택할 수 없다. 표 정보 포함.",
+    "source": "runtime",
+    "aliases": [
+      "전투_방식",
+      "class.fighter.feature.전투_방식",
+      "fighting_style"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.fighter.feature.indomitable",
+    "classKey": "fighter",
+    "level": 9,
+    "nameKo": "불굴",
+    "category": "class",
+    "summaryKo": "9레벨부터 실패한 내성 굴림을 다시 굴릴 수 있다. 새 결과를 반드시 사용한다.",
+    "source": "runtime",
+    "aliases": [
+      "불굴",
+      "class.fighter.feature.불굴",
+      "indomitable"
+    ],
+    "availableAtLevels": [
+      9,
+      17
+    ]
+  },
+  {
+    "id": "class.fighter.feature.indomitable_2",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "불굴 2회",
+    "category": "class",
+    "summaryKo": "실패한 내성 굴림을 다시 굴리는 불굴 사용 횟수가 두 번으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "indomitable_2"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.indomitable_3",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "불굴 3회",
+    "category": "class",
+    "summaryKo": "실패한 내성 굴림을 다시 굴리는 불굴 사용 횟수가 세 번으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "indomitable_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.feature.martial_archetype",
+    "classKey": "fighter",
+    "level": 3,
+    "nameKo": "무예 아키타입",
+    "category": "class",
+    "summaryKo": "3레벨에 파이터 서브클래스를 선택해 전투 스타일을 더 구체화합니다.",
+    "source": "runtime",
+    "aliases": [
+      "무예_아키타입",
+      "martial_archetype"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.fighter.feature.second_wind",
+    "classKey": "fighter",
+    "level": 1,
+    "nameKo": "재기의 숨결",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동으로 `1d10 + 파이터 레벨`만큼 HP를 회복한다. 사용 후 짧은 휴식 또는 긴 휴식을 마쳐야 다시 사용할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "재기의_숨결",
+      "class.fighter.feature.재기의_숨결",
+      "second_wind"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.뛰어난_운동능력",
+    "classKey": "fighter",
+    "level": 7,
+    "nameKo": "뛰어난 운동능력",
+    "category": "subclass",
+    "summaryKo": "숙련 보너스를 더하지 않는 근력, 민첩, 건강 판정에 숙련 보너스 절반을 더한다. 달리기 도움닫기 멀리뛰기 거리도 근력 수정치만큼 증가한다.",
+    "source": "srd",
+    "aliases": [
+      "뛰어난_운동능력"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.생존자",
+    "classKey": "fighter",
+    "level": 18,
+    "nameKo": "생존자",
+    "category": "subclass",
+    "summaryKo": "턴 시작 시 HP가 절반 이하이고 0보다 크면 5 + 건강 수정치만큼 HP를 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "생존자"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.우월한_치명타",
+    "classKey": "fighter",
+    "level": 15,
+    "nameKo": "우월한 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 18-20이면 치명타.",
+    "source": "srd",
+    "aliases": [
+      "우월한_치명타"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.추가_전투_방식",
+    "classKey": "fighter",
+    "level": 10,
+    "nameKo": "추가 전투 방식",
+    "category": "subclass",
+    "summaryKo": "전투 방식 하나를 추가로 선택한다.",
+    "source": "srd",
+    "aliases": [
+      "추가_전투_방식"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.향상된_치명타",
+    "classKey": "fighter",
+    "level": 3,
+    "nameKo": "향상된 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 19-20이면 치명타.",
+    "source": "srd",
+    "aliases": [
+      "향상된_치명타"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.additional_fighting_style",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "추가 전투 방식",
+    "category": "subclass",
+    "summaryKo": "전투 방식 하나를 추가로 선택한다.",
+    "source": "runtime",
+    "aliases": [
+      "additional_fighting_style"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.subclass_feature.improved_critical",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "향상된 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 19-20이면 치명타.",
+    "source": "runtime",
+    "aliases": [
+      "improved_critical"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.subclass_feature.remarkable_athlete",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "뛰어난 운동능력",
+    "category": "subclass",
+    "summaryKo": "숙련 보너스를 더하지 않는 근력, 민첩, 건강 판정에 숙련 보너스 절반을 더한다. 달리기 도움닫기 멀리뛰기 거리도 근력 수정치만큼 증가한다.",
+    "source": "runtime",
+    "aliases": [
+      "remarkable_athlete"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.subclass_feature.superior_critical",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "우월한 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 18-20이면 치명타.",
+    "source": "runtime",
+    "aliases": [
+      "superior_critical"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.fighter.subclass_feature.survivor",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "생존자",
+    "category": "subclass",
+    "summaryKo": "턴 시작 시 HP가 절반 이하이고 0보다 크면 5 + 건강 수정치만큼 HP를 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "survivor"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.fighter.champion.feature.additional_fighting_style",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "추가 전투 방식",
+    "category": "subclass",
+    "summaryKo": "전투 방식 하나를 추가로 선택한다.",
+    "source": "runtime",
+    "aliases": [
+      "additional_fighting_style"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.fighter.champion.feature.improved_critical",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "향상된 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 19-20이면 치명타.",
+    "source": "runtime",
+    "aliases": [
+      "improved_critical"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.fighter.champion.feature.remarkable_athlete",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "뛰어난 운동능력",
+    "category": "subclass",
+    "summaryKo": "숙련 보너스를 더하지 않는 근력, 민첩, 건강 판정에 숙련 보너스 절반을 더한다. 달리기 도움닫기 멀리뛰기 거리도 근력 수정치만큼 증가한다.",
+    "source": "runtime",
+    "aliases": [
+      "remarkable_athlete"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.fighter.champion.feature.superior_critical",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "우월한 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 18-20이면 치명타.",
+    "source": "runtime",
+    "aliases": [
+      "superior_critical"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.fighter.champion.feature.survivor",
+    "classKey": "fighter",
+    "level": 0,
+    "nameKo": "생존자",
+    "category": "subclass",
+    "summaryKo": "턴 시작 시 HP가 절반 이하이고 0보다 크면 5 + 건강 수정치만큼 HP를 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "survivor"
+    ],
+    "availableAtLevels": []
+  }
+]

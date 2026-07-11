@@ -13,16 +13,15 @@ import type {
   SubmitActionDto,
   TurnLogResponseDto,
   UpdatePreparedSpellsDto,
+  VttMapDeltaDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import {
   ActionInputType,
   ActionOutcome,
   ActionScope,
-  DiceAdvantageState,
-} from '@trpg/shared-types';
-import {
   CHAT_MESSAGE_MAX_LENGTH,
+  DiceAdvantageState,
   MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS,
   getMainCommandCheckEffect,
   getPrimaryMainCommandCheckOption,
@@ -31,6 +30,11 @@ import {
   isRecord,
   normalizeSessionStatus,
 } from '@trpg/shared-types/frontend';
+import {
+  applyVttMapDelta,
+  parseCharacterStateDiff,
+  SessionCharacterStatus,
+} from '@trpg/shared-types/browser-runtime';
 import type { Socket } from 'socket.io-client';
 import {
   cloneCharacter as apiCloneCharacter,
@@ -80,6 +84,7 @@ import type {
   DiceRollOutcome,
   DiceRollOverlayData,
 } from '../features/sessionPlay/components/DiceRollOverlay';
+import type { AppendLogsFn, LogWriteInput } from './useLogs';
 
 function getVttMapSocketSignature(map: VttMapStateDto | null | undefined) {
   if (!map) return 'null';
@@ -678,7 +683,7 @@ export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
   appendLog: AppendLogFn,
-  appendOlderLog: AppendLogFn,
+  appendOlderLogs: AppendLogsFn,
   removeLog: (id: string) => void,
   clearSessionLogs: () => void
 ): UseSessionReturn {
@@ -893,15 +898,15 @@ export function useSession(
     }
   }, [busy, clearLocalSessionState, mySessionList, mySessionsLoaded, snapshot, user]);
 
-  const appendPlayerRawInputLog = useCallback(
-    (turnLog: TurnLogResponseDto, writeLog: AppendLogFn) => {
+  const buildPlayerRawInputLog = useCallback(
+    (turnLog: TurnLogResponseDto): LogWriteInput | null => {
       if (isAutoHazardDetectionTurnLog(turnLog) || isVttHazardTriggerTurnLog(turnLog)) {
-        return;
+        return null;
       }
 
       const rawInput = turnLog.rawInput?.trim();
       if (!rawInput) {
-        return;
+        return null;
       }
 
       // TurnLog는 DB에 남으므로 새로고침/재접속 후에도 같은 id로 말풍선을 다시 만들 수 있습니다.
@@ -912,9 +917,32 @@ export function useSession(
         ? getSenderNameByUserId(turnLog.actorUserId, snapshotRef.current)
         : '알 수 없음';
 
-      writeLog('action', senderName, `[MAIN]${rawInput}`, rawLogId, getRawInputCreatedAt(turnLog));
+      return {
+        kind: 'action',
+        title: senderName,
+        message: `[MAIN]${rawInput}`,
+        id: rawLogId,
+        createdAt: getRawInputCreatedAt(turnLog),
+      };
     },
     []
+  );
+
+  const appendPlayerRawInputLog = useCallback(
+    (turnLog: TurnLogResponseDto, writeLog: AppendLogFn) => {
+      const rawInputLog = buildPlayerRawInputLog(turnLog);
+      if (!rawInputLog) return;
+
+      writeLog(
+        rawInputLog.kind,
+        rawInputLog.title,
+        rawInputLog.message,
+        rawInputLog.id,
+        rawInputLog.createdAt,
+        rawInputLog.metadata
+      );
+    },
+    [buildPlayerRawInputLog]
   );
 
   const appendServerTurnLog = useCallback(
@@ -953,40 +981,47 @@ export function useSession(
     [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
-  const appendHistoricalTurnLog = useCallback(
-    (turnLog: TurnLogResponseDto) => {
-      if (seenTurnLogIdsRef.current.has(turnLog.turnLogId)) {
-        return;
-      }
+  const appendHistoricalTurnLogs = useCallback(
+    (turnLogs: TurnLogResponseDto[]) => {
+      const entries: LogWriteInput[] = [];
 
-      seenTurnLogIdsRef.current.add(turnLog.turnLogId);
-      if (turnLog.playerActionId) {
-        removeLog(`player-action:${turnLog.playerActionId}:pending`);
-      }
-      if (isMainCommandTurnLog(turnLog)) {
-        const rawInput = turnLog.rawInput?.trim();
-        const matchingPending = pendingMainCommandLogsRef.current.filter(
-          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
-        );
-        const matchedPending =
-          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
-
-        if (matchedPending) {
-          removePendingMainCommandLog(matchedPending);
+      for (const turnLog of turnLogs) {
+        if (seenTurnLogIdsRef.current.has(turnLog.turnLogId)) {
+          continue;
         }
+
+        seenTurnLogIdsRef.current.add(turnLog.turnLogId);
+        if (turnLog.playerActionId) {
+          removeLog(`player-action:${turnLog.playerActionId}:pending`);
+        }
+        if (isMainCommandTurnLog(turnLog)) {
+          const rawInput = turnLog.rawInput?.trim();
+          const matchingPending = pendingMainCommandLogsRef.current.filter(
+            (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+          );
+          const matchedPending =
+            matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
+
+          if (matchedPending) {
+            removePendingMainCommandLog(matchedPending);
+          }
+        }
+
+        entries.push({
+          kind: 'action',
+          title: '세션 로그',
+          message: formatTurnLogMessage(turnLog),
+          id: `turn-log:${turnLog.turnLogId}`,
+          createdAt: turnLog.createdAt,
+          metadata: getTurnLogMetadata(turnLog),
+        });
+        const rawInputLog = buildPlayerRawInputLog(turnLog);
+        if (rawInputLog) entries.push(rawInputLog);
       }
-      // 과거 로그는 배열 앞쪽에 넣어 화면에서 현재 로그보다 위에 보이게 합니다.
-      appendOlderLog(
-        'action',
-        '세션 로그',
-        formatTurnLogMessage(turnLog),
-        `turn-log:${turnLog.turnLogId}`,
-        turnLog.createdAt,
-        getTurnLogMetadata(turnLog)
-      );
-      appendPlayerRawInputLog(turnLog, appendOlderLog);
+
+      appendOlderLogs(entries);
     },
-    [appendOlderLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
+    [appendOlderLogs, buildPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const loadRecentTurnLogs = useCallback(
@@ -1008,7 +1043,7 @@ export function useSession(
 
         // 최신순으로 받은 10개를 이미 최신순인 배열에 그대로 붙이면 화면에서 오래된 것부터 보입니다.
         if (snapshotRef.current?.session.id !== sessionId) return;
-        result.turnLogs.forEach(appendHistoricalTurnLog);
+        appendHistoricalTurnLogs(result.turnLogs);
         setTurnLogNextCursor(result.nextCursor);
       } catch {
         // 게임룸 진입 직후 로그 조회 실패는 입력 흐름 자체를 막을 정도의 오류가 아니므로 조용히 넘깁니다.
@@ -1018,7 +1053,7 @@ export function useSession(
         }
       }
     },
-    [accessToken, appendHistoricalTurnLog, user]
+    [accessToken, appendHistoricalTurnLogs, user]
   );
 
   useEffect(() => {
@@ -1056,7 +1091,7 @@ export function useSession(
       );
 
       if (snapshotRef.current?.session.id !== sessionId) return;
-      result.turnLogs.forEach(appendHistoricalTurnLog);
+      appendHistoricalTurnLogs(result.turnLogs);
       setTurnLogNextCursor(result.nextCursor);
     } catch {
       // 이전 로그 조회 실패는 현재 입력 흐름을 막지 않으므로 화면에는 기존 로그를 그대로 둡니다.
@@ -1065,7 +1100,7 @@ export function useSession(
         setIsLoadingTurnLogs(false);
       }
     }
-  }, [accessToken, appendHistoricalTurnLog, isLoadingTurnLogs, turnLogNextCursor, user]);
+  }, [accessToken, appendHistoricalTurnLogs, isLoadingTurnLogs, turnLogNextCursor, user]);
 
   useEffect(() => {
     if (!user || !snapshot?.session.id) return undefined;
@@ -1163,36 +1198,134 @@ export function useSession(
         appendLog('socket', '주사위 결과', formatDiceRollMessage(diceResult));
       },
       onStateDiffApplied: (stateDiff: StateDiffResponseDto) => {
-        // 실제 화면 상태 갱신은 전용 snapshot/도메인 이벤트가 책임지고, 여기서는 상태 변경 이벤트 수신 여부를 남깁니다.
+        const current = snapshotRef.current;
+        if (!current) return false;
+        if (current.state.version === stateDiff.nextVersion) return true;
+        if (current.state.version !== stateDiff.baseVersion) return false;
+
+        const patches = parseCharacterStateDiff(stateDiff);
+        if (!patches) return false;
+        const byCharacterId = new Map(
+          patches
+            .filter((patch) => patch.sessionCharacterId)
+            .map((patch) => [patch.sessionCharacterId as string, patch]),
+        );
+        if (
+          [...byCharacterId.keys()].some(
+            (characterId) => !current.characters.some((character) => character.id === characterId),
+          )
+        ) {
+          return false;
+        }
+
+        const characters = current.characters.map((character) => {
+          const patch = byCharacterId.get(character.id);
+          if (!patch) return character;
+          return {
+            ...character,
+            ...(patch.currentHp === undefined ? {} : { currentHp: patch.currentHp }),
+            ...(patch.tempHp === undefined ? {} : { tempHp: patch.tempHp }),
+            ...(patch.conditions === undefined ? {} : { conditions: patch.conditions }),
+            ...(patch.markDead === true
+              ? { status: SessionCharacterStatus.DEAD }
+              : patch.markDead === false && character.status === SessionCharacterStatus.DEAD
+                ? { status: SessionCharacterStatus.ACTIVE }
+                : {}),
+          };
+        });
+        updateSnapshot({
+          ...current,
+          characters,
+          sessionCharacters: characters,
+          state: {
+            ...current.state,
+            version: stateDiff.nextVersion,
+          },
+        });
         appendLog('socket', '상태 변화', formatStateDiffMessage(stateDiff));
+        return true;
       },
       onVttMapUpdated: (map: VttMapStateDto) => {
-        setSnapshot((current) => {
-          if (!current) return current;
-          const currentMap = readVttMapFromSessionFlags(current.state.flags);
-          if (getVttMapSocketSignature(currentMap) === getVttMapSocketSignature(map)) {
-            return current;
-          }
+        const current = snapshotRef.current;
+        if (!current) return;
+        const currentMap = readVttMapFromSessionFlags(current.state.flags);
+        if (getVttMapSocketSignature(currentMap) === getVttMapSocketSignature(map)) {
+          return;
+        }
 
-          const next = {
-            ...current,
-            state: {
-              ...current.state,
-              flags: {
-                ...current.state.flags,
-                vttMap: map,
-              },
-              state: {
-                ...current.state.state,
-                vttMap: map,
-              },
+        updateSnapshot({
+          ...current,
+          state: {
+            ...current.state,
+            flags: {
+              ...current.state.flags,
+              vttMap: map,
             },
-          };
-          saveStoredSnapshot(next);
-          return next;
+            state: {
+              ...current.state.state,
+              vttMap: map,
+            },
+          },
         });
       },
-      onCombatUpdated: () => {
+      onVttMapDelta: (delta: VttMapDeltaDto) => {
+        const current = snapshotRef.current;
+        if (!current) return false;
+        const currentMap = readVttMapFromSessionFlags(current.state.flags);
+        if (!currentMap) return false;
+        const result = applyVttMapDelta(currentMap, delta);
+        if (result.status !== 'applied') {
+          return false;
+        }
+        if (result.map === currentMap) {
+          return true;
+        }
+
+        updateSnapshot({
+          ...current,
+          state: {
+            ...current.state,
+            flags: {
+              ...current.state.flags,
+              vttMap: result.map,
+            },
+            state: {
+              ...current.state.state,
+              vttMap: result.map,
+            },
+          },
+        });
+        return true;
+      },
+      onCombatUpdated: (combat) => {
+        const current = snapshotRef.current;
+        if (current) {
+          const byCharacterId = new Map(
+            combat.participants
+              .filter((participant) => participant.sessionCharacterId)
+              .map((participant) => [participant.sessionCharacterId as string, participant]),
+          );
+          const characters = current.characters.map((character) => {
+            const participant = byCharacterId.get(character.id);
+            if (!participant) return character;
+            return {
+              ...character,
+              ...(participant.currentHp === null ? {} : { currentHp: participant.currentHp }),
+              ...(typeof participant.tempHp === 'number' ? { tempHp: participant.tempHp } : {}),
+              ...(participant.isAlive === false
+                ? { status: SessionCharacterStatus.DEAD }
+                : character.status === SessionCharacterStatus.DEAD
+                  ? { status: SessionCharacterStatus.ACTIVE }
+                  : {}),
+              conditions: participant.conditions,
+            };
+          });
+          updateSnapshot({
+            ...current,
+            characters,
+            sessionCharacters: characters,
+          });
+        }
         appendLog('socket', '전투 상태', '전투 추적기가 갱신되었습니다.');
       },
       onStatusChange: setSocketConnected,

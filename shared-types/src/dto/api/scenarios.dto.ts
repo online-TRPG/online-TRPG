@@ -913,6 +913,11 @@ export class ScenarioQueryDto {
   @IsInt()
   @Min(0)
   offset?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cursor?: string;
 }
 
 export class CreateScenarioDto {

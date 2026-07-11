@@ -20,6 +20,7 @@ import type {
   RestActionDto,
   ResolveMainCommandCheckDto,
   SubmitMainCommandDto,
+  StateDiffResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import {
@@ -28,6 +29,7 @@ import {
   isEndedCombatStatus,
   isHumanGmMode,
 } from '@trpg/shared-types/frontend';
+import { parseCharacterStateDiff } from '@trpg/shared-types/browser-runtime';
 import type { BattleMapSelection } from '../features/sessionPlay/components/SessionBattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
@@ -319,12 +321,16 @@ export function PlayPage({
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const pendingOptimisticTokenMoveRef = useRef<PendingOptimisticTokenMove | null>(null);
   const autoCombatStartKeyRef = useRef<string | null>(null);
-  const { classFeatureManifest, spellPools } = useStaticSrdPlayData();
 
   // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
   const sessionCharacters = snapshot?.characters ?? [];
+  const sessionClassNames = useMemo(
+    () => sessionCharacters.map((character) => character.className),
+    [sessionCharacters],
+  );
+  const { classFeatureManifest, spellPools } = useStaticSrdPlayData(sessionClassNames);
 
   const {
     isLeaveConfirmOpen,
@@ -1143,6 +1149,41 @@ export function PlayPage({
   }, [session?.id]);
 
   useEffect(() => {
+    function handleStateDiffApplied(event: Event) {
+      const stateDiff = (event as CustomEvent<StateDiffResponseDto>).detail;
+      const patches = stateDiff ? parseCharacterStateDiff(stateDiff) : null;
+      if (!patches?.length) return;
+
+      const byParticipantId = new Map(
+        patches
+          .filter((patch) => patch.combatParticipantId)
+          .map((patch) => [patch.combatParticipantId as string, patch]),
+      );
+      if (!byParticipantId.size) return;
+      setCombat((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          participants: current.participants.map((participant) => {
+            const patch = byParticipantId.get(participant.sessionEntityId);
+            if (!patch) return participant;
+            return {
+              ...participant,
+              ...(patch.currentHp === undefined ? {} : { currentHp: patch.currentHp }),
+              ...(patch.tempHp === undefined ? {} : { tempHp: patch.tempHp }),
+              ...(patch.conditions === undefined ? {} : { conditions: patch.conditions }),
+              ...(patch.markDead === undefined ? {} : { isAlive: !patch.markDead }),
+            };
+          }),
+        };
+      });
+    }
+
+    window.addEventListener('trpg:state-diff-applied', handleStateDiffApplied);
+    return () => window.removeEventListener('trpg:state-diff-applied', handleStateDiffApplied);
+  }, []);
+
+  useEffect(() => {
     const nextState = reconcileMainCommandCategoryState({
       categoryLabels: mainCommandCategoryLabels,
       activeCategory: activeMainCategory,
@@ -1212,7 +1253,15 @@ export function PlayPage({
     canStartSession,
   });
 
-  const renderedRows = useSessionRenderedLogs({
+  const {
+    rows: renderedRows,
+    hasEarlierLoadedRows,
+    hasLaterLoadedRows,
+    isAtLatest: isRenderedLogWindowAtLatest,
+    showEarlierLoadedRows,
+    showLaterLoadedRows,
+    showLatestRows,
+  } = useSessionRenderedLogs({
     activeTab,
     logs,
     userDisplayName: user.displayName,
@@ -1237,9 +1286,10 @@ export function PlayPage({
     onRejectRestRequest,
     onCancelRestRequest,
   });
-  const { logEndRef } = useSessionLogAutoScroll({
+  const { logStackRef } = useSessionLogAutoScroll({
     activeTab,
     renderedLogRows: renderedRows,
+    isAtLatest: isRenderedLogWindowAtLatest,
   });
   const storyRpUtterances = useStoryRpUtterances({
     logs,
@@ -2131,7 +2181,16 @@ export function PlayPage({
           {activeTab === 'Main' || activeTab === 'Chat' ? (
             <>
               <div className="session-log-area">
-                <div className="session-log-stack">
+                <div ref={logStackRef} className="session-log-stack">
+                  {hasEarlierLoadedRows ? (
+                    <button
+                      type="button"
+                      className="session-log-window-button"
+                      onClick={showEarlierLoadedRows}
+                    >
+                      불러온 이전 기록 보기
+                    </button>
+                  ) : null}
                   {sessionLogThreadRows.length ? (
                     sessionLogThreadRows.map((log) => {
                       return (
@@ -2225,7 +2284,24 @@ export function PlayPage({
                       </div>
                     </article>
                   )}
-                  <div ref={logEndRef} />
+                  {hasLaterLoadedRows ? (
+                    <div className="session-log-window-actions">
+                      <button
+                        type="button"
+                        className="session-log-window-button"
+                        onClick={showLaterLoadedRows}
+                      >
+                        더 최신 기록 보기
+                      </button>
+                      <button
+                        type="button"
+                        className="session-log-window-button"
+                        onClick={showLatestRows}
+                      >
+                        최신 기록으로 이동
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

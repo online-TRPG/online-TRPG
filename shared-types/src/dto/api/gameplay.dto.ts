@@ -1001,6 +1001,9 @@ export class CombatParticipantResponseDto {
   currentHp!: number | null;
 
   @ApiPropertyOptional({ nullable: true })
+  tempHp!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
   maxHp!: number | null;
 
   @ApiPropertyOptional({ nullable: true })

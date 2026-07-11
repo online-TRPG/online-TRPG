@@ -1,0 +1,538 @@
+[
+  {
+    "id": "class.rogue.feature.교활한_행동",
+    "classKey": "rogue",
+    "level": 2,
+    "nameKo": "교활한 행동",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴에 추가 행동으로 질주, 이탈, 숨기 행동을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "교활한_행동"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.rogue.feature.암습",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "암습",
+    "category": "class",
+    "summaryKo": "턴마다 한 번, 기교 또는 원거리 무기로 명중하고 공격 굴림에 유리함이 있으면 추가 피해를 준다. 대상 5피트 이내에 대상의 적이 있고 그 적이 무력화 상태가 아니며 자신에게 불리함이 없다면 유리함 없이도 암습을 적용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "암습"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.전문화",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "전문화",
+    "category": "class",
+    "summaryKo": "1레벨에 기술 숙련 2개 또는 기술 숙련 1개와 도둑 도구 숙련을 선택한다. 해당 판정에는 숙련 보너스를 두 배로 더한다. 6레벨에 두 숙련을 추가 선택한다.",
+    "source": "srd",
+    "aliases": [
+      "전문화"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.ability_score_improvement",
+    "classKey": "rogue",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.ability_score_improvement_12",
+    "classKey": "rogue",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.ability_score_improvement_14",
+    "classKey": "rogue",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.ability_score_improvement_16",
+    "classKey": "rogue",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.ability_score_improvement_19",
+    "classKey": "rogue",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.ability_score_improvement_8",
+    "classKey": "rogue",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.blindsense",
+    "classKey": "rogue",
+    "level": 14,
+    "nameKo": "맹시 감각",
+    "category": "class",
+    "summaryKo": "들을 수 있는 상태라면 10ft 이내의 숨은 크리처나 투명 크리처의 위치를 감지할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "맹시_감각",
+      "blindsense"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.rogue.feature.cunning_action",
+    "classKey": "rogue",
+    "level": 2,
+    "nameKo": "교활한 행동",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴에 추가 행동으로 질주, 이탈, 숨기 행동을 할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "교활한_행동",
+      "class.rogue.feature.교활한_행동",
+      "cunning_action"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.rogue.feature.elusive",
+    "classKey": "rogue",
+    "level": 18,
+    "nameKo": "포착 불가",
+    "category": "class",
+    "summaryKo": "무력화 상태가 아닌 동안 자신을 향한 공격 굴림은 유리함을 얻을 수 없습니다.",
+    "source": "runtime",
+    "aliases": [
+      "포착_불가",
+      "elusive"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.rogue.feature.evasion",
+    "classKey": "rogue",
+    "level": 7,
+    "nameKo": "회피",
+    "category": "class",
+    "summaryKo": "민첩 내성에 성공하면 피해를 받지 않고, 실패해도 일반적으로 절반 피해만 받습니다.",
+    "source": "runtime",
+    "aliases": [
+      "회피",
+      "evasion"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.rogue.feature.expertise",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "전문화",
+    "category": "class",
+    "summaryKo": "1레벨에 기술 숙련 2개 또는 기술 숙련 1개와 도둑 도구 숙련을 선택한다. 해당 판정에는 숙련 보너스를 두 배로 더한다. 6레벨에 두 숙련을 추가 선택한다.",
+    "source": "runtime",
+    "aliases": [
+      "전문화",
+      "class.rogue.feature.전문화",
+      "expertise"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.expertise_improvement",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "전문화 향상",
+    "category": "class",
+    "summaryKo": "전문화 대상을 추가로 선택해 더 많은 숙련에 숙련 보너스를 두 배로 적용합니다.",
+    "source": "runtime",
+    "aliases": [
+      "expertise_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.feature.reliable_talent",
+    "classKey": "rogue",
+    "level": 11,
+    "nameKo": "믿음직한 재능",
+    "category": "class",
+    "summaryKo": "숙련 보너스를 더하는 능력 판정에서 d20 결과가 9 이하이면 10으로 취급합니다.",
+    "source": "runtime",
+    "aliases": [
+      "믿음직한_재능",
+      "reliable_talent"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.rogue.feature.roguish_archetype",
+    "classKey": "rogue",
+    "level": 3,
+    "nameKo": "로그 아키타입",
+    "category": "class",
+    "summaryKo": "3레벨에 로그 서브클래스를 선택해 전투, 잠입, 기교 방향을 정합니다.",
+    "source": "runtime",
+    "aliases": [
+      "로그_아키타입",
+      "roguish_archetype"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.rogue.feature.slippery_mind",
+    "classKey": "rogue",
+    "level": 15,
+    "nameKo": "미끄러운 정신",
+    "category": "class",
+    "summaryKo": "정신을 단련해 지혜 내성 굴림에 숙련을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "미끄러운_정신",
+      "slippery_mind"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.rogue.feature.sneak_attack",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "암습",
+    "category": "class",
+    "summaryKo": "턴마다 한 번, 기교 또는 원거리 무기로 명중하고 공격 굴림에 유리함이 있으면 추가 피해를 준다. 대상 5피트 이내에 대상의 적이 있고 그 적이 무력화 상태가 아니며 자신에게 불리함이 없다면 유리함 없이도 암습을 적용할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "암습",
+      "class.rogue.feature.암습",
+      "sneak_attack"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.stroke_of_luck",
+    "classKey": "rogue",
+    "level": 20,
+    "nameKo": "행운의 일격",
+    "category": "class",
+    "summaryKo": "빗나간 공격을 명중으로 바꾸거나 실패한 능력 판정의 d20 결과를 20으로 바꿀 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "행운의_일격",
+      "stroke_of_luck"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.rogue.feature.thieves_cant",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "도둑의 은어",
+    "category": "class",
+    "summaryKo": "도둑과 범죄자들 사이에서 쓰이는 암호, 은어, 표식을 이해하고 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "도둑의_은어",
+      "thieves_cant"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.uncanny_dodge",
+    "classKey": "rogue",
+    "level": 5,
+    "nameKo": "불가사의한 회피",
+    "category": "class",
+    "summaryKo": "볼 수 있는 공격자가 자신을 명중시켰을 때 reaction으로 그 공격의 피해를 절반으로 줄일 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "불가사의한_회피",
+      "uncanny_dodge"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.2층_작업",
+    "classKey": "rogue",
+    "level": 3,
+    "nameKo": "2층 작업",
+    "category": "subclass",
+    "summaryKo": "등반 속도가 느려지지 않고, 달리기 도움닫기 점프 거리가 민첩 수정치만큼 증가한다.",
+    "source": "srd",
+    "aliases": [
+      "2층_작업"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.도둑의_반사신경",
+    "classKey": "rogue",
+    "level": 17,
+    "nameKo": "도둑의 반사신경",
+    "category": "subclass",
+    "summaryKo": "전투 첫 라운드에 두 턴을 가진다. 두 번째 턴은 우선권 -10 시점에 온다.",
+    "source": "srd",
+    "aliases": [
+      "도둑의_반사신경"
+    ],
+    "availableAtLevels": [
+      17
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.뛰어난_은신",
+    "classKey": "rogue",
+    "level": 9,
+    "nameKo": "뛰어난 은신",
+    "category": "subclass",
+    "summaryKo": "해당 턴에 절반 이하 속도로 이동하면 민첩(은신) 판정에 유리함을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "뛰어난_은신"
+    ],
+    "availableAtLevels": [
+      9
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.마법_장치_사용",
+    "classKey": "rogue",
+    "level": 13,
+    "nameKo": "마법 장치 사용",
+    "category": "subclass",
+    "summaryKo": "마법 아이템 사용 시 직업, 종족, 레벨 요구사항을 무시한다.",
+    "source": "srd",
+    "aliases": [
+      "마법_장치_사용"
+    ],
+    "availableAtLevels": [
+      13
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.빠른_손놀림",
+    "classKey": "rogue",
+    "level": 3,
+    "nameKo": "빠른 손놀림",
+    "category": "subclass",
+    "summaryKo": "교활한 행동으로 민첩(손재주) 판정, 도둑 도구로 함정 해제/자물쇠 열기, 물체 사용 행동을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "빠른_손놀림"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.fast_hands",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "빠른 손놀림",
+    "category": "subclass",
+    "summaryKo": "교활한 행동으로 민첩(손재주) 판정, 도둑 도구로 함정 해제/자물쇠 열기, 물체 사용 행동을 할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "fast_hands"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.subclass_feature.second_story_work",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "2층 작업",
+    "category": "subclass",
+    "summaryKo": "등반 속도가 느려지지 않고, 달리기 도움닫기 점프 거리가 민첩 수정치만큼 증가한다.",
+    "source": "runtime",
+    "aliases": [
+      "second_story_work"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.subclass_feature.supreme_sneak",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "뛰어난 은신",
+    "category": "subclass",
+    "summaryKo": "해당 턴에 절반 이하 속도로 이동하면 민첩(은신) 판정에 유리함을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "supreme_sneak"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.subclass_feature.thiefs_reflexes",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "도둑의 반사신경",
+    "category": "subclass",
+    "summaryKo": "전투 첫 라운드에 두 턴을 가진다. 두 번째 턴은 우선권 -10 시점에 온다.",
+    "source": "runtime",
+    "aliases": [
+      "thiefs_reflexes"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.rogue.subclass_feature.use_magic_device",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "마법 장치 사용",
+    "category": "subclass",
+    "summaryKo": "마법 아이템 사용 시 직업, 종족, 레벨 요구사항을 무시한다.",
+    "source": "runtime",
+    "aliases": [
+      "use_magic_device"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.rogue.thief.feature.fast_hands",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "빠른 손놀림",
+    "category": "subclass",
+    "summaryKo": "교활한 행동으로 민첩(손재주) 판정, 도둑 도구로 함정 해제/자물쇠 열기, 물체 사용 행동을 할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "fast_hands"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.rogue.thief.feature.second_story_work",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "2층 작업",
+    "category": "subclass",
+    "summaryKo": "등반 속도가 느려지지 않고, 달리기 도움닫기 점프 거리가 민첩 수정치만큼 증가한다.",
+    "source": "runtime",
+    "aliases": [
+      "second_story_work"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.rogue.thief.feature.supreme_sneak",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "뛰어난 은신",
+    "category": "subclass",
+    "summaryKo": "해당 턴에 절반 이하 속도로 이동하면 민첩(은신) 판정에 유리함을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "supreme_sneak"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.rogue.thief.feature.thiefs_reflexes",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "도둑의 반사신경",
+    "category": "subclass",
+    "summaryKo": "전투 첫 라운드에 두 턴을 가진다. 두 번째 턴은 우선권 -10 시점에 온다.",
+    "source": "runtime",
+    "aliases": [
+      "thiefs_reflexes"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.rogue.thief.feature.use_magic_device",
+    "classKey": "rogue",
+    "level": 0,
+    "nameKo": "마법 장치 사용",
+    "category": "subclass",
+    "summaryKo": "마법 아이템 사용 시 직업, 종족, 레벨 요구사항을 무시한다.",
+    "source": "runtime",
+    "aliases": [
+      "use_magic_device"
+    ],
+    "availableAtLevels": []
+  }
+]

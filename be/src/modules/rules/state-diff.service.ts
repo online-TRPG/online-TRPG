@@ -58,7 +58,12 @@ export class StateDiffService {
               currentHp: change.currentHp,
               tempHp: change.tempHp,
               conditionsJson: change.conditions ? JSON.stringify(change.conditions) : undefined,
-              status: change.markDead ? PrismaSessionCharacterStatus.DEAD : undefined,
+              status:
+                change.markDead === undefined
+                  ? undefined
+                  : change.markDead
+                    ? PrismaSessionCharacterStatus.DEAD
+                    : PrismaSessionCharacterStatus.ACTIVE,
             },
           });
         }

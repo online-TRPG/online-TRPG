@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getMe } from "../services/authApi";
-import { AuthProvider } from "@trpg/shared-types";
+import { AuthProvider } from "@trpg/shared-types/frontend";
 import type { AuthMode } from "../types/auth";
 import type { StoredUser, User } from "../types/session";
 

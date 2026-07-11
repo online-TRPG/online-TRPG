@@ -1,10 +1,23 @@
 export {
+  ActionInputType,
+  ActionOutcome,
+  ActionScope,
+  AuthProvider,
   CombatStatus,
+  DiceAdvantageState,
   GmMode,
+  MainCommandCategory,
+  MainCommandIntent,
+  MainCommandScreenType,
   MainCommandStatus,
+  MainCommandTargetType,
+  ScenarioAssetKind,
+  ScenarioLicense,
+  ScenarioNodeType,
   SessionParticipantStatus,
   SessionScenarioStatus,
   SessionStatus,
+  UserRole,
 } from "./constants/enums";
 export {
   MONSTER_ACTION_UNAVAILABLE_REASONS,

@@ -154,4 +154,69 @@ describe("RealtimeEventsService", () => {
       message,
     });
   });
+
+  it("sends map deltas to v2 rooms while preserving legacy full-map events", () => {
+    const calls: Array<{
+      rooms: string[];
+      excluded: string[];
+      event: string;
+      payload: unknown;
+    }> = [];
+    const createOperator = (rooms: string[], excluded: string[] = []): any => ({
+      except: jest.fn((room: string) => createOperator(rooms, [...excluded, room])),
+      emit: jest.fn((event: string, payload: unknown) => {
+        calls.push({ rooms, excluded, event, payload });
+      }),
+    });
+    const server = {
+      to: jest.fn((room: string) => createOperator([room])),
+    };
+    const service = new RealtimeEventsService();
+    service.bindServer(server as never);
+    const previousMap = {
+      id: "map-1",
+      gridType: "square",
+      gridSize: 40,
+      width: 800,
+      height: 600,
+      tokens: [{ id: "token-1", name: "Hero", x: 0, y: 0, size: 40 }],
+      fogRects: [],
+      updatedAt: "2026-07-10T00:00:00.000Z",
+    };
+    const nextMap = {
+      ...previousMap,
+      tokens: [{ ...previousMap.tokens[0], x: 40 }],
+      updatedAt: "2026-07-10T00:00:01.000Z",
+    };
+
+    service.emitVttMapUpdated("session-1", {
+      hostUserId: "host-1",
+      previousHostMap: previousMap as never,
+      previousPlayerMap: previousMap as never,
+      hostMap: nextMap as never,
+      playerMap: nextMap as never,
+    });
+
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rooms: ["session:session-1"],
+          excluded: [
+            "session:session-1:user:host-1",
+            "session:session-1:vtt-delta-v2",
+          ],
+          event: "vtt.map.updated",
+        }),
+        expect.objectContaining({
+          rooms: ["session:session-1:vtt-delta-v2"],
+          excluded: ["session:session-1:user:host-1"],
+          event: "vtt.map.delta.v2",
+        }),
+        expect.objectContaining({
+          rooms: ["session:session-1:user:host-1:vtt-delta-v2"],
+          event: "vtt.map.delta.v2",
+        }),
+      ]),
+    );
+  });
 });

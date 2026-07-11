@@ -34,7 +34,16 @@ export class SessionParticipantStatusService {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+            character: {
+              select: {
+                name: true,
+                level: true,
+              },
+            },
+          },
         },
       },
       orderBy: { joinedAt: "asc" },
@@ -79,11 +88,10 @@ export class SessionParticipantStatusService {
           userId: params.userId,
         },
       },
-      include: {
-        user: true,
-        sessionCharacter: {
-          include: { character: true },
-        },
+      select: {
+        id: true,
+        status: true,
+        connectionStatus: true,
       },
     });
 
@@ -103,7 +111,10 @@ export class SessionParticipantStatusService {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+          },
         },
       },
     });
@@ -137,7 +148,16 @@ export class SessionParticipantStatusService {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+            character: {
+              select: {
+                name: true,
+                level: true,
+              },
+            },
+          },
         },
       },
     });
@@ -207,7 +227,10 @@ export class SessionParticipantStatusService {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+          },
         },
       },
     });

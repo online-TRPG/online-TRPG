@@ -445,7 +445,6 @@ export class HumanGmRuntimeService {
       runtime.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
     }
     runtime.realtimeEvents.emitCombatUpdated(resolvedSessionId, this.mapHumanGmCombatConditionResponse(runtime, combat, target.id, nextConditions));
-    runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }
 
@@ -485,7 +484,10 @@ export class HumanGmRuntimeService {
       if (target.sessionCharacterId) {
         await tx.sessionCharacter.update({
           where: { id: target.sessionCharacterId },
-          data: { currentHp: nextHp },
+          data: {
+            currentHp: nextHp,
+            status: nextIsAlive ? "ACTIVE" : "DEAD",
+          },
         });
       }
       return runtime.createHumanGmOverrideTurnLog({
@@ -536,7 +538,6 @@ export class HumanGmRuntimeService {
       runtime.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
     }
     runtime.realtimeEvents.emitCombatUpdated(resolvedSessionId, this.mapHumanGmCombatConditionResponse(runtime, combat, target.id, currentConditions));
-    runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }
 
@@ -968,6 +969,7 @@ export class HumanGmRuntimeService {
           tokenId: participant.tokenId ?? null,
           name: participant.nameSnapshot,
           currentHp: participant.currentHp ?? null,
+          tempHp: null,
           maxHp: participant.maxHp ?? null,
           armorClass: participant.armorClass ?? null,
           initiative: participant.initiative ?? 0,

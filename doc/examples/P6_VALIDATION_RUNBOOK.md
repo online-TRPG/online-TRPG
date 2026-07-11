@@ -114,6 +114,15 @@ npm run build
 7. 운영자가 `restored` 처리하면 appeal이 accepted 흐름으로 바뀌고 공개 탐색에 복구되는지 확인한다.
 8. 운영자가 `escalated` 처리하면 appeal이 under_review 흐름으로 바뀌는지 확인한다.
 9. 운영자가 `creator_note_required` 처리하면 creator notice가 `creator_action_required`로 보이는지 확인한다.
+10. 같은 moderation 요청을 반복해도 각 활성 연결 session snapshot에는 action ID별 TurnLog가 하나만 남는지 확인한다.
+11. 활성 연결 session이 100개를 넘는 fixture에서도 뒤쪽 session까지 moderation TurnLog가 생성되는지 확인한다.
+
+성능·복구 계약:
+
+- 연결 snapshot은 ID cursor로 500개씩 처리한다.
+- 각 페이지의 최신 turnNumber는 session별 단건 조회가 아니라 한 번의 group query로 계산한다.
+- batch insert에서 동시 turnNumber 충돌이 난 항목만 최대 3회 재시도한다.
+- API는 모든 활성 연결 session의 로그 반영을 마친 뒤 응답한다.
 10. 운영자가 `removed` 처리하면 공개 탐색과 일반 링크 접근에서 제외되고, 기존 세션 snapshot은 유지되는지 확인한다.
 
 ## 6. 장기 캠페인 완결·archive·vault·transfer 검증

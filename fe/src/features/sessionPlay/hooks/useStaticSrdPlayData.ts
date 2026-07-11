@@ -6,13 +6,17 @@ import {
   type StaticFeSpellPools,
 } from '../../../services/staticSrd';
 
-export function useStaticSrdPlayData() {
+export function useStaticSrdPlayData(classNames: readonly string[]) {
   const [classFeatureManifest, setClassFeatureManifest] = useState<CanonicalClassFeatureEntry[]>([]);
   const [spellPools, setSpellPools] = useState<StaticFeSpellPools | null>(null);
+  const classNameSignature = Array.from(new Set(classNames.map((name) => name.trim())))
+    .sort()
+    .join('|');
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadClassFeatureManifest(), loadFeSpellPools()])
+    const requestedClassNames = classNameSignature ? classNameSignature.split('|') : [];
+    Promise.all([loadClassFeatureManifest(requestedClassNames), loadFeSpellPools()])
       .then(([manifest, loadedSpellPools]) => {
         if (!cancelled) {
           setClassFeatureManifest(manifest);
@@ -29,7 +33,7 @@ export function useStaticSrdPlayData() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [classNameSignature]);
 
   return {
     classFeatureManifest,

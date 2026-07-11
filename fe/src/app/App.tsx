@@ -222,13 +222,13 @@ function viewFromPathname(pathname: string): MainView | null {
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logs, appendLog, appendOlderLog, removeLog, clearSessionLogs } = useLogs();
+  const { logs, appendLog, appendOlderLogs, removeLog, clearSessionLogs } = useLogs();
   const auth = useAuth(appendLog);
   const session = useSession(
     auth.user,
     auth.accessToken,
     appendLog,
-    appendOlderLog,
+    appendOlderLogs,
     removeLog,
     clearSessionLogs
   );

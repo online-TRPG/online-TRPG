@@ -662,8 +662,12 @@ export class MainCommandsService {
     return this.mainCommandInterpreterPayload.buildInterpreterPayload(context, dto, visibleEntities, recentLogs);
   }
 
-  private async buildTransitionEvidence(context: LoadedContext, recentLogs: string[]): Promise<TransitionEvidence> {
-    return this.mainCommandProgressEvidence.buildTransitionEvidence(context, recentLogs);
+  private async buildTransitionEvidence(
+    context: LoadedContext,
+    recentLogs: string[],
+    candidates: TransitionCandidate[],
+  ): Promise<TransitionEvidence> {
+    return this.mainCommandProgressEvidence.buildTransitionEvidence(context, recentLogs, candidates);
   }
 
   private async loadRevealedClueSummaries(sessionScenarioId: string): Promise<string[]> {
@@ -672,10 +676,6 @@ export class MainCommandsService {
 
   private async loadRevealedClueState(sessionScenarioId: string): Promise<RevealedClueState> {
     return this.mainCommandProgressEvidence.loadRevealedClueState(sessionScenarioId);
-  }
-
-  private async loadVisitedNodeIds(sessionScenarioId: string): Promise<string[]> {
-    return this.mainCommandProgressEvidence.loadVisitedNodeIds(sessionScenarioId);
   }
 
   private resolveOwnedItemName(context: LoadedContext, itemId?: string | null): string {
@@ -740,7 +740,7 @@ export class MainCommandsService {
     dto: SubmitMainCommandDto,
     recentLogs: string[],
   ): Promise<TransitionConditionEvaluation> {
-    const evidence = await this.buildTransitionEvidence(context, recentLogs);
+    const evidence = await this.buildTransitionEvidence(context, recentLogs, [candidate]);
     return this.evaluateTransitionCondition(candidate, dto, recentLogs, evidence.revealedClues, evidence);
   }
 
@@ -750,7 +750,7 @@ export class MainCommandsService {
     dto: SubmitMainCommandDto,
     recentLogs: string[],
   ): Promise<EvaluatedTransitionCandidate[]> {
-    const evidence = await this.buildTransitionEvidence(context, recentLogs);
+    const evidence = await this.buildTransitionEvidence(context, recentLogs, candidates);
     return candidates.map((candidate) => ({
       target: candidate,
       conditionResult: this.evaluateTransitionCondition(candidate, dto, recentLogs, evidence.revealedClues, evidence),

@@ -1128,8 +1128,8 @@ describe("CharactersService level up", () => {
         ]),
       }),
     );
-    expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
-    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", { sessionId: "session-1" });
+    expect(sessionsService.buildSnapshot).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
     expect(result.level).toBe(3);
     expect(result.subclassName).toBe("champion");
     expect(result.maxHp).toBe(28);
@@ -2090,7 +2090,7 @@ describe("CharactersService level up", () => {
     expect(result.spells?.cantrips).toContain("spell.chill_touch");
   });
 
-  it("updates prepared spells during an active session and emits a fresh snapshot", async () => {
+  it("updates prepared spells during an active session with a character delta", async () => {
     const { service, prisma, sessionsService, realtimeEvents } = createService();
     const existing = {
       ...baseCharacter,
@@ -2158,8 +2158,8 @@ describe("CharactersService level up", () => {
         }),
       }),
     );
-    expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
-    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", { sessionId: "session-1" });
+    expect(sessionsService.buildSnapshot).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitSessionSnapshot).not.toHaveBeenCalled();
     expect(result.spells?.preparedSpells).toEqual(["spell.magic_missile"]);
   });
 

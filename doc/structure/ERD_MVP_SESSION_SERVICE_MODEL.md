@@ -1,6 +1,6 @@
 # MVP ERD - 세션 / 시나리오 런타임 서비스 모델
 
-수정일: 2026년 5월 5일
+수정일: 2026년 7월 10일
 
 
 ## 문서 목적
@@ -568,6 +568,42 @@ erDiagram
 
 필요 이유: 여러 세션이 같은 원본을 기반으로 시작할 수 있다. 진행 중 세션은 원본을 직접 읽지 않고 `SessionScenarioNode`를 사용한다.
 
+#### 8.3.1 ScenarioPublication
+
+역할: 공개 목록·중재 큐의 필터와 정렬에 사용하는 시나리오 1:1 projection이다.
+
+| 컬럼 | 역할 |
+| --- | --- |
+| scenarioId | PK이자 Scenario.id FK. 시나리오 삭제 시 cascade |
+| visibility | UNPUBLISHED / LINK / PUBLIC |
+| moderationStatus | VISIBLE / REPORTED / HIDDEN / REMOVED |
+| publishedAt / revisionNumber | 공개 시각과 revision 번호 |
+| forkCount / reportCount / appealCount | 인기 정렬과 중재 큐 집계값 |
+| gmMode / tags | 공개 검색 필터 |
+| createdAt / updatedAt | projection 생성/갱신 시각 |
+
+주요 인덱스:
+
+- (visibility, publishedAt DESC, scenarioId ASC)
+- (moderationStatus, updatedAt DESC, scenarioId ASC)
+- (updatedAt DESC, scenarioId ASC)
+- (visibility, forkCount DESC, publishedAt DESC, scenarioId ASC)
+
+Scenario.attribution은 감사와 projection에 없는 응답 호환 필드를 위해 유지하지만 목록 조회 조건·정렬·페이지 후처리에 사용하지 않는다. 공개 상태·중재 상태·태그·GM 모드·fork 수는 projection을 우선하며, 변경 경로는 attribution과 projection을 같은 Prisma mutation에서 dual write하고 기존 행은 멱등 backfill로 채운다.
+
+#### 8.3.2 ScenarioCollaboratorGrant
+
+역할: 작성자가 아닌 사용자의 시나리오 편집·검토·조회 권한을 관계형으로 보관한다.
+
+| 컬럼 | 역할 |
+| --- | --- |
+| scenarioId | Scenario.id FK |
+| userId | User.id FK |
+| role | editor / reviewer / viewer |
+| createdAt / updatedAt | grant 생성/갱신 시각 |
+
+(scenarioId, userId)가 복합 PK이고, 내 시나리오 조회를 위해 (userId, scenarioId) 인덱스를 둔다. 시나리오 또는 사용자가 삭제되면 grant도 cascade 삭제한다.
+
 ### 8.4 ScenarioNode
 
 역할: 원본 시나리오의 장면/분기 템플릿이다.
@@ -727,6 +763,7 @@ erDiagram
 | 컬럼 | 역할 |
 | --- | --- |
 | id | 턴 로그 PK |
+| idempotencyKey | 중재 fan-out 같은 재실행 가능한 batch 이벤트의 nullable unique key |
 | sessionId | 소속 세션 |
 | sessionScenarioId | 소속 세션 시나리오 |
 | playerActionId | 원인이 된 플레이어 액션 |
@@ -742,6 +779,8 @@ erDiagram
 | createdAt | 생성 시각 |
 
 필요 이유: `DiceRollLog`와 `StateDiff`가 상세 source of truth를 갖더라도, `TurnLog`는 리플레이/채팅/감사 화면에서 당시 표시할 내용을 안정적으로 담는 이벤트 로그다.
+
+idempotencyKey는 일반 턴에는 null이다. 시나리오 중재 로그는 moderationActionId:sessionScenarioId를 사용해 createMany(skipDuplicates) 재실행 시 중복 생성을 막는다. 연결 세션 fan-out은 `(scenarioId, id, sessionId)` 인덱스로 `id` cursor 순회를 지원한다.
 
 ### 8.13 DiceRollLog
 
@@ -837,6 +876,25 @@ erDiagram
 | createdAt / updatedAt | 생성/수정 시각 |
 
 필요 이유: 전투 중 액션 경제는 현재 phase만으로 표현할 수 없고, 라운드/턴 단위 이력이 필요하다.
+
+### 8.18 AiTrace
+
+역할: AI 호출의 종류·상태·지연·fallback 여부를 구조화해 운영 품질 지표를 집계한다.
+
+| 컬럼 | 역할 |
+| --- | --- |
+| id | AI trace PK |
+| sessionId / userId | 호출이 발생한 세션과 사용자 |
+| kind / status | NARRATION, INTERPRETER 등 호출 종류와 SUCCESS / TIMEOUT / ERROR |
+| latencyMs | 호출 지연 시간 |
+| provider / model / promptVersion | 공급자·모델·프롬프트 식별자 |
+| attempts / finishReason / providerRequestId | 재시도와 공급자 응답 메타데이터 |
+| failureType / errorMessage | 실패 분류와 오류 요약 |
+| fallbackUsed | fallback 경로 사용 여부. DB aggregate 대상 |
+| requestJson / responseJson | 감사·디버깅용 원본 snapshot |
+| createdAt | 생성 시각 |
+
+품질 지표는 responseJson 전체를 애플리케이션으로 읽지 않고 status, kind, fallbackUsed를 groupBy/aggregate한다. 안정적인 cursor tie-break를 위해 주요 인덱스는 (sessionId, kind, status, createdAt, id), (sessionId, createdAt, id), (status, createdAt)이다. 기존 행의 fallbackUsed는 responseJson의 구조화된 fallback/failureType 필드만 해석하는 멱등 backfill로 채우며, 파싱 실패 본문은 기록하지 않는다.
 
 ## 관련 원칙
 

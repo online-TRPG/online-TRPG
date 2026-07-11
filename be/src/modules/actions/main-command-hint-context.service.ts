@@ -27,7 +27,18 @@ export class MainCommandHintContextService {
       return false;
     }
 
-    const revealedClues = await this.mainCommandProgressEvidence.loadRevealedClueSummaries(context.sessionScenarioId);
+    const currentClueIds = this.mainCommandProgressEvidence.extractPublicClueIds(
+      context.currentNodeCluesJson,
+    );
+    const revealedClueState = currentClueIds.length
+      ? await this.mainCommandProgressEvidence.loadRevealedClueStateByIds(
+          context.sessionScenarioId,
+          currentClueIds,
+        )
+      : await this.mainCommandProgressEvidence.loadRevealedClueState(
+          context.sessionScenarioId,
+        );
+    const revealedClues = revealedClueState.summaries;
     const revealedClueText = this.mainCommandTransitionEvaluator.normalizeTransitionConditionText(revealedClues.join(" "));
     const unrevealedClues = publicClues.filter((clue) => !this.mainCommandTransitionEvaluator.textEvidenceMatches(clue, revealedClueText));
     return unrevealedClues.length === 0;

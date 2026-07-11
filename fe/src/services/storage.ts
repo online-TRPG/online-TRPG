@@ -1,5 +1,6 @@
-import { UserRole, type SessionSnapshotDto } from "@trpg/shared-types";
+import type { SessionSnapshotDto } from "@trpg/shared-types";
 import {
+  UserRole,
   decodeSessionSnapshot,
   isRecord,
   parseJsonWithDecoder,

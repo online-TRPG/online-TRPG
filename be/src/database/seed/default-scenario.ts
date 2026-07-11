@@ -3578,6 +3578,18 @@ async function seedNodeScreenTestScenarioFromSource(prisma: PrismaClient): Promi
       startNodeId: NODE_SCREEN_TEST_START_NODE_ID,
     },
   });
+  await prisma.scenarioPublication.upsert({
+    where: { scenarioId: NODE_SCREEN_TEST_SCENARIO_ID },
+    create: {
+      scenarioId: NODE_SCREEN_TEST_SCENARIO_ID,
+      visibility: "PUBLIC",
+      moderationStatus: "VISIBLE",
+    },
+    update: {
+      visibility: "PUBLIC",
+      moderationStatus: "VISIBLE",
+    },
+  });
 
   for (const targetNode of nodeScreenTestSequence) {
     const sourceNode = sourceNodes[targetNode.nodeType];
@@ -3636,6 +3648,18 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
         recommendedEndLevel: scenario.recommendedEndLevel,
       },
       create: scenario,
+    });
+    await prisma.scenarioPublication.upsert({
+      where: { scenarioId: scenario.id },
+      create: {
+        scenarioId: scenario.id,
+        visibility: "PUBLIC",
+        moderationStatus: "VISIBLE",
+      },
+      update: {
+        visibility: "PUBLIC",
+        moderationStatus: "VISIBLE",
+      },
     });
   }
 

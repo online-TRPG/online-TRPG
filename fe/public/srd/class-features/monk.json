@@ -1,0 +1,663 @@
+[
+  {
+    "id": "class.monk.feature.기",
+    "classKey": "monk",
+    "level": 2,
+    "nameKo": "기",
+    "category": "class",
+    "summaryKo": "2레벨부터 기 점수를 사용해 질풍격, 인내 방어, 바람걸음을 사용할 수 있다. 기 점수는 짧은 휴식 또는 긴 휴식 후 회복된다. 기 내성 DC는 `8 + 숙련 보너스 + 지혜 수정치`다.",
+    "source": "srd",
+    "aliases": [
+      "기"
+    ],
+    "availableAtLevels": [
+      2,
+      3,
+      6
+    ]
+  },
+  {
+    "id": "class.monk.feature.무술",
+    "classKey": "monk",
+    "level": 1,
+    "nameKo": "무술",
+    "category": "class",
+    "summaryKo": "비무장 상태이거나 몽크 무기만 사용하고 방어구와 방패를 쓰지 않을 때 다음 이익을 얻는다. 비무장 공격과 몽크 무기의 공격/피해 굴림에 근력 대신 민첩을 사용할 수 있다. 비무장 공격 또는 몽크 무기의 일반 피해 대신 몽크 표의 무술 주사위를 사용할 수 있다. 자기 턴에 비무장 공격 또는 몽크 무기로 공격 행동을 하면 추가 행동으로 비무장 공격 1회를 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "무술"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.monk.feature.비무장_방어",
+    "classKey": "monk",
+    "level": 1,
+    "nameKo": "비무장 방어",
+    "category": "class",
+    "summaryKo": "방어구를 입지 않고 방패를 들지 않은 동안 AC는 `10 + 민첩 수정치 + 지혜 수정치`다.",
+    "source": "srd",
+    "aliases": [
+      "비무장_방어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.monk.feature.충격의_일격",
+    "classKey": "monk",
+    "level": 5,
+    "nameKo": "충격의 일격",
+    "category": "class",
+    "summaryKo": "5레벨부터 근접 무기 공격으로 명중했을 때 기 1점을 소비해 대상을 기절시키려 할 수 있다. 대상은 건강 내성 굴림에 실패하면 다음 자기 턴 끝까지 기절한다.",
+    "source": "srd",
+    "aliases": [
+      "충격의_일격"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.monk.feature.ability_score_improvement",
+    "classKey": "monk",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.ability_score_improvement_12",
+    "classKey": "monk",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.ability_score_improvement_14",
+    "classKey": "monk",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.ability_score_improvement_16",
+    "classKey": "monk",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.ability_score_improvement_19",
+    "classKey": "monk",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.ability_score_improvement_8",
+    "classKey": "monk",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.deflect_missiles",
+    "classKey": "monk",
+    "level": 3,
+    "nameKo": "투사체 쳐내기",
+    "category": "class",
+    "summaryKo": "반응행동으로 원거리 무기 공격의 피해를 줄이고, 조건을 만족하면 투사체를 되던질 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "투사체_쳐내기",
+      "deflect_missiles"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.feature.diamond_soul",
+    "classKey": "monk",
+    "level": 14,
+    "nameKo": "다이아몬드 영혼",
+    "category": "class",
+    "summaryKo": "모든 내성 굴림에 숙련을 얻고, 기를 소비해 실패한 내성을 다시 굴릴 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "다이아몬드_영혼",
+      "diamond_soul"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.monk.feature.empty_body",
+    "classKey": "monk",
+    "level": 18,
+    "nameKo": "빈 몸",
+    "category": "class",
+    "summaryKo": "기를 소비해 투명화에 가까운 상태가 되거나, 더 많은 기를 소비해 아스트랄 투사를 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "빈_몸",
+      "empty_body"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.monk.feature.evasion",
+    "classKey": "monk",
+    "level": 7,
+    "nameKo": "회피",
+    "category": "class",
+    "summaryKo": "민첩 내성에 성공하면 피해를 받지 않고, 실패해도 일반적으로 절반 피해만 받습니다.",
+    "source": "runtime",
+    "aliases": [
+      "회피",
+      "evasion"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.monk.feature.extra_attack",
+    "classKey": "monk",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "추가_공격",
+      "extra_attack"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.monk.feature.ki",
+    "classKey": "monk",
+    "level": 2,
+    "nameKo": "기",
+    "category": "class",
+    "summaryKo": "2레벨부터 기 점수를 사용해 질풍격, 인내 방어, 바람걸음을 사용할 수 있다. 기 점수는 짧은 휴식 또는 긴 휴식 후 회복된다. 기 내성 DC는 `8 + 숙련 보너스 + 지혜 수정치`다.",
+    "source": "runtime",
+    "aliases": [
+      "기",
+      "class.monk.feature.기",
+      "ki"
+    ],
+    "availableAtLevels": [
+      2,
+      3,
+      6
+    ]
+  },
+  {
+    "id": "class.monk.feature.ki_empowered_strikes",
+    "classKey": "monk",
+    "level": 6,
+    "nameKo": "기",
+    "category": "class",
+    "summaryKo": "2레벨부터 기 점수를 사용해 질풍격, 인내 방어, 바람걸음을 사용할 수 있다. 기 점수는 짧은 휴식 또는 긴 휴식 후 회복된다. 기 내성 DC는 `8 + 숙련 보너스 + 지혜 수정치`다.",
+    "source": "runtime",
+    "aliases": [
+      "기_강화_일격",
+      "class.monk.feature.기",
+      "ki_empowered_strikes"
+    ],
+    "availableAtLevels": [
+      2,
+      3,
+      6
+    ]
+  },
+  {
+    "id": "class.monk.feature.martial_arts",
+    "classKey": "monk",
+    "level": 1,
+    "nameKo": "무술",
+    "category": "class",
+    "summaryKo": "비무장 상태이거나 몽크 무기만 사용하고 방어구와 방패를 쓰지 않을 때 다음 이익을 얻는다. 비무장 공격과 몽크 무기의 공격/피해 굴림에 근력 대신 민첩을 사용할 수 있다. 비무장 공격 또는 몽크 무기의 일반 피해 대신 몽크 표의 무술 주사위를 사용할 수 있다. 자기 턴에 비무장 공격 또는 몽크 무기로 공격 행동을 하면 추가 행동으로 비무장 공격 1회를 할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "무술",
+      "class.monk.feature.무술",
+      "martial_arts"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.monk.feature.martial_arts_d10",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "무술 주사위 d10",
+    "category": "class",
+    "summaryKo": "무술 피해 주사위가 d10으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "martial_arts_d10"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.martial_arts_d6",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "무술 주사위 d6",
+    "category": "class",
+    "summaryKo": "무술 피해 주사위가 d6으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "martial_arts_d6"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.martial_arts_d8",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "무술 주사위 d8",
+    "category": "class",
+    "summaryKo": "무술 피해 주사위가 d8로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "martial_arts_d8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.monastic_tradition",
+    "classKey": "monk",
+    "level": 3,
+    "nameKo": "수도 전통",
+    "category": "class",
+    "summaryKo": "3레벨에 몽크 서브클래스를 선택해 수련 방식과 전투 기술을 확장합니다.",
+    "source": "runtime",
+    "aliases": [
+      "수도_전통",
+      "monastic_tradition"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.feature.monastic_tradition_feature",
+    "classKey": "monk",
+    "level": 6,
+    "nameKo": "수도 전통 기능",
+    "category": "class",
+    "summaryKo": "선택한 수도 전통에서 제공하는 추가 서브클래스 특성을 얻습니다.",
+    "source": "derived",
+    "aliases": [
+      "수도_전통_기능"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.monk.feature.perfect_self",
+    "classKey": "monk",
+    "level": 20,
+    "nameKo": "완전한 자아",
+    "category": "class",
+    "summaryKo": "전투 시작 시 기가 부족하면 일부 기를 회복하는 몽크 최종 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "완전한_자아",
+      "perfect_self"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.monk.feature.purity_of_body",
+    "classKey": "monk",
+    "level": 10,
+    "nameKo": "순수한 육체",
+    "category": "class",
+    "summaryKo": "질병과 독에 면역을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "순수한_육체",
+      "purity_of_body"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.monk.feature.slow_fall",
+    "classKey": "monk",
+    "level": 4,
+    "nameKo": "느린 낙하",
+    "category": "class",
+    "summaryKo": "반응행동으로 낙하 피해를 몽크 레벨에 비례해 줄입니다.",
+    "source": "derived",
+    "aliases": [
+      "느린_낙하"
+    ],
+    "availableAtLevels": [
+      4
+    ]
+  },
+  {
+    "id": "class.monk.feature.stillness_of_mind",
+    "classKey": "monk",
+    "level": 7,
+    "nameKo": "고요한 정신",
+    "category": "class",
+    "summaryKo": "행동을 사용해 자신에게 걸린 매혹 또는 공포 효과 하나를 끝낼 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "고요한_정신",
+      "stillness_of_mind"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.monk.feature.stunning_strike",
+    "classKey": "monk",
+    "level": 5,
+    "nameKo": "충격의 일격",
+    "category": "class",
+    "summaryKo": "5레벨부터 근접 무기 공격으로 명중했을 때 기 1점을 소비해 대상을 기절시키려 할 수 있다. 대상은 건강 내성 굴림에 실패하면 다음 자기 턴 끝까지 기절한다.",
+    "source": "runtime",
+    "aliases": [
+      "충격의_일격",
+      "class.monk.feature.충격의_일격",
+      "stunning_strike"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.monk.feature.timeless_body",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "영원의 몸",
+    "category": "class",
+    "summaryKo": "수도승의 기가 노화를 늦추며, 노쇠로 인한 약화를 겪지 않습니다.",
+    "source": "runtime",
+    "aliases": [
+      "timeless_body"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.tongue_of_the_sun_and_moon",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "해와 달의 언어",
+    "category": "class",
+    "summaryKo": "말을 이해하는 모든 크리처와 의사소통할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "tongue_of_the_sun_and_moon"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.feature.unarmored_defense",
+    "classKey": "monk",
+    "level": 1,
+    "nameKo": "비무장 방어",
+    "category": "class",
+    "summaryKo": "방어구를 입지 않고 방패를 들지 않은 동안 AC는 `10 + 민첩 수정치 + 지혜 수정치`다.",
+    "source": "runtime",
+    "aliases": [
+      "비무장_방어",
+      "class.monk.feature.비무장_방어",
+      "unarmored_defense"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.monk.feature.unarmored_movement",
+    "classKey": "monk",
+    "level": 2,
+    "nameKo": "비무장 이동",
+    "category": "class",
+    "summaryKo": "갑옷과 방패를 쓰지 않을 때 이동속도가 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "비무장_이동",
+      "unarmored_movement"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.monk.feature.unarmored_movement_improvement",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "비무장 이동 향상",
+    "category": "class",
+    "summaryKo": "비무장 이동 보너스가 증가하고 특정 레벨부터 수직 표면과 물 위를 이동할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "unarmored_movement_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.subclass_feature.떨리는_손바닥",
+    "classKey": "monk",
+    "level": 17,
+    "nameKo": "떨리는 손바닥",
+    "category": "subclass",
+    "summaryKo": "기 3점을 써서 대상 몸에 진동을 심고, 나중에 행동으로 발동해 건강 내성 실패 시 HP 0, 성공 시 10d10 사령 피해.",
+    "source": "srd",
+    "aliases": [
+      "떨리는_손바닥"
+    ],
+    "availableAtLevels": [
+      17
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.열린_손_기술",
+    "classKey": "monk",
+    "level": 3,
+    "nameKo": "열린 손 기술",
+    "category": "subclass",
+    "summaryKo": "질풍격으로 명중하면 대상에게 넘어짐, 밀쳐내기, 반응 봉쇄 중 하나를 적용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "열린_손_기술"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.육체의_온전함",
+    "classKey": "monk",
+    "level": 6,
+    "nameKo": "육체의 온전함",
+    "category": "subclass",
+    "summaryKo": "행동으로 몽크 레벨 x 3만큼 HP를 회복한다. 긴 휴식 후 재사용.",
+    "source": "srd",
+    "aliases": [
+      "육체의_온전함"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.평온",
+    "classKey": "monk",
+    "level": 11,
+    "nameKo": "평온",
+    "category": "subclass",
+    "summaryKo": "긴 휴식 후 sanctuary 주문 효과를 얻는다. 공격하거나 피해 주문을 시전하면 끝난다.",
+    "source": "srd",
+    "aliases": [
+      "평온"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.open_hand_technique",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "열린 손 기술",
+    "category": "subclass",
+    "summaryKo": "질풍격으로 명중하면 대상에게 넘어짐, 밀쳐내기, 반응 봉쇄 중 하나를 적용할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "open_hand_technique"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.subclass_feature.quivering_palm",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "떨리는 손바닥",
+    "category": "subclass",
+    "summaryKo": "기 3점을 써서 대상 몸에 진동을 심고, 나중에 행동으로 발동해 건강 내성 실패 시 HP 0, 성공 시 10d10 사령 피해.",
+    "source": "runtime",
+    "aliases": [
+      "quivering_palm"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.subclass_feature.tranquility",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "평온",
+    "category": "subclass",
+    "summaryKo": "긴 휴식 후 sanctuary 주문 효과를 얻는다. 공격하거나 피해 주문을 시전하면 끝난다.",
+    "source": "runtime",
+    "aliases": [
+      "tranquility"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.monk.subclass_feature.wholeness_of_body",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "육체의 온전함",
+    "category": "subclass",
+    "summaryKo": "행동으로 몽크 레벨 x 3만큼 HP를 회복한다. 긴 휴식 후 재사용.",
+    "source": "runtime",
+    "aliases": [
+      "wholeness_of_body"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.monk.open_hand.feature.open_hand_technique",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "열린 손 기술",
+    "category": "subclass",
+    "summaryKo": "질풍격으로 명중하면 대상에게 넘어짐, 밀쳐내기, 반응 봉쇄 중 하나를 적용할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "open_hand_technique"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.monk.open_hand.feature.quivering_palm",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "떨리는 손바닥",
+    "category": "subclass",
+    "summaryKo": "기 3점을 써서 대상 몸에 진동을 심고, 나중에 행동으로 발동해 건강 내성 실패 시 HP 0, 성공 시 10d10 사령 피해.",
+    "source": "runtime",
+    "aliases": [
+      "quivering_palm"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.monk.open_hand.feature.tranquility",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "평온",
+    "category": "subclass",
+    "summaryKo": "긴 휴식 후 sanctuary 주문 효과를 얻는다. 공격하거나 피해 주문을 시전하면 끝난다.",
+    "source": "runtime",
+    "aliases": [
+      "tranquility"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.monk.open_hand.feature.wholeness_of_body",
+    "classKey": "monk",
+    "level": 0,
+    "nameKo": "육체의 온전함",
+    "category": "subclass",
+    "summaryKo": "행동으로 몽크 레벨 x 3만큼 HP를 회복한다. 긴 휴식 후 재사용.",
+    "source": "runtime",
+    "aliases": [
+      "wholeness_of_body"
+    ],
+    "availableAtLevels": []
+  }
+]

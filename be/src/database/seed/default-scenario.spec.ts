@@ -208,6 +208,9 @@ describe("default scenario seed", () => {
           scenarioNodeUpserts.push(args);
         }),
       },
+      scenarioPublication: {
+        upsert: jest.fn(async () => undefined),
+      },
     } as unknown as PrismaClient;
 
     await seedDefaultScenario(prisma);

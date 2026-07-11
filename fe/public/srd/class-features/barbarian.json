@@ -1,0 +1,554 @@
+[
+  {
+    "id": "class.barbarian.feature.격노",
+    "classKey": "barbarian",
+    "level": 1,
+    "nameKo": "격노",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동(Bonus Action)으로 격노에 들어갈 수 있다. 중갑을 입지 않은 동안 다음 이익을 얻는다. 근력 판정과 근력 내성 굴림에 유리함을 얻는다. 근력을 사용하는 근접 무기 공격 피해에 바바리안 표의 격노 피해 보너스를 더한다. 타격, 관통, 참격 피해에 저항을 가진다. 주문을 시전할 수 있다면, 격노 중에는 주문을 시전하거나 집중할 수 없다. 격노는 1분 동안 지속된다. 의식을 잃거나, 마지막 턴 이후 적대적 크리처를 공격하지도 않고 피…",
+    "source": "srd",
+    "aliases": [
+      "격노"
+    ],
+    "availableAtLevels": [
+      1,
+      11,
+      15
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.무모한_공격",
+    "classKey": "barbarian",
+    "level": 2,
+    "nameKo": "무모한 공격",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴의 첫 공격을 할 때 무모하게 공격할 수 있다. 그 턴 동안 근력을 사용하는 근접 무기 공격 굴림에 유리함을 얻지만, 다음 자기 턴까지 자신을 향한 공격 굴림도 유리함을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "무모한_공격"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.비무장_방어",
+    "classKey": "barbarian",
+    "level": 1,
+    "nameKo": "비무장 방어",
+    "category": "class",
+    "summaryKo": "방어구를 입지 않은 동안 AC는 `10 + 민첩 수정치 + 건강 수정치`다. 방패를 사용해도 이 이익을 받을 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "비무장_방어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.위험_감지",
+    "classKey": "barbarian",
+    "level": 2,
+    "nameKo": "위험 감지",
+    "category": "class",
+    "summaryKo": "2레벨부터 볼 수 있는 함정이나 주문 같은 효과에 대한 민첩 내성 굴림에 유리함을 얻는다. 눈멀음, 귀먹음, 무력화 상태라면 이 이익을 받을 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "위험_감지"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.ability_score_improvement",
+    "classKey": "barbarian",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.ability_score_improvement_12",
+    "classKey": "barbarian",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.ability_score_improvement_14",
+    "classKey": "barbarian",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.ability_score_improvement_16",
+    "classKey": "barbarian",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.ability_score_improvement_19",
+    "classKey": "barbarian",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.ability_score_improvement_8",
+    "classKey": "barbarian",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.brutal_critical",
+    "classKey": "barbarian",
+    "level": 9,
+    "nameKo": "잔혹한 치명타",
+    "category": "class",
+    "summaryKo": "근접 무기 공격으로 치명타를 냈을 때 무기 피해 주사위를 추가로 굴립니다.",
+    "source": "runtime",
+    "aliases": [
+      "잔혹한_치명타_1주사위",
+      "brutal_critical"
+    ],
+    "availableAtLevels": [
+      9
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.brutal_critical_2",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "잔혹한 치명타 2",
+    "category": "class",
+    "summaryKo": "잔혹한 치명타로 추가로 굴리는 무기 피해 주사위가 두 개로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "brutal_critical_2"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.brutal_critical_3",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "잔혹한 치명타 3",
+    "category": "class",
+    "summaryKo": "잔혹한 치명타로 추가로 굴리는 무기 피해 주사위가 세 개로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "brutal_critical_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.danger_sense",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "위험 감지",
+    "category": "class",
+    "summaryKo": "볼 수 있는 함정이나 주문 같은 위험에 대한 민첩 내성 굴림에 이점을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "danger_sense"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.extra_attack",
+    "classKey": "barbarian",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "추가_공격",
+      "extra_attack"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.fast_movement",
+    "classKey": "barbarian",
+    "level": 5,
+    "nameKo": "빠른 이동",
+    "category": "class",
+    "summaryKo": "중갑을 입지 않았을 때 이동속도가 10ft 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "빠른_이동",
+      "fast_movement"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.feral_instinct",
+    "classKey": "barbarian",
+    "level": 7,
+    "nameKo": "야성적 본능",
+    "category": "class",
+    "summaryKo": "선제권 굴림에 이점을 얻고, 기습당해도 첫 턴에 격노하면 행동할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "야성적_본능",
+      "feral_instinct"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.indomitable_might",
+    "classKey": "barbarian",
+    "level": 18,
+    "nameKo": "굴하지 않는 힘",
+    "category": "class",
+    "summaryKo": "근력 판정 결과가 근력 점수보다 낮으면 근력 점수로 대신 사용할 수 있습니다.",
+    "source": "derived",
+    "aliases": [
+      "굴하지_않는_힘"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.persistent_rage",
+    "classKey": "barbarian",
+    "level": 15,
+    "nameKo": "지속되는 격노",
+    "category": "class",
+    "summaryKo": "무의식 상태가 되거나 직접 끝내지 않는 한 격노가 쉽게 종료되지 않습니다.",
+    "source": "runtime",
+    "aliases": [
+      "지속되는_격노",
+      "persistent_rage"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.primal_champion",
+    "classKey": "barbarian",
+    "level": 20,
+    "nameKo": "원초적 투사",
+    "category": "class",
+    "summaryKo": "근력과 건강이 크게 상승하고 해당 능력치 최대치도 함께 증가하는 바바리안 최종 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "원초적_투사",
+      "primal_champion"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.primal_path",
+    "classKey": "barbarian",
+    "level": 3,
+    "nameKo": "원초적 길",
+    "category": "class",
+    "summaryKo": "3레벨에 바바리안 서브클래스를 선택해 격노와 전투 스타일을 확장합니다.",
+    "source": "runtime",
+    "aliases": [
+      "원초적_길",
+      "primal_path"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.rage",
+    "classKey": "barbarian",
+    "level": 1,
+    "nameKo": "격노",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동(Bonus Action)으로 격노에 들어갈 수 있다. 중갑을 입지 않은 동안 다음 이익을 얻는다. 근력 판정과 근력 내성 굴림에 유리함을 얻는다. 근력을 사용하는 근접 무기 공격 피해에 바바리안 표의 격노 피해 보너스를 더한다. 타격, 관통, 참격 피해에 저항을 가진다. 주문을 시전할 수 있다면, 격노 중에는 주문을 시전하거나 집중할 수 없다. 격노는 1분 동안 지속된다. 의식을 잃거나, 마지막 턴 이후 적대적 크리처를 공격하지도 않고 피…",
+    "source": "runtime",
+    "aliases": [
+      "격노",
+      "class.barbarian.feature.격노",
+      "rage"
+    ],
+    "availableAtLevels": [
+      1,
+      11,
+      15
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.rage_damage_3",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "격노 피해 +3",
+    "category": "class",
+    "summaryKo": "격노 중 근력을 사용하는 근접 무기 공격 피해 보너스가 +3으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "rage_damage_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.feature.reckless_attack",
+    "classKey": "barbarian",
+    "level": 2,
+    "nameKo": "무모한 공격",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴의 첫 공격을 할 때 무모하게 공격할 수 있다. 그 턴 동안 근력을 사용하는 근접 무기 공격 굴림에 유리함을 얻지만, 다음 자기 턴까지 자신을 향한 공격 굴림도 유리함을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "무모한_공격",
+      "class.barbarian.feature.무모한_공격",
+      "reckless_attack"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.relentless_rage",
+    "classKey": "barbarian",
+    "level": 11,
+    "nameKo": "끈질긴 격노",
+    "category": "class",
+    "summaryKo": "격노 중 HP가 0이 될 때 건강 내성에 성공하면 1 HP로 버틸 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "끈질긴_격노",
+      "relentless_rage"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.unarmored_defense",
+    "classKey": "barbarian",
+    "level": 1,
+    "nameKo": "비무장 방어",
+    "category": "class",
+    "summaryKo": "방어구를 입지 않은 동안 AC는 `10 + 민첩 수정치 + 건강 수정치`다. 방패를 사용해도 이 이익을 받을 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "비무장_방어",
+      "class.barbarian.feature.비무장_방어",
+      "unarmored_defense"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.광분",
+    "classKey": "barbarian",
+    "level": 3,
+    "nameKo": "광분",
+    "category": "subclass",
+    "summaryKo": "격노할 때 광분하면 이후 각 턴에 추가 행동으로 근접 무기 공격 1회를 할 수 있다. 격노가 끝나면 탈진 1단계를 받는다.",
+    "source": "srd",
+    "aliases": [
+      "광분"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.무심한_격노",
+    "classKey": "barbarian",
+    "level": 6,
+    "nameKo": "무심한 격노",
+    "category": "subclass",
+    "summaryKo": "격노 중 매혹되거나 공포에 질리지 않는다. 이미 해당 상태라면 격노 동안 효과가 정지된다.",
+    "source": "srd",
+    "aliases": [
+      "무심한_격노"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.보복",
+    "classKey": "barbarian",
+    "level": 14,
+    "nameKo": "보복",
+    "category": "subclass",
+    "summaryKo": "5피트 이내의 크리처에게 피해를 받으면 반응으로 그 크리처에게 근접 무기 공격을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "보복"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.위협적인_존재감",
+    "classKey": "barbarian",
+    "level": 10,
+    "nameKo": "위협적인 존재감",
+    "category": "subclass",
+    "summaryKo": "행동으로 30피트 이내의 크리처 하나를 공포에 질리게 만들 수 있다. DC는 8 + 숙련 보너스 + 매력 수정치.",
+    "source": "srd",
+    "aliases": [
+      "위협적인_존재감"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.frenzy",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "광분",
+    "category": "subclass",
+    "summaryKo": "격노할 때 광분하면 이후 각 턴에 추가 행동으로 근접 무기 공격 1회를 할 수 있다. 격노가 끝나면 탈진 1단계를 받는다.",
+    "source": "runtime",
+    "aliases": [
+      "frenzy"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.subclass_feature.intimidating_presence",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "위협적인 존재감",
+    "category": "subclass",
+    "summaryKo": "행동으로 30피트 이내의 크리처 하나를 공포에 질리게 만들 수 있다. DC는 8 + 숙련 보너스 + 매력 수정치.",
+    "source": "runtime",
+    "aliases": [
+      "intimidating_presence"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.subclass_feature.mindless_rage",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "무심한 격노",
+    "category": "subclass",
+    "summaryKo": "격노 중 매혹되거나 공포에 질리지 않는다. 이미 해당 상태라면 격노 동안 효과가 정지된다.",
+    "source": "runtime",
+    "aliases": [
+      "mindless_rage"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.barbarian.subclass_feature.retaliation",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "보복",
+    "category": "subclass",
+    "summaryKo": "5피트 이내의 크리처에게 피해를 받으면 반응으로 그 크리처에게 근접 무기 공격을 할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "retaliation"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.barbarian.berserker.feature.frenzy",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "광분",
+    "category": "subclass",
+    "summaryKo": "격노할 때 광분하면 이후 각 턴에 추가 행동으로 근접 무기 공격 1회를 할 수 있다. 격노가 끝나면 탈진 1단계를 받는다.",
+    "source": "runtime",
+    "aliases": [
+      "frenzy"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.barbarian.berserker.feature.intimidating_presence",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "위협적인 존재감",
+    "category": "subclass",
+    "summaryKo": "행동으로 30피트 이내의 크리처 하나를 공포에 질리게 만들 수 있다. DC는 8 + 숙련 보너스 + 매력 수정치.",
+    "source": "runtime",
+    "aliases": [
+      "intimidating_presence"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.barbarian.berserker.feature.mindless_rage",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "무심한 격노",
+    "category": "subclass",
+    "summaryKo": "격노 중 매혹되거나 공포에 질리지 않는다. 이미 해당 상태라면 격노 동안 효과가 정지된다.",
+    "source": "runtime",
+    "aliases": [
+      "mindless_rage"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.barbarian.berserker.feature.retaliation",
+    "classKey": "barbarian",
+    "level": 0,
+    "nameKo": "보복",
+    "category": "subclass",
+    "summaryKo": "5피트 이내의 크리처에게 피해를 받으면 반응으로 그 크리처에게 근접 무기 공격을 할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "retaliation"
+    ],
+    "availableAtLevels": []
+  }
+]

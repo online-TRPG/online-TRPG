@@ -1,0 +1,605 @@
+[
+  {
+    "id": "class.druid.feature.드루이드어",
+    "classKey": "druid",
+    "level": 1,
+    "nameKo": "드루이드어",
+    "category": "class",
+    "summaryKo": "드루이드의 비밀 언어를 안다. 이 언어로 말하고, 비밀 메시지를 남길 수 있다. 드루이드어를 아는 사람은 자동으로 알아차리며, 다른 사람은 DC 15 지혜(감지) 판정으로 메시지 존재를 알아차리고, 마법 없이는 해독할 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "드루이드어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.druid.feature.야생_변신",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "야생 변신",
+    "category": "class",
+    "summaryKo": "2레벨부터 행동으로 이전에 본 적 있는 야수 형태로 변신할 수 있다. 짧은 휴식 또는 긴 휴식마다 두 번 사용할 수 있다. 2레벨: 최대 CR 1/4, 비행/수영 속도 없음 4레벨: 최대 CR 1/2, 비행 속도 없음 8레벨: 최대 CR 1 변신은 드루이드 레벨 절반 시간 동안 지속된다. 변신 중에는 야수의 게임 수치를 사용하지만, 정신 능력치와 숙련 일부는 유지한다.",
+    "source": "srd",
+    "aliases": [
+      "야생_변신"
+    ],
+    "availableAtLevels": [
+      2,
+      4,
+      8
+    ]
+  },
+  {
+    "id": "class.druid.feature.ability_score_improvement",
+    "classKey": "druid",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.ability_score_improvement_12",
+    "classKey": "druid",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.ability_score_improvement_14",
+    "classKey": "druid",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.ability_score_improvement_16",
+    "classKey": "druid",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.ability_score_improvement_19",
+    "classKey": "druid",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.ability_score_improvement_8",
+    "classKey": "druid",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.archdruid",
+    "classKey": "druid",
+    "level": 20,
+    "nameKo": "대드루이드",
+    "category": "class",
+    "summaryKo": "야생 변신을 제한 없이 사용할 수 있고, 드루이드 주문 시전 능력이 극대화됩니다.",
+    "source": "runtime",
+    "aliases": [
+      "대드루이드",
+      "archdruid"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.druid.feature.beast_spells",
+    "classKey": "druid",
+    "level": 18,
+    "nameKo": "야수 주문",
+    "category": "class",
+    "summaryKo": "야생 변신 상태에서도 대부분의 드루이드 주문을 시전할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "야수_주문",
+      "beast_spells"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.druid.feature.druid_circle",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "드루이드 서클",
+    "category": "class",
+    "summaryKo": "2레벨에 드루이드 서클을 선택해 주문, 자연 회복, 지형 관련 기능 등 서브클래스 기능을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "드루이드_서클",
+      "druid_circle"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.druid.feature.druidic",
+    "classKey": "druid",
+    "level": 1,
+    "nameKo": "드루이드어",
+    "category": "class",
+    "summaryKo": "드루이드의 비밀 언어를 안다. 이 언어로 말하고, 비밀 메시지를 남길 수 있다. 드루이드어를 아는 사람은 자동으로 알아차리며, 다른 사람은 DC 15 지혜(감지) 판정으로 메시지 존재를 알아차리고, 마법 없이는 해독할 수 없다.",
+    "source": "runtime",
+    "aliases": [
+      "드루이드어",
+      "class.druid.feature.드루이드어",
+      "druidic"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.druid.feature.eighth_level_spells",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "8레벨 주문",
+    "category": "class",
+    "summaryKo": "드루이드 주문시전 진행에 따라 8레벨 주문 슬롯을 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "eighth_level_spells"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.ninth_level_spells",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "9레벨 주문",
+    "category": "class",
+    "summaryKo": "드루이드 주문시전 진행에 따라 9레벨 주문 슬롯을 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "ninth_level_spells"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.seventh_level_spells",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "7레벨 주문",
+    "category": "class",
+    "summaryKo": "드루이드 주문시전 진행에 따라 7레벨 주문 슬롯을 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "seventh_level_spells"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.spellcasting",
+    "classKey": "druid",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "드루이드는 지혜를 주문시전 능력치로 사용하며, 긴 휴식 후 드루이드 주문 목록에서 준비 주문을 바꿀 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "주문시전",
+      "spellcasting"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.druid.feature.timeless_body",
+    "classKey": "druid",
+    "level": 18,
+    "nameKo": "영원한 육체",
+    "category": "class",
+    "summaryKo": "자연 마법의 힘으로 노화가 크게 느려집니다.",
+    "source": "runtime",
+    "aliases": [
+      "영원한_육체",
+      "timeless_body"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.druid.feature.wild_shape",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "야생 변신",
+    "category": "class",
+    "summaryKo": "2레벨부터 행동으로 이전에 본 적 있는 야수 형태로 변신할 수 있다. 짧은 휴식 또는 긴 휴식마다 두 번 사용할 수 있다. 2레벨: 최대 CR 1/4, 비행/수영 속도 없음 4레벨: 최대 CR 1/2, 비행 속도 없음 8레벨: 최대 CR 1 변신은 드루이드 레벨 절반 시간 동안 지속된다. 변신 중에는 야수의 게임 수치를 사용하지만, 정신 능력치와 숙련 일부는 유지한다.",
+    "source": "runtime",
+    "aliases": [
+      "야생_변신",
+      "class.druid.feature.야생_변신",
+      "야생_변신_향상",
+      "wild_shape"
+    ],
+    "availableAtLevels": [
+      2,
+      4,
+      8
+    ]
+  },
+  {
+    "id": "class.druid.feature.wild_shape_improvement",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "야생 변신 향상",
+    "category": "class",
+    "summaryKo": "야생 변신으로 선택할 수 있는 야수의 CR과 이동 유형 제한이 레벨에 따라 완화됩니다.",
+    "source": "runtime",
+    "aliases": [
+      "wild_shape_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.wild_shape_improvement_cr_1",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "야생 변신 향상 CR 1",
+    "category": "class",
+    "summaryKo": "야생 변신으로 변신할 수 있는 야수의 최대 도전 등급이 CR 1로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "wild_shape_improvement_cr_1"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.feature.wild_shape_uses_stable",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "야생 변신 유지",
+    "category": "class",
+    "summaryKo": "야생 변신 사용 횟수와 기본 운용 규칙이 유지됩니다.",
+    "source": "runtime",
+    "aliases": [
+      "wild_shape_uses_stable"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.대지의_발걸음",
+    "classKey": "druid",
+    "level": 6,
+    "nameKo": "대지의 발걸음",
+    "category": "subclass",
+    "summaryKo": "비마법적 어려운 지형과 식물 이동 방해를 쉽게 통과한다.",
+    "source": "srd",
+    "aliases": [
+      "대지의_발걸음"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.서클_주문",
+    "classKey": "druid",
+    "level": 3,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "서클_주문"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.자연_회복",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "자연 회복",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 중 일부 사용한 주문 슬롯을 회복한다. 총 슬롯 레벨은 드루이드 레벨 절반(올림) 이하이며 6레벨 이상 슬롯은 회복할 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "자연_회복"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.자연의_성역",
+    "classKey": "druid",
+    "level": 14,
+    "nameKo": "자연의 성역",
+    "category": "subclass",
+    "summaryKo": "야수나 식물이 공격할 때 지혜 내성 실패 시 다른 대상을 골라야 한다.",
+    "source": "srd",
+    "aliases": [
+      "자연의_성역"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.자연의_수호",
+    "classKey": "druid",
+    "level": 10,
+    "nameKo": "자연의 수호",
+    "category": "subclass",
+    "summaryKo": "정령과 페이에게 매혹/공포 면역, 독과 질병 면역.",
+    "source": "srd",
+    "aliases": [
+      "자연의_수호"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.추가_캔트립",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "추가 캔트립",
+    "category": "subclass",
+    "summaryKo": "드루이드 캔트립 하나를 추가로 배운다.",
+    "source": "srd",
+    "aliases": [
+      "추가_캔트립"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.bonus_cantrip",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "추가 캔트립",
+    "category": "subclass",
+    "summaryKo": "드루이드 캔트립 하나를 추가로 배운다.",
+    "source": "runtime",
+    "aliases": [
+      "bonus_cantrip"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.circle_spells_level_3",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "circle_spells_level_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.circle_spells_level_5",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "circle_spells_level_5"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.circle_spells_level_9",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "circle_spells_level_9"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.lands_stride",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "대지의 발걸음",
+    "category": "subclass",
+    "summaryKo": "비마법적 어려운 지형과 식물 이동 방해를 쉽게 통과한다.",
+    "source": "runtime",
+    "aliases": [
+      "lands_stride"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.natural_recovery",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "자연 회복",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 중 일부 사용한 주문 슬롯을 회복한다. 총 슬롯 레벨은 드루이드 레벨 절반(올림) 이하이며 6레벨 이상 슬롯은 회복할 수 없다.",
+    "source": "runtime",
+    "aliases": [
+      "natural_recovery"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.natures_sanctuary",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "자연의 성역",
+    "category": "subclass",
+    "summaryKo": "야수나 식물이 공격할 때 지혜 내성 실패 시 다른 대상을 골라야 한다.",
+    "source": "runtime",
+    "aliases": [
+      "natures_sanctuary"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.druid.subclass_feature.natures_ward",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "자연의 수호",
+    "category": "subclass",
+    "summaryKo": "정령과 페이에게 매혹/공포 면역, 독과 질병 면역.",
+    "source": "runtime",
+    "aliases": [
+      "natures_ward"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.bonus_cantrip",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "추가 캔트립",
+    "category": "subclass",
+    "summaryKo": "드루이드 캔트립 하나를 추가로 배운다.",
+    "source": "runtime",
+    "aliases": [
+      "bonus_cantrip"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.circle_spells_level_3",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "circle_spells_level_3"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.circle_spells_level_5",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "circle_spells_level_5"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.circle_spells_level_9",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "circle_spells_level_9"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.lands_stride",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "대지의 발걸음",
+    "category": "subclass",
+    "summaryKo": "비마법적 어려운 지형과 식물 이동 방해를 쉽게 통과한다.",
+    "source": "runtime",
+    "aliases": [
+      "lands_stride"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.natural_recovery",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "자연 회복",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 중 일부 사용한 주문 슬롯을 회복한다. 총 슬롯 레벨은 드루이드 레벨 절반(올림) 이하이며 6레벨 이상 슬롯은 회복할 수 없다.",
+    "source": "runtime",
+    "aliases": [
+      "natural_recovery"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.natures_sanctuary",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "자연의 성역",
+    "category": "subclass",
+    "summaryKo": "야수나 식물이 공격할 때 지혜 내성 실패 시 다른 대상을 골라야 한다.",
+    "source": "runtime",
+    "aliases": [
+      "natures_sanctuary"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.druid.land.feature.natures_ward",
+    "classKey": "druid",
+    "level": 0,
+    "nameKo": "자연의 수호",
+    "category": "subclass",
+    "summaryKo": "정령과 페이에게 매혹/공포 면역, 독과 질병 면역.",
+    "source": "runtime",
+    "aliases": [
+      "natures_ward"
+    ],
+    "availableAtLevels": []
+  }
+]

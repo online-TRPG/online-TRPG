@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -138,6 +139,18 @@ type NormalizedScenarioNodeInput = Required<
     nodeMeta: NonNullable<ScenarioNodeInputDto["nodeMeta"]> | null;
   };
 
+type ScenarioModerationTurnLogMetrics = {
+  linkedSessionScenarioCount: number;
+  pageQueryCount: number;
+  pageCount: number;
+  groupByCount: number;
+  createManyCount: number;
+  recoveryLookupCount: number;
+  retryCount: number;
+  createdCount: number;
+  deduplicatedCount: number;
+};
+
 type ScenarioModerationProcessingStatus =
   | "queued"
   | "reviewing"
@@ -181,14 +194,19 @@ type ScenarioPublicEcosystemMetadata = {
 
 @Injectable()
 export class ScenariosService {
+  private readonly logger = new Logger(ScenariosService.name);
+  private scenarioProjectionReadReady = false;
+  private scenarioProjectionReadinessCheck: Promise<void> | null = null;
   private static readonly REVISION_METADATA_MARKER = "P3_REVISION_META:";
   private static readonly COLLABORATION_METADATA_MARKER = "P4_COLLAB_META:";
   private static readonly MODERATION_REPORT_MARKER = "P4_MODERATION_REPORT:";
   private static readonly PUBLIC_ECOSYSTEM_METADATA_MARKER = "P5_PUBLIC_META:";
-  private static readonly PUBLIC_DISCOVERY_SCAN_LIMIT = 500;
   private static readonly PUBLIC_DISCOVERY_MAX_RESULTS = 100;
-  private static readonly MODERATION_QUEUE_SCAN_LIMIT = 500;
   private static readonly MODERATION_QUEUE_MAX_RESULTS = 100;
+  private static readonly ACTIVE_MODERATION_APPEAL_STATUSES = new Set([
+    "submitted",
+    "under_review",
+  ]);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -196,12 +214,80 @@ export class ScenariosService {
   ) {}
 
   async listScenarios(query?: ScenarioQueryDto, viewerUserId?: string | null): Promise<ScenarioSummaryResponseDto[]> {
+    await this.ensureScenarioProjectionReadReady();
     const viewerCanModerate = await this.isScenarioModerationOperator(viewerUserId);
+    const offset = query?.offset ?? 0;
+    const limit = Math.min(query?.limit ?? ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS, ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS);
+    const publicationFilter: Prisma.ScenarioPublicationWhereInput = {
+      visibility: viewerCanModerate ? { in: ["PUBLIC", "LINK", "UNPUBLISHED"] } : "PUBLIC",
+      moderationStatus: viewerCanModerate ? undefined : { notIn: ["HIDDEN", "REMOVED"] },
+      tags: query?.tag?.trim() ? { has: query.tag.trim().toLowerCase() } : undefined,
+      gmMode: query?.gmMode ? { in: [query.gmMode, "BOTH"] } : undefined,
+    };
+    const orderBy =
+      query?.sort === "level"
+        ? [{ startLevel: "asc" as const }, { recommendedEndLevel: "asc" as const }, { id: "asc" as const }]
+        : query?.sort === "latest"
+          ? [{ publication: { publishedAt: "desc" as const } }, { id: "asc" as const }]
+          : [
+              { publication: { forkCount: "desc" as const } },
+              { publication: { publishedAt: "desc" as const } },
+              { id: "asc" as const },
+            ];
     const scenarios = await this.prisma.scenario.findMany({
       where: {
         OR: [
           { id: { in: PROVIDED_SCENARIO_IDS } },
-          { sourceType: PrismaScenarioSourceType.CLONED },
+          {
+            sourceType: PrismaScenarioSourceType.CLONED,
+          },
+        ],
+        publication: publicationFilter,
+        title: query?.search
+          ? {
+              contains: query.search,
+            }
+          : undefined,
+        startLevel: query?.maxLevel ? { lte: query.maxLevel } : undefined,
+        AND: query?.minLevel
+          ? [
+              {
+                OR: [
+                  { recommendedEndLevel: { gte: query.minLevel } },
+                  { recommendedEndLevel: null, startLevel: { gte: query.minLevel } },
+                ],
+              },
+            ]
+          : undefined,
+      },
+      include: {
+        publication: true,
+        creator: {
+          include: { profile: true },
+        },
+      },
+      orderBy,
+      skip: query?.cursor ? 1 : offset,
+      cursor: query?.cursor ? { id: query.cursor } : undefined,
+      take: limit,
+    });
+
+    return scenarios.map((scenario) =>
+      this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario), viewerUserId),
+    );
+  }
+
+  async listMyScenarios(
+    userId: string,
+    query?: ScenarioQueryDto
+  ): Promise<ScenarioSummaryResponseDto[]> {
+    await this.ensureScenarioProjectionReadReady();
+    const scenarios = await this.prisma.scenario.findMany({
+      where: {
+        sourceType: { not: PrismaScenarioSourceType.CLONED },
+        OR: [
+          { createdByUserId: userId },
+          { collaboratorGrants: { some: { userId } } },
         ],
         title: query?.search
           ? {
@@ -210,79 +296,23 @@ export class ScenariosService {
           : undefined,
       },
       include: {
+        publication: true,
         creator: {
           include: { profile: true },
         },
       },
-      orderBy: { createdAt: 'asc' },
-      take: ScenariosService.PUBLIC_DISCOVERY_SCAN_LIMIT,
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+      skip: query?.cursor ? 1 : (query?.offset ?? 0),
+      cursor: query?.cursor ? { id: query.cursor } : undefined,
+      take: Math.min(
+        query?.limit ?? ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS,
+        ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS,
+      ),
     });
 
-    const discovered = scenarios
-      .filter((scenario) => {
-        if (isProvidedScenarioId(scenario.id)) {
-          const publicMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
-          return (
-            viewerCanModerate ||
-            (publicMetadata.moderationStatus !== "hidden" && publicMetadata.moderationStatus !== "removed")
-          );
-        }
-        const metadata = this.parseScenarioRevisionMetadata(scenario.attribution);
-        const publicMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
-        const isDiscoverableStatus =
-          metadata.status === "public" ||
-          (viewerCanModerate && (metadata.status === "link" || metadata.status === "unpublished"));
-        return (
-          scenario.sourceType === PrismaScenarioSourceType.CLONED &&
-          isDiscoverableStatus &&
-          (viewerCanModerate ||
-            (publicMetadata.moderationStatus !== "hidden" && publicMetadata.moderationStatus !== "removed"))
-        );
-      })
-      .map((scenario) => this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario), viewerUserId))
-      .filter((scenario) => this.matchesScenarioDiscoveryQuery(scenario, query));
-
-    const sorted = this.sortScenarioDiscovery(discovered, query?.sort ?? "recommended");
-    const offset = query?.offset ?? 0;
-    const limit = Math.min(query?.limit ?? ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS, ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS);
-    return sorted.slice(offset, offset + limit);
-  }
-
-  async listMyScenarios(
-    userId: string,
-    query?: ScenarioQueryDto
-  ): Promise<ScenarioSummaryResponseDto[]> {
-    const scenarios = await this.prisma.scenario.findMany({
-      where: {
-        title: query?.search
-          ? {
-              contains: query.search,
-            }
-          : undefined,
-      },
-      include: {
-        creator: {
-          include: { profile: true },
-        },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    return scenarios
-      .filter((scenario) => {
-        if (scenario.sourceType === PrismaScenarioSourceType.CLONED) {
-          return false;
-        }
-        if (scenario.createdByUserId === userId) {
-          return true;
-        }
-        return this.collaborationPolicy.resolvePermission({
-          draft: this.buildScenarioPolicyDraft({ ...scenario, nodes: [] }),
-          userId,
-          action: "view",
-        }).allowed;
-      })
-      .map((scenario) => this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario), userId));
+    return scenarios.map((scenario) =>
+      this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario), userId),
+    );
   }
 
   async getScenario(id: string, viewerUserId?: string | null): Promise<ScenarioResponseDto> {
@@ -347,11 +377,15 @@ export class ScenariosService {
         attribution: this.nullableTrim(dto.attribution),
         startNodeId,
         npcsJson: JSON.stringify(npcs),
+        publication: {
+          create: this.buildScenarioPublicationProjection(this.nullableTrim(dto.attribution)),
+        },
         nodes: {
           create: nodes.map(({ scenarioId: _scenarioId, ...node }) => node),
         },
       },
       include: {
+        publication: true,
         creator: {
           include: { profile: true },
         },
@@ -402,6 +436,10 @@ export class ScenariosService {
       dto.startLevel === undefined
         ? existing.startLevel
         : this.requireScenarioStartLevel(dto.startLevel);
+    const nextAttribution =
+      dto.attribution === undefined
+        ? existing.attribution
+        : this.nullableTrim(dto.attribution);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.scenario.update({
@@ -426,10 +464,13 @@ export class ScenariosService {
               ? existing.recommendedEndLevel
               : dto.recommendedEndLevel,
           license: dto.license ? this.toPrismaScenarioLicense(dto.license) : existing.license,
-          attribution:
-            dto.attribution === undefined
-              ? existing.attribution
-              : this.nullableTrim(dto.attribution),
+          attribution: nextAttribution,
+          publication: {
+            upsert: {
+              create: this.buildScenarioPublicationProjection(nextAttribution),
+              update: this.buildScenarioPublicationProjection(nextAttribution),
+            },
+          },
           startNodeId: nextStartNodeId,
           npcsJson: nextNpcs === null ? existing.npcsJson : JSON.stringify(nextNpcs),
         },
@@ -543,6 +584,9 @@ export class ScenariosService {
           ? `${publishedScenarioId}_${draft.startNodeId}`
           : null,
         npcsJson: draft.npcsJson,
+        publication: {
+          create: this.buildScenarioPublicationProjection(publishedAttribution),
+        },
         nodes: {
           create: draft.nodes.map((node) => ({
             id: `${publishedScenarioId}_${node.id}`,
@@ -569,6 +613,7 @@ export class ScenariosService {
         },
       },
       include: {
+        publication: true,
         creator: {
           include: { profile: true },
         },
@@ -578,7 +623,7 @@ export class ScenariosService {
       },
     });
 
-    return mapScenario(published);
+    return this.enrichScenarioSummary(published, mapScenario(published), userId);
   }
 
   async unpublishScenarioRevision(
@@ -610,22 +655,30 @@ export class ScenariosService {
     if (publicMetadata.moderationStatus === "hidden" || publicMetadata.moderationStatus === "removed") {
       throw new ForbiddenException("운영자 검토 중이거나 삭제 처리된 공개 시나리오는 작성자가 공개 취소할 수 없습니다.");
     }
+    const unpublishedAttribution = this.appendScenarioRevisionMetadata(
+      metadata.attribution,
+      {
+        revisionNumber: metadata.revisionNumber,
+        changelog: metadata.changelog,
+        publishedAt: metadata.publishedAt ?? revision.createdAt.toISOString(),
+        publishedByUserId: metadata.publishedByUserId ?? userId,
+        status: "unpublished",
+        validationReport: metadata.validationReport,
+      },
+    );
     const updated = await this.prisma.scenario.update({
       where: { id },
       data: {
-        attribution: this.appendScenarioRevisionMetadata(
-          metadata.attribution,
-          {
-            revisionNumber: metadata.revisionNumber,
-            changelog: metadata.changelog,
-            publishedAt: metadata.publishedAt ?? revision.createdAt.toISOString(),
-            publishedByUserId: metadata.publishedByUserId ?? userId,
-            status: "unpublished",
-            validationReport: metadata.validationReport,
+        attribution: unpublishedAttribution,
+        publication: {
+          upsert: {
+            create: this.buildScenarioPublicationProjection(unpublishedAttribution),
+            update: this.buildScenarioPublicationProjection(unpublishedAttribution),
           },
-        ),
+        },
       },
       include: {
+        publication: true,
         nodes: {
           orderBy: { createdAt: 'asc' },
         },
@@ -790,6 +843,9 @@ export class ScenariosService {
         attribution,
         startNodeId: scenario.startNodeId ? nodeIdMap.get(scenario.startNodeId) ?? scenario.startNodeId : null,
         npcsJson: scenario.npcsJson,
+        publication: {
+          create: this.buildScenarioPublicationProjection(attribution),
+        },
         nodes: {
           create: scenario.nodes.map((node) => ({
             id: nodeIdMap.get(node.id) ?? `${forkId}_${node.id}`,
@@ -808,19 +864,27 @@ export class ScenariosService {
         },
       },
       include: {
+        publication: true,
         nodes: {
           orderBy: { createdAt: 'asc' },
         },
       },
     });
 
+    const sourceAttribution = this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
+      ...sourceMetadata,
+      forkCount: sourceMetadata.forkCount + 1,
+    });
     await this.prisma.scenario.update({
       where: { id: scenario.id },
       data: {
-        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
-          ...sourceMetadata,
-          forkCount: sourceMetadata.forkCount + 1,
-        }),
+        attribution: sourceAttribution,
+        publication: {
+          upsert: {
+            create: this.buildScenarioPublicationProjection(sourceAttribution),
+            update: this.buildScenarioPublicationProjection(sourceAttribution),
+          },
+        },
       },
     });
 
@@ -852,17 +916,24 @@ export class ScenariosService {
     ];
     const moderationStatus = nextReports.length >= 3 ? "hidden" : "reported";
     const moderationEntry = JSON.stringify(report);
+    const nextAttribution = this.appendScenarioPublicEcosystemMetadata(
+      `${scenario.attribution ?? ""}\nP4_MODERATION_REPORT:${moderationEntry}`.trim(),
+      {
+        ...metadata,
+        reports: nextReports,
+        moderationStatus,
+      },
+    );
     await this.prisma.scenario.update({
       where: { id: scenario.id },
       data: {
-        attribution: this.appendScenarioPublicEcosystemMetadata(
-          `${scenario.attribution ?? ""}\nP4_MODERATION_REPORT:${moderationEntry}`.trim(),
-          {
-            ...metadata,
-            reports: nextReports,
-            moderationStatus,
+        attribution: nextAttribution,
+        publication: {
+          upsert: {
+            create: this.buildScenarioPublicationProjection(nextAttribution),
+            update: this.buildScenarioPublicationProjection(nextAttribution),
           },
-        ),
+        },
       },
     });
     return { reportId, scenarioId: scenario.id, status: "received" };
@@ -895,16 +966,23 @@ export class ScenariosService {
       createdAt: new Date().toISOString(),
       status: "submitted",
     };
+    const nextAttribution = this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
+      ...metadata,
+      appeals: [
+        ...metadata.appeals.filter((entry) => entry.appealedByUserId !== userId),
+        appeal,
+      ],
+    });
     await this.prisma.scenario.update({
       where: { id: scenario.id },
       data: {
-        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
-          ...metadata,
-          appeals: [
-            ...metadata.appeals.filter((entry) => entry.appealedByUserId !== userId),
-            appeal,
-          ],
-        }),
+        attribution: nextAttribution,
+        publication: {
+          upsert: {
+            create: this.buildScenarioPublicationProjection(nextAttribution),
+            update: this.buildScenarioPublicationProjection(nextAttribution),
+          },
+        },
       },
     });
     return { appealId: appeal.appealId, scenarioId: scenario.id, status: "submitted" };
@@ -914,26 +992,30 @@ export class ScenariosService {
     operatorUserId: string,
   ): Promise<ScenarioModerationQueueItemDto[]> {
     await this.ensureScenarioModerationOperator(operatorUserId);
+    await this.ensureScenarioProjectionReadReady();
     const scenarios = await this.prisma.scenario.findMany({
       where: {
         OR: [
-          { sourceType: PrismaScenarioSourceType.CLONED },
           { id: { in: PROVIDED_SCENARIO_IDS } },
+          { sourceType: PrismaScenarioSourceType.CLONED },
         ],
+        publication: {
+          OR: [
+            { reportCount: { gt: 0 } },
+            { appealCount: { gt: 0 } },
+            { moderationStatus: { not: "VISIBLE" } },
+          ],
+        },
       },
-      orderBy: { updatedAt: "desc" },
-      take: ScenariosService.MODERATION_QUEUE_SCAN_LIMIT,
+      orderBy: [
+        { publication: { updatedAt: "desc" } },
+        { id: "asc" },
+      ],
+      include: { publication: true },
+      take: ScenariosService.MODERATION_QUEUE_MAX_RESULTS,
     });
 
-    return scenarios
-      .map((scenario) => this.mapScenarioModerationQueueItem(scenario))
-      .filter(
-        (item) =>
-          item.reportCount > 0 ||
-          item.appealCount > 0 ||
-          item.moderationStatus !== "visible",
-      )
-      .slice(0, ScenariosService.MODERATION_QUEUE_MAX_RESULTS);
+    return scenarios.map((scenario) => this.mapScenarioModerationQueueItem(scenario));
   }
 
   async applyScenarioModerationAction(
@@ -950,7 +1032,14 @@ export class ScenariosService {
     );
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
     const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
-    const previousStatus = metadata.moderationStatus;
+    const projectedStatus = scenario.publication?.moderationStatus.toLowerCase();
+    const previousStatus =
+      projectedStatus === "visible" ||
+      projectedStatus === "reported" ||
+      projectedStatus === "hidden" ||
+      projectedStatus === "removed"
+        ? projectedStatus
+        : metadata.moderationStatus;
     const now = new Date().toISOString();
     const actionId = `scenario-moderation-action:${randomUUID()}`;
     const action = dto.action;
@@ -963,6 +1052,10 @@ export class ScenariosService {
       targetUserId,
     });
     if (duplicateAction) {
+      await this.createScenarioModerationTurnLogsForLinkedSessions(
+        scenario.id,
+        duplicateAction,
+      );
       return {
         actionId: duplicateAction.actionId,
         scenarioId: scenario.id,
@@ -1077,6 +1170,12 @@ export class ScenariosService {
       where: { id: scenario.id },
       data: {
         attribution: nextAttribution,
+        publication: {
+          upsert: {
+            create: this.buildScenarioPublicationProjection(nextAttribution),
+            update: this.buildScenarioPublicationProjection(nextAttribution),
+          },
+        },
       },
     });
     await this.createScenarioModerationTurnLogsForLinkedSessions(scenario.id, moderationAction);
@@ -1242,6 +1341,7 @@ export class ScenariosService {
     const scenario = await this.prisma.scenario.findUnique({
       where: { id },
       include: {
+        publication: true,
         nodes: {
           orderBy: { createdAt: 'asc' },
         },
@@ -1302,9 +1402,16 @@ export class ScenariosService {
     const isDefaultProvidedScenario = isProvidedScenarioId(scenario.id);
     const isOwnScenario = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
     const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const projectionBlocksPublicAccess =
+      scenario.publication?.moderationStatus === "HIDDEN" ||
+      scenario.publication?.moderationStatus === "REMOVED";
     const isPublishedRevision =
       scenario.sourceType === PrismaScenarioSourceType.CLONED &&
-      (revision.status === 'public' || revision.status === 'link');
+      (scenario.publication
+        ? (scenario.publication.visibility === "PUBLIC" ||
+            scenario.publication.visibility === "LINK") &&
+          !projectionBlocksPublicAccess
+        : revision.status === "public" || revision.status === "link");
     const collaborativeViewerUserId =
       typeof viewerUserId === "string" && viewerUserId.length > 0 ? viewerUserId : null;
     const canViewCollaborativeDraft =
@@ -1316,7 +1423,9 @@ export class ScenariosService {
         action: "view",
       }).allowed;
 
-    if (isDefaultProvidedScenario || isOwnScenario || isPublishedRevision || canViewCollaborativeDraft) {
+    const canViewProvidedScenario =
+      isDefaultProvidedScenario && (!scenario.publication || !projectionBlocksPublicAccess);
+    if (canViewProvidedScenario || isOwnScenario || isPublishedRevision || canViewCollaborativeDraft) {
       return;
     }
 
@@ -1332,15 +1441,27 @@ export class ScenariosService {
     const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
     const isProvidedPublicScenario = isProvidedScenarioId(scenario.id);
+    const projectedVisibility = scenario.publication?.visibility;
+    const projectedModerationStatus = scenario.publication?.moderationStatus;
     const isPublishedRevision =
       scenario.sourceType === PrismaScenarioSourceType.CLONED &&
-      (revision.status === "public" ||
-        revision.status === "link" ||
-        (options.allowUnpublished && revision.status === "unpublished"));
+      (projectedVisibility
+        ? projectedVisibility === "PUBLIC" ||
+          projectedVisibility === "LINK" ||
+          (options.allowUnpublished && projectedVisibility === "UNPUBLISHED")
+        : revision.status === "public" ||
+          revision.status === "link" ||
+          (options.allowUnpublished && revision.status === "unpublished"));
+    const isRemoved = projectedModerationStatus
+      ? projectedModerationStatus === "REMOVED"
+      : metadata.moderationStatus === "removed";
+    const isHidden = projectedModerationStatus
+      ? projectedModerationStatus === "HIDDEN"
+      : metadata.moderationStatus === "hidden";
     if (
       (!isProvidedPublicScenario && !isPublishedRevision) ||
-      (!options.allowRemoved && metadata.moderationStatus === "removed") ||
-      (!options.allowHidden && metadata.moderationStatus === "hidden")
+      (!options.allowRemoved && isRemoved) ||
+      (!options.allowHidden && isHidden)
     ) {
       throw new BadRequestException(message);
     }
@@ -1358,89 +1479,81 @@ export class ScenariosService {
       createdByUserId: string | null;
       createdAt: Date;
       updatedAt: Date;
+      publication?: {
+        visibility: string;
+        moderationStatus: string;
+        publishedAt: Date | null;
+        revisionNumber: number | null;
+        forkCount: number;
+        gmMode: string | null;
+        tags: string[];
+      } | null;
     },
     summary: T,
     viewerUserId?: string | null,
   ): T {
+    this.warnOnScenarioPublicationProjectionMismatch(scenario);
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
     const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const publishStatus =
+      scenario.publication?.visibility === "PUBLIC"
+        ? "public"
+        : scenario.publication?.visibility === "LINK"
+          ? "link"
+          : scenario.publication?.visibility === "UNPUBLISHED"
+            ? "unpublished"
+            : summary.publishStatus;
+    const moderationStatus =
+      scenario.publication?.moderationStatus === "HIDDEN"
+        ? "hidden"
+        : scenario.publication?.moderationStatus === "REMOVED"
+          ? "removed"
+          : scenario.publication?.moderationStatus === "REPORTED"
+            ? "reported"
+            : scenario.publication?.moderationStatus === "VISIBLE"
+              ? "visible"
+              : metadata.moderationStatus;
     const isPublishedRevision =
       scenario.sourceType === PrismaScenarioSourceType.CLONED &&
-      (revision.status === "public" || revision.status === "link");
+      (publishStatus === "public" || publishStatus === "link");
     const isPublicEcosystemScenario = isProvidedScenarioId(scenario.id) || isPublishedRevision;
     const isOwner = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
     const isVisibleToPublicActions =
-      metadata.moderationStatus !== "hidden" && metadata.moderationStatus !== "removed";
-    const tags = metadata.tags.length
-      ? metadata.tags
-      : this.compactTrimmedStrings([scenario.difficulty, summary.sourceType === "SYSTEM" ? "provided" : null]);
+      moderationStatus !== "hidden" && moderationStatus !== "removed";
+    const tags = scenario.publication?.tags.length
+      ? scenario.publication.tags
+      : metadata.tags.length
+        ? metadata.tags
+        : this.compactTrimmedStrings([
+            scenario.difficulty,
+            summary.sourceType === "SYSTEM" ? "provided" : null,
+          ]);
+    const forkCount = scenario.publication?.forkCount ?? metadata.forkCount;
     return {
       ...summary,
+      revisionNumber: scenario.publication?.revisionNumber ?? summary.revisionNumber,
+      publishedAt: scenario.publication?.publishedAt?.toISOString() ?? summary.publishedAt,
+      publishStatus,
       tags,
       estimatedMinutes: metadata.estimatedMinutes,
-      gmMode: metadata.gmMode,
+      gmMode: scenario.publication?.gmMode ?? metadata.gmMode,
       contentWarnings: metadata.contentWarnings,
-      forkCount: metadata.forkCount,
+      forkCount,
       forkAllowed: metadata.forkAllowed,
-      moderationStatus: metadata.moderationStatus,
+      moderationStatus,
       moderationProcessingStatus: this.resolveScenarioModerationProcessingStatus(metadata),
       creatorNoticeStatus: this.resolveScenarioCreatorNoticeStatus(metadata),
       recommendationReason: this.buildRecommendationReason(summary, {
-        forkCount: metadata.forkCount,
+        forkCount,
         tags,
       }),
       viewerCapabilities: {
         canUnpublish: isPublishedRevision && isOwner && isVisibleToPublicActions,
         canFork: isPublicEcosystemScenario && metadata.forkAllowed && isVisibleToPublicActions,
         canReport: isPublicEcosystemScenario && isVisibleToPublicActions,
-        canAppealModeration: isPublishedRevision && isOwner && metadata.moderationStatus !== "visible",
+        canAppealModeration: isPublishedRevision && isOwner && moderationStatus !== "visible",
       },
     };
-  }
-
-  private matchesScenarioDiscoveryQuery(
-    scenario: ScenarioSummaryResponseDto,
-    query?: ScenarioQueryDto,
-  ): boolean {
-    if (!query) {
-      return true;
-    }
-    const minLevel = query.minLevel;
-    const maxLevel = query.maxLevel;
-    if (typeof minLevel === "number" && (scenario.recommendedEndLevel ?? scenario.startLevel) < minLevel) {
-      return false;
-    }
-    if (typeof maxLevel === "number" && scenario.startLevel > maxLevel) {
-      return false;
-    }
-    if (query.tag?.trim()) {
-      const tag = query.tag.trim().toLowerCase();
-      if (!(scenario.tags ?? []).some((candidate) => candidate.toLowerCase() === tag)) {
-        return false;
-      }
-    }
-    if (query.gmMode && scenario.gmMode && scenario.gmMode !== "BOTH" && scenario.gmMode !== query.gmMode) {
-      return false;
-    }
-    return true;
-  }
-
-  private sortScenarioDiscovery(
-    scenarios: ScenarioSummaryResponseDto[],
-    sort: "recommended" | "latest" | "level",
-  ): ScenarioSummaryResponseDto[] {
-    const score = (scenario: ScenarioSummaryResponseDto) =>
-      (scenario.forkCount ?? 0) * 2 +
-      (scenario.publishStatus === "public" ? 10 : 0);
-    return [...scenarios].sort((a, b) => {
-      if (sort === "latest") {
-        return new Date(b.publishedAt ?? b.updatedAt).getTime() - new Date(a.publishedAt ?? a.updatedAt).getTime();
-      }
-      if (sort === "level") {
-        return a.startLevel - b.startLevel || (a.recommendedEndLevel ?? a.startLevel) - (b.recommendedEndLevel ?? b.startLevel);
-      }
-      return score(b) - score(a) || new Date(b.publishedAt ?? b.updatedAt).getTime() - new Date(a.publishedAt ?? a.updatedAt).getTime();
-    });
   }
 
   private buildRecommendationReason(
@@ -1701,6 +1814,13 @@ export class ScenariosService {
           collaborators,
           reviews,
         }),
+        collaboratorGrants: {
+          deleteMany: {},
+          create: collaborators.map((collaborator) => ({
+            userId: collaborator.userId,
+            role: collaborator.role,
+          })),
+        },
       },
       include: {
         nodes: {
@@ -1867,6 +1987,72 @@ export class ScenariosService {
       .join("\n");
   }
 
+  private warnOnScenarioPublicationProjectionMismatch(scenario: {
+    id: string;
+    attribution: string | null;
+    publication?: { visibility: string; moderationStatus: string } | null;
+  }): void {
+    if (!scenario.publication) return;
+    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const parsedVisibility =
+      isProvidedScenarioId(scenario.id) || revision.status === "public"
+        ? "PUBLIC"
+        : revision.status === "link"
+          ? "LINK"
+          : "UNPUBLISHED";
+    const parsedModerationStatus = metadata.moderationStatus.toUpperCase();
+    if (
+      scenario.publication.visibility !== parsedVisibility ||
+      scenario.publication.moderationStatus !== parsedModerationStatus
+    ) {
+      this.logger.warn({
+        event: "scenario_publication_projection_mismatch",
+        scenarioId: scenario.id,
+        projectionVisibility: scenario.publication.visibility,
+        parsedVisibility,
+        projectionModerationStatus: scenario.publication.moderationStatus,
+        parsedModerationStatus,
+      });
+    }
+  }
+
+  private buildScenarioPublicationProjection(attribution: string | null | undefined) {
+    const revision = this.parseScenarioRevisionMetadata(attribution);
+    const metadata = this.parseScenarioPublicEcosystemMetadata(attribution);
+    const visibility =
+      revision.status === "public"
+        ? "PUBLIC"
+        : revision.status === "link"
+          ? "LINK"
+          : "UNPUBLISHED";
+    const moderationStatus = metadata.moderationStatus.toUpperCase();
+    const publishedAt = revision.publishedAt
+      ? new Date(revision.publishedAt)
+      : null;
+
+    return {
+      visibility,
+      moderationStatus,
+      publishedAt:
+        publishedAt && !Number.isNaN(publishedAt.getTime()) ? publishedAt : null,
+      revisionNumber: revision.revisionNumber,
+      forkCount: metadata.forkCount,
+      reportCount: metadata.reports.length,
+      appealCount: this.countActiveModerationAppeals(metadata.appeals),
+      gmMode: metadata.gmMode,
+      tags: metadata.tags.map((tag) => tag.toLowerCase()),
+    };
+  }
+
+  private countActiveModerationAppeals(
+    appeals: ScenarioPublicModerationAppealRecord[],
+  ): number {
+    return appeals.filter((appeal) =>
+      ScenariosService.ACTIVE_MODERATION_APPEAL_STATUSES.has(appeal.status),
+    ).length;
+  }
+
   private parseScenarioPublicEcosystemMetadata(
     attribution: string | null | undefined,
   ): ScenarioPublicEcosystemMetadata {
@@ -1982,24 +2168,83 @@ export class ScenariosService {
     throw new ForbiddenException("운영자 moderation 권한이 필요합니다.");
   }
 
+  private async ensureScenarioProjectionReadReady(): Promise<void> {
+    if (this.scenarioProjectionReadReady) return;
+    if (!this.scenarioProjectionReadinessCheck) {
+      this.scenarioProjectionReadinessCheck = this.checkScenarioProjectionReadiness();
+    }
+    try {
+      await this.scenarioProjectionReadinessCheck;
+    } finally {
+      if (!this.scenarioProjectionReadReady) {
+        this.scenarioProjectionReadinessCheck = null;
+      }
+    }
+  }
+
+  private async checkScenarioProjectionReadiness(): Promise<void> {
+    const missingPublicationCount = await this.prisma.scenario.count({
+      where: { publication: { is: null } },
+    });
+    if (missingPublicationCount > 0) {
+      this.logger.error({
+        event: "scenario_projection_read_blocked",
+        missingPublicationCount,
+      });
+      throw new ServiceUnavailableException(
+        "Scenario projection backfill is incomplete. Run the scenario publication backfill before using scenario lists.",
+      );
+    }
+    this.scenarioProjectionReadReady = true;
+  }
+
   private mapScenarioModerationQueueItem(scenario: {
     id: string;
     title: string;
     createdByUserId: string | null;
     attribution?: string | null;
+    publication: {
+      moderationStatus: string;
+      reportCount: number;
+      appealCount: number;
+    } | null;
   }): ScenarioModerationQueueItemDto {
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const parsedAppealCount = this.countActiveModerationAppeals(metadata.appeals);
+    if (
+      scenario.publication &&
+      (scenario.publication.moderationStatus !== metadata.moderationStatus.toUpperCase() ||
+        scenario.publication.reportCount !== metadata.reports.length ||
+        scenario.publication.appealCount !== parsedAppealCount)
+    ) {
+      this.logger.warn({
+        event: "scenario_moderation_projection_mismatch",
+        scenarioId: scenario.id,
+        projectionModerationStatus: scenario.publication.moderationStatus,
+        parsedModerationStatus: metadata.moderationStatus.toUpperCase(),
+        projectionReportCount: scenario.publication.reportCount,
+        parsedReportCount: metadata.reports.length,
+        projectionAppealCount: scenario.publication.appealCount,
+        parsedAppealCount,
+      });
+    }
+    const projectionStatus = scenario.publication?.moderationStatus.toLowerCase();
+    const moderationStatus =
+      projectionStatus === "visible" ||
+      projectionStatus === "reported" ||
+      projectionStatus === "hidden" ||
+      projectionStatus === "removed"
+        ? projectionStatus
+        : "hidden";
     return {
       scenarioId: scenario.id,
       title: scenario.title,
       createdByUserId: scenario.createdByUserId,
-      moderationStatus: metadata.moderationStatus,
+      moderationStatus,
       processingStatus: this.resolveScenarioModerationProcessingStatus(metadata),
       creatorNoticeStatus: this.resolveScenarioCreatorNoticeStatus(metadata),
-      reportCount: metadata.reports.length,
-      appealCount: metadata.appeals.filter((appeal) =>
-        appeal.status === "submitted" || appeal.status === "under_review",
-      ).length,
+      reportCount: scenario.publication?.reportCount ?? metadata.reports.length,
+      appealCount: scenario.publication?.appealCount ?? parsedAppealCount,
       actionCount: metadata.moderationActions.length,
       reports: metadata.reports.map((report) => ({ ...report })),
       appeals: metadata.appeals.map((appeal) => ({ ...appeal })),
@@ -2055,62 +2300,245 @@ export class ScenariosService {
     scenarioId: string,
     action: ScenarioPublicModerationActionRecord,
   ): Promise<void> {
-    const sessionScenarios = await this.prisma.sessionScenario.findMany({
-      where: {
-        scenarioId,
-        session: {
-          status: {
-            notIn: [PrismaSessionStatus.COMPLETED, PrismaSessionStatus.DISBANDED],
+    const startedAt = performance.now();
+    const pageSize = 500;
+    let cursorId: string | undefined;
+    const metrics: ScenarioModerationTurnLogMetrics = {
+      linkedSessionScenarioCount: 0,
+      pageQueryCount: 0,
+      pageCount: 0,
+      groupByCount: 0,
+      createManyCount: 0,
+      recoveryLookupCount: 0,
+      retryCount: 0,
+      createdCount: 0,
+      deduplicatedCount: 0,
+    };
+
+    try {
+      while (true) {
+        metrics.pageQueryCount += 1;
+        const sessionScenarios = await this.prisma.sessionScenario.findMany({
+          where: {
+            scenarioId,
+            session: {
+              status: {
+                notIn: [PrismaSessionStatus.COMPLETED, PrismaSessionStatus.DISBANDED],
+              },
+            },
           },
-        },
-      },
-      select: {
-        id: true,
-        sessionId: true,
-      },
-      take: ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS,
+          select: {
+            id: true,
+            sessionId: true,
+          },
+          orderBy: { id: "asc" },
+          take: pageSize,
+          ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+        });
+        if (!sessionScenarios.length) {
+          break;
+        }
+
+        metrics.pageCount += 1;
+        metrics.linkedSessionScenarioCount += sessionScenarios.length;
+        await this.createScenarioModerationTurnLogPage(scenarioId, action, sessionScenarios, metrics);
+        if (sessionScenarios.length < pageSize) {
+          break;
+        }
+        cursorId = sessionScenarios[sessionScenarios.length - 1].id;
+      }
+      this.logScenarioModerationTurnLogMetrics(scenarioId, action.actionId, startedAt, metrics, "completed");
+    } catch (error) {
+      this.logScenarioModerationTurnLogMetrics(scenarioId, action.actionId, startedAt, metrics, "failed", error);
+      throw error;
+    }
+  }
+
+  private async createScenarioModerationTurnLogPage(
+    scenarioId: string,
+    action: ScenarioPublicModerationActionRecord,
+    sessionScenarios: Array<{ id: string; sessionId: string }>,
+    metrics: ScenarioModerationTurnLogMetrics,
+  ): Promise<void> {
+    const sessionIds = Array.from(new Set(sessionScenarios.map((entry) => entry.sessionId)));
+    metrics.groupByCount += 1;
+    const latestTurns = await this.prisma.turnLog.groupBy({
+      by: ["sessionId"],
+      where: { sessionId: { in: sessionIds } },
+      _max: { turnNumber: true },
+    });
+    const nextTurnBySessionId = new Map(
+      latestTurns.map((entry) => [entry.sessionId, entry._max.turnNumber ?? 0]),
+    );
+    const entries = sessionScenarios.map((sessionScenario) => {
+      const turnNumber = (nextTurnBySessionId.get(sessionScenario.sessionId) ?? 0) + 1;
+      nextTurnBySessionId.set(sessionScenario.sessionId, turnNumber);
+      return {
+        sessionScenario,
+        data: this.buildScenarioModerationTurnLogData(
+          scenarioId,
+          action,
+          sessionScenario,
+          turnNumber,
+        ),
+      };
     });
 
-    for (const sessionScenario of sessionScenarios) {
+    metrics.createManyCount += 1;
+    const created = await this.prisma.turnLog.createMany({
+      data: entries.map((entry) => entry.data),
+      skipDuplicates: true,
+    });
+    metrics.createdCount += created.count;
+    if (created.count === entries.length) {
+      return;
+    }
+
+    const idempotencyKeys = entries.map((entry) => entry.data.idempotencyKey as string);
+    metrics.recoveryLookupCount += 1;
+    const existing = await this.prisma.turnLog.findMany({
+      where: { idempotencyKey: { in: idempotencyKeys } },
+      select: { idempotencyKey: true },
+    });
+    const existingKeys = new Set(existing.map((entry) => entry.idempotencyKey ?? null));
+    const missingEntries = entries.filter(
+      (entry) => !existingKeys.has(entry.data.idempotencyKey ?? null),
+    );
+    metrics.deduplicatedCount += entries.length - created.count - missingEntries.length;
+
+    for (const entry of missingEntries) {
+      await this.createScenarioModerationTurnLogWithRetry(
+        scenarioId,
+        action,
+        entry.sessionScenario,
+        metrics,
+      );
+    }
+  }
+
+  private async createScenarioModerationTurnLogWithRetry(
+    scenarioId: string,
+    action: ScenarioPublicModerationActionRecord,
+    sessionScenario: { id: string; sessionId: string },
+    metrics: ScenarioModerationTurnLogMetrics,
+  ): Promise<void> {
+    const idempotencyKey = this.buildScenarioModerationTurnLogIdempotencyKey(
+      action.actionId,
+      sessionScenario.id,
+    );
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const existing = await this.prisma.turnLog.findUnique({
+        where: { idempotencyKey },
+        select: { id: true },
+      });
+      if (existing) {
+        metrics.deduplicatedCount += 1;
+        return;
+      }
+
       const latest = await this.prisma.turnLog.findFirst({
         where: { sessionId: sessionScenario.sessionId },
         orderBy: { turnNumber: "desc" },
         select: { turnNumber: true },
       });
-      await this.prisma.turnLog.create({
-        data: {
-          sessionId: sessionScenario.sessionId,
-          sessionScenarioId: sessionScenario.id,
-          actorUserId: action.operatorUserId,
-          turnNumber: (latest?.turnNumber ?? 0) + 1,
-          rawInput: `/scenario moderation ${action.action}`,
-          structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction({
-            type: "p6_scenario_moderation_action",
-            auditRecordType: action.auditRecordType,
-            actionId: action.actionId,
+      try {
+        await this.prisma.turnLog.create({
+          data: this.buildScenarioModerationTurnLogData(
             scenarioId,
-            action: action.action,
-            targetUserId: action.targetUserId,
-            previousStatus: action.previousStatus,
-            nextStatus: action.nextStatus,
-            processingStatus: action.processingStatus,
-            creatorNoticeStatus: action.creatorNoticeStatus,
-          })),
-          stateDiffJson: JSON.stringify(decodeTurnLogStateDiff({
-            reason: "p6_scenario_moderation_action",
-            diff: {
-              scenarioId,
-              action: action.action,
-              previousStatus: action.previousStatus,
-              nextStatus: action.nextStatus,
-              existingSessionSnapshotPreserved: true,
-            },
-          })),
-          outcome: PrismaActionOutcome.SUCCESS,
-          narration: `운영자 moderation 조치(${action.action})가 기록되었습니다. 기존 세션 snapshot은 유지됩니다.`,
-        },
-      });
+            action,
+            sessionScenario,
+            (latest?.turnNumber ?? 0) + 1,
+          ),
+        });
+        metrics.createdCount += 1;
+        return;
+      } catch (error) {
+        const isUniqueConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+        if (isUniqueConflict) {
+          metrics.retryCount += 1;
+        }
+        if (!isUniqueConflict || attempt === 2) {
+          throw error;
+        }
+      }
     }
+  }
+
+  private logScenarioModerationTurnLogMetrics(
+    scenarioId: string,
+    actionId: string,
+    startedAt: number,
+    metrics: ScenarioModerationTurnLogMetrics,
+    status: "completed" | "failed",
+    error?: unknown,
+  ): void {
+    if (process.env.PERFORMANCE_DIAGNOSTICS !== "1") return;
+    const payload = {
+      event: "scenario_moderation_turn_logs_built",
+      status,
+      scenarioId,
+      actionId,
+      durationMs: Number((performance.now() - startedAt).toFixed(3)),
+      ...metrics,
+      errorCode: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined,
+    };
+    if (status === "failed") {
+      this.logger.warn(payload);
+      return;
+    }
+    this.logger.debug(payload);
+  }
+
+  private buildScenarioModerationTurnLogData(
+    scenarioId: string,
+    action: ScenarioPublicModerationActionRecord,
+    sessionScenario: { id: string; sessionId: string },
+    turnNumber: number,
+  ): Prisma.TurnLogCreateManyInput {
+    return {
+      idempotencyKey: this.buildScenarioModerationTurnLogIdempotencyKey(
+        action.actionId,
+        sessionScenario.id,
+      ),
+      sessionId: sessionScenario.sessionId,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: action.operatorUserId,
+      turnNumber,
+      rawInput: `/scenario moderation ${action.action}`,
+      structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction({
+        type: "p6_scenario_moderation_action",
+        auditRecordType: action.auditRecordType,
+        actionId: action.actionId,
+        scenarioId,
+        action: action.action,
+        targetUserId: action.targetUserId,
+        previousStatus: action.previousStatus,
+        nextStatus: action.nextStatus,
+        processingStatus: action.processingStatus,
+        creatorNoticeStatus: action.creatorNoticeStatus,
+      })),
+      stateDiffJson: JSON.stringify(decodeTurnLogStateDiff({
+        reason: "p6_scenario_moderation_action",
+        diff: {
+          scenarioId,
+          action: action.action,
+          previousStatus: action.previousStatus,
+          nextStatus: action.nextStatus,
+          existingSessionSnapshotPreserved: true,
+        },
+      })),
+      outcome: PrismaActionOutcome.SUCCESS,
+      narration: `운영자 moderation 조치(${action.action})가 기록되었습니다. 기존 세션 snapshot은 유지됩니다.`,
+    };
+  }
+
+  private buildScenarioModerationTurnLogIdempotencyKey(
+    actionId: string,
+    sessionScenarioId: string,
+  ): string {
+    return `${actionId}:${sessionScenarioId}`;
   }
 
   private resolveScenarioModerationProcessingStatus(

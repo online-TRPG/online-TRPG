@@ -40,6 +40,7 @@ import {
   type RevealEventSnapshot,
   type RevealItemSnapshot,
 } from "./session-reveal.service";
+import { VttMapSpatialIndex } from "./vtt-map-spatial-index";
 
 type Rect = { x: number; y: number; width: number; height: number };
 type SessionRevealRuntimeValue = Parameters<SessionRevealService["toRevealClueSummary"]>[0];
@@ -73,6 +74,7 @@ export type SessionVttObjectRuntime = {
     sessionCharacterId: string,
     client?: Prisma.TransactionClient | PrismaService,
   ) => Promise<void>;
+  logPerformanceMetric?: (payload: Record<string, unknown>) => void;
 };
 
 @Injectable()
@@ -133,10 +135,21 @@ export class SessionVttObjectRuntimeRunner {
     return this.runtime.normalizeVttMap(map, scenarioNodeId);
   }
 
-  private async publishVttMapUpdate(sessionId: string, map: VttMapStateDto, publishSnapshot = false): Promise<void> {
+  private async publishVttMapUpdate(
+    sessionId: string,
+    map: VttMapStateDto,
+    publishSnapshot = false,
+    previousMap?: VttMapStateDto,
+  ): Promise<void> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     this.realtimeEvents.emitVttMapUpdated(session.id, {
       hostUserId: session.hostUserId,
+      ...(previousMap
+        ? {
+            previousHostMap: previousMap,
+            previousPlayerMap: this.redactVttMapForPlayer(previousMap),
+          }
+        : {}),
       hostMap: map,
       playerMap: this.redactVttMapForPlayer(map),
     });
@@ -150,6 +163,7 @@ export class SessionVttObjectRuntimeRunner {
     sessionScenarioId: string;
     flags: Record<string, unknown>;
     map: VttMapStateDto;
+    previousMap?: VttMapStateDto;
     publishSnapshot?: boolean;
   }): Promise<void> {
     await this.prisma.gameState.update({
@@ -163,7 +177,12 @@ export class SessionVttObjectRuntimeRunner {
       },
     });
 
-    await this.publishVttMapUpdate(params.sessionId, params.map, params.publishSnapshot);
+    await this.publishVttMapUpdate(
+      params.sessionId,
+      params.map,
+      params.publishSnapshot,
+      params.previousMap,
+    );
   }
 
   private recordSessionReveal(
@@ -444,6 +463,7 @@ export class SessionVttObjectRuntimeRunner {
       sessionScenarioId: params.sessionScenarioId,
       flags,
       map: nextMap,
+      previousMap: map,
     });
 
     return { count: observableObjectIds.size, objectNames };
@@ -625,7 +645,7 @@ export class SessionVttObjectRuntimeRunner {
       });
     });
 
-    await this.publishVttMapUpdate(params.sessionId, nextMap, true);
+    await this.publishVttMapUpdate(params.sessionId, nextMap, true, map);
 
     return {
       status: MainCommandStatus.RESOLVED,
@@ -902,6 +922,48 @@ export class SessionVttObjectRuntimeRunner {
       return params.map;
     }
 
+    const proximityObjectCells = Array.from(
+      new Map(candidates.map(({ objectCell }) => [objectCell.id, objectCell])).values(),
+    );
+    const spatialLookupStartedAt = performance.now();
+    const proximitySpatialIndex = new VttMapSpatialIndex(
+      params.map.gridSize,
+      proximityObjectCells,
+    );
+    const maximumTriggerDistanceFeet = candidates.reduce(
+      (maximum, { event }) =>
+        Math.max(
+          maximum,
+          this.clampNumber(Number(event.trigger?.distanceFeet), 0, 500),
+        ),
+      0,
+    );
+    const maximumTriggerDistancePx =
+      (maximumTriggerDistanceFeet / 5) * params.map.gridSize;
+    let spatialCandidateCount = 0;
+    const nearbyObjectIds = new Set(
+      partyTokens.flatMap((token) => {
+        const spatialCandidates = proximitySpatialIndex.query({
+          x: token.x - maximumTriggerDistancePx,
+          y: token.y - maximumTriggerDistancePx,
+          width: token.size + maximumTriggerDistancePx * 2,
+          height: token.size + maximumTriggerDistancePx * 2,
+        });
+        spatialCandidateCount += spatialCandidates.length;
+        return spatialCandidates.map((objectCell) => objectCell.id);
+      }),
+    );
+    this.runtime.logPerformanceMetric?.({
+      event: "vtt_spatial_candidates",
+      kind: "proximity",
+      durationMs: Number((performance.now() - spatialLookupStartedAt).toFixed(3)),
+      sourceCount: proximityObjectCells.length,
+      queryCount: partyTokens.length,
+      candidateCount: spatialCandidateCount,
+      uniqueCandidateCount: nearbyObjectIds.size,
+      ...proximitySpatialIndex.getQueryStats(),
+    });
+
     let fogRects = params.map.fogRects;
     const triggeredEvents: Array<{
       objectCell: NonNullable<VttMapStateDto["objectCells"]>[number];
@@ -909,7 +971,11 @@ export class SessionVttObjectRuntimeRunner {
     }> = [];
 
     for (const { objectCell, event } of candidates) {
-      if (objectCell.visibleToPlayers === false || revealedEventIds.has(event.id)) {
+      if (
+        !nearbyObjectIds.has(objectCell.id) ||
+        objectCell.visibleToPlayers === false ||
+        revealedEventIds.has(event.id)
+      ) {
         continue;
       }
 
@@ -985,13 +1051,16 @@ export class SessionVttObjectRuntimeRunner {
       return params.map;
     }
 
+    const previousTokenById = new Map(
+      params.previousMap.tokens.map((token) => [token.id, token]),
+    );
     const movedTokenIds = new Set(
       params.map.tokens
         .filter((token) => {
           if (!token.sessionCharacterId || token.hidden === true || token.isHostile === true) {
             return false;
           }
-          const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
+          const previousToken = previousTokenById.get(token.id);
           return Boolean(previousToken && (previousToken.x !== token.x || previousToken.y !== token.y));
         })
         .map((token) => token.id),
@@ -1009,6 +1078,33 @@ export class SessionVttObjectRuntimeRunner {
       return params.map;
     }
 
+    const spatialLookupStartedAt = performance.now();
+    const hazardSpatialIndex = new VttMapSpatialIndex(params.map.gridSize, hazardCells);
+    const maximumDetectionRadiusPx = params.map.gridSize * 20;
+    let spatialCandidateCount = 0;
+    const nearbyHazardIds = new Set(
+      partyTokens.flatMap((token) => {
+        const spatialCandidates = hazardSpatialIndex.query({
+          x: token.x - maximumDetectionRadiusPx,
+          y: token.y - maximumDetectionRadiusPx,
+          width: token.size + maximumDetectionRadiusPx * 2,
+          height: token.size + maximumDetectionRadiusPx * 2,
+        });
+        spatialCandidateCount += spatialCandidates.length;
+        return spatialCandidates.map((cell) => cell.id);
+      }),
+    );
+    this.runtime.logPerformanceMetric?.({
+      event: "vtt_spatial_candidates",
+      kind: "hazard_detection",
+      durationMs: Number((performance.now() - spatialLookupStartedAt).toFixed(3)),
+      sourceCount: hazardCells.length,
+      queryCount: partyTokens.length,
+      candidateCount: spatialCandidateCount,
+      uniqueCandidateCount: nearbyHazardIds.size,
+      ...hazardSpatialIndex.getQueryStats(),
+    });
+
     const sessionCharacters = await this.prisma.sessionCharacter.findMany({
       where: {
         sessionId: params.sessionId,
@@ -1025,7 +1121,7 @@ export class SessionVttObjectRuntimeRunner {
     for (let index = 0; index < nextObjectCells.length; index += 1) {
       const objectCell = nextObjectCells[index];
       const hazard = objectCell.hazard;
-      if (!hazard || hazard.armed === false) {
+      if (!nearbyHazardIds.has(objectCell.id) || !hazard || hazard.armed === false) {
         continue;
       }
 
@@ -1046,7 +1142,7 @@ export class SessionVttObjectRuntimeRunner {
         if (distanceFeet > detectionRadiusFeet) {
           continue;
         }
-        const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
+        const previousToken = previousTokenById.get(token.id);
         const previousDistanceFeet = previousToken
           ? this.calculatePointToRectDistanceFeet(params.previousMap, this.getTokenCenter(previousToken), objectCell)
           : Number.POSITIVE_INFINITY;
@@ -1264,35 +1360,112 @@ export class SessionVttObjectRuntimeRunner {
       return { map: params.map, triggered: false };
     }
 
-    const movedTokens = params.map.tokens.flatMap((token) => {
-      const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
-      if (!previousToken || !token.sessionCharacterId || token.hidden === true) {
-        return [];
-      }
-      if (previousToken.x === token.x && previousToken.y === token.y) {
-        return [];
-      }
-      return [{ token, previousToken }];
-    });
+    const previousTokenById = new Map(
+      params.previousMap.tokens.map((token) => [token.id, token]),
+    );
+    const movedTokens = params.map.tokens
+      .map((token) => {
+        const previousToken = previousTokenById.get(token.id);
+        if (!previousToken || !token.sessionCharacterId || token.hidden === true) {
+          return null;
+        }
+        if (previousToken.x === token.x && previousToken.y === token.y) {
+          return null;
+        }
+        return { token, previousToken };
+      })
+      .filter((entry): entry is { token: VttMapStateDto["tokens"][number]; previousToken: VttMapStateDto["tokens"][number] } => Boolean(entry));
 
     if (!movedTokens.length) {
       return { map: params.map, triggered: false };
     }
 
     const nextObjectCells = [...objectCells];
+    const objectIndexById = new Map(
+      nextObjectCells.map((objectCell, index) => [objectCell.id, index]),
+    );
+    const movedSessionCharacterIds = Array.from(
+      new Set(
+        movedTokens
+          .map(({ token }) => token.sessionCharacterId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const movedSessionCharacters = movedSessionCharacterIds.length
+      ? await this.prisma.sessionCharacter.findMany({
+          where: {
+            id: { in: movedSessionCharacterIds },
+            sessionId: params.sessionId,
+            status: PrismaSessionCharacterStatus.ACTIVE,
+          },
+          include: { character: true },
+        })
+      : [];
+    const sessionCharacterById = new Map(
+      movedSessionCharacters.map((character) => [character.id, character]),
+    );
     let objectCellsChanged = false;
     let triggered = false;
+    const spatialLookupStartedAt = performance.now();
+    const hazardSpatialIndex = new VttMapSpatialIndex(params.map.gridSize, hazardCells);
+    const spatialCandidatesByToken = movedTokens.map(({ token, previousToken }) => {
+      const movementMinX = Math.min(previousToken.x, token.x);
+      const movementMinY = Math.min(previousToken.y, token.y);
+      const movementMaxX = Math.max(previousToken.x + previousToken.size, token.x + token.size);
+      const movementMaxY = Math.max(previousToken.y + previousToken.size, token.y + token.size);
+      return {
+        token,
+        previousToken,
+        candidates: hazardSpatialIndex.query({
+          x: movementMinX,
+          y: movementMinY,
+          width: movementMaxX - movementMinX,
+          height: movementMaxY - movementMinY,
+        }),
+      };
+    });
+    if (this.runtime.logPerformanceMetric) {
+      const uniqueSpatialCandidateIds = new Set(
+        spatialCandidatesByToken.flatMap((entry) => entry.candidates.map((candidate) => candidate.id)),
+      );
+      this.runtime.logPerformanceMetric({
+        event: "vtt_spatial_candidates",
+        kind: "hazard_trigger",
+        durationMs: Number((performance.now() - spatialLookupStartedAt).toFixed(3)),
+        sourceCount: hazardCells.length,
+        queryCount: movedTokens.length,
+        candidateCount: spatialCandidatesByToken.reduce(
+          (count, entry) => count + entry.candidates.length,
+          0,
+        ),
+        uniqueCandidateCount: uniqueSpatialCandidateIds.size,
+        ...hazardSpatialIndex.getQueryStats(),
+      });
+    }
 
-    for (const { token, previousToken } of movedTokens) {
+    for (const { token, previousToken, candidates: spatialCandidates } of spatialCandidatesByToken) {
       const sessionCharacterId = token.sessionCharacterId;
       if (!sessionCharacterId) {
         continue;
       }
 
-      const hazardIndex = nextObjectCells.findIndex((cell) => {
-        const hazard = cell.hazard;
-        return Boolean(hazard && hazard.armed !== false && this.doesTokenMovementCrossCell(params.map, previousToken, token, cell));
-      });
+      let hazardIndex = -1;
+      for (const candidate of spatialCandidates) {
+        const candidateIndex = objectIndexById.get(candidate.id);
+        if (candidateIndex === undefined) {
+          continue;
+        }
+        const currentCell = nextObjectCells[candidateIndex];
+        const currentHazard = currentCell.hazard;
+        if (
+          currentHazard &&
+          currentHazard.armed !== false &&
+          this.doesTokenMovementCrossCell(params.map, previousToken, token, currentCell) &&
+          (hazardIndex < 0 || candidateIndex < hazardIndex)
+        ) {
+          hazardIndex = candidateIndex;
+        }
+      }
       if (hazardIndex < 0) {
         continue;
       }
@@ -1303,11 +1476,8 @@ export class SessionVttObjectRuntimeRunner {
         continue;
       }
 
-      const character = await this.prisma.sessionCharacter.findUnique({
-        where: { id: sessionCharacterId },
-        include: { character: true },
-      });
-      if (!character || character.sessionId !== params.sessionId || character.status !== PrismaSessionCharacterStatus.ACTIVE) {
+      const character = sessionCharacterById.get(sessionCharacterId);
+      if (!character) {
         continue;
       }
 
@@ -1321,6 +1491,8 @@ export class SessionVttObjectRuntimeRunner {
           status: nextStatus,
         },
       });
+      character.currentHp = nextHp;
+      character.status = nextStatus;
 
       const hazardName = hazardCell.name?.trim() || this.getHazardKindLabel(hazard.kind);
       await this.createVttHazardTriggerTurnLog({
@@ -1597,6 +1769,7 @@ export class SessionVttObjectRuntimeRunner {
         sessionScenarioId: params.sessionScenarioId,
         flags,
         map: nextMap,
+        previousMap: map,
       });
     }
 
@@ -1654,6 +1827,7 @@ export class SessionVttObjectRuntimeRunner {
         sessionScenarioId: params.sessionScenarioId,
         flags,
         map: nextMap,
+        previousMap: map,
       });
     }
 
@@ -1713,6 +1887,7 @@ export class SessionVttObjectRuntimeRunner {
         sessionScenarioId: params.sessionScenarioId,
         flags,
         map: nextMap,
+        previousMap: map,
       });
     }
 
@@ -1770,6 +1945,7 @@ export class SessionVttObjectRuntimeRunner {
         sessionScenarioId: params.sessionScenarioId,
         flags,
         map: nextMap,
+        previousMap: map,
       });
     }
 
@@ -1822,6 +1998,7 @@ export class SessionVttObjectRuntimeRunner {
         sessionScenarioId: params.sessionScenarioId,
         flags,
         map: nextMap,
+        previousMap: map,
       });
     }
 

@@ -1,6 +1,10 @@
 import json
+import logging
+import time
+from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
+from typing import Generic, TypeVar
 
 from app.srd.build import (
     GENERATED_ROOT,
@@ -26,6 +30,96 @@ from app.srd.models import (
     Spell,
     SrdEntityMatch,
 )
+
+
+logger = logging.getLogger(__name__)
+T = TypeVar("T")
+
+
+def _lookup_grams(value: str) -> set[str]:
+    grams: set[str] = set()
+    if len(value) >= 2:
+        grams.update(f"2:{value[index:index + 2]}" for index in range(len(value) - 1))
+    if len(value) >= 3:
+        grams.update(f"3:{value[index:index + 3]}" for index in range(len(value) - 2))
+    return grams
+
+
+class _SubstringIndex(Generic[T]):
+    def __init__(self, terms: list[tuple[str, T]]):
+        self.terms = tuple((term, value) for term, value in terms if term)
+        exact: dict[str, list[int]] = defaultdict(list)
+        postings: dict[str, list[int]] = defaultdict(list)
+        short_indexes: list[int] = []
+
+        for index, (term, _) in enumerate(self.terms):
+            exact[term].append(index)
+            grams = _lookup_grams(term)
+            if not grams:
+                short_indexes.append(index)
+                continue
+            gram_size = 3 if len(term) >= 3 else 2
+            for gram in grams:
+                if gram.startswith(f"{gram_size}:"):
+                    postings[gram].append(index)
+
+        self.exact = {term: tuple(indexes) for term, indexes in exact.items()}
+        self.postings = {gram: tuple(indexes) for gram, indexes in postings.items()}
+        self.short_indexes = tuple(short_indexes)
+
+    def candidate_term_indexes(self, haystack: str) -> list[int]:
+        candidates = set(self.exact.get(haystack, ()))
+        candidates.update(self.short_indexes)
+        for gram in _lookup_grams(haystack):
+            candidates.update(self.postings.get(gram, ()))
+        return sorted(candidates)
+
+    def matching_values(self, haystack: str) -> list[T]:
+        return [
+            value
+            for index in self.candidate_term_indexes(haystack)
+            for term, value in [self.terms[index]]
+            if term in haystack
+        ]
+
+    def stats(self) -> dict[str, int]:
+        posting_count = sum(len(indexes) for indexes in self.postings.values())
+        estimated_bytes = (
+            sum(len(term.encode("utf-8")) + 16 for term, _ in self.terms)
+            + sum(len(gram.encode("utf-8")) + len(indexes) * 8 + 32 for gram, indexes in self.postings.items())
+            + sum(len(term.encode("utf-8")) + len(indexes) * 8 + 32 for term, indexes in self.exact.items())
+        )
+        return {
+            "term_count": len(self.terms),
+            "alias_count": len(self.exact),
+            "ngram_key_count": len(self.postings),
+            "posting_count": posting_count,
+            "estimated_bytes": estimated_bytes,
+        }
+
+
+_HOOK_SPECIAL_TERMS: dict[str, tuple[int, tuple[str, ...]]] = {
+    "hook.combat.resolve_attack_roll": (2, ("공격", "attack", "명중")),
+    "hook.damage.apply_resistance_vulnerability": (
+        2,
+        ("피해", "저항", "취약", "면역", "damage", "resistance"),
+    ),
+    "hook.condition.apply_prone_modifiers": (2, ("넘어짐", "넘어진", "prone")),
+    "hook.item.bag_of_holding_capacity": (2, ("보유의주머니", "bagofholding", "용량", "넣")),
+    "hook.class.fighter.second_wind": (4, ("재기의숨결", "secondwind", "회복")),
+    "hook.class.fighter.action_surge": (4, ("행동연쇄", "actionsurge", "추가행동")),
+    "hook.class.fighter.champion_critical_threshold": (
+        4,
+        ("향상된치명타", "우월한치명타", "champion", "치명타", "critical"),
+    ),
+    "hook.class.barbarian.rage": (4, ("격노", "rage")),
+    "hook.class.rogue.sneak_attack": (4, ("암습", "sneakattack")),
+    "hook.class.rogue.cunning_action": (
+        4,
+        ("교활한행동", "cunningaction", "질주", "이탈", "숨기"),
+    ),
+    "hook.class.barbarian.frenzy": (5, ("광분", "frenzy")),
+}
 
 
 def normalize_lookup_text(value: str) -> str:
@@ -198,122 +292,177 @@ class SrdRetriever:
         )
         self._rule_hooks = tuple(rule_hooks) if rule_hooks is not None else get_rule_hook_catalog()
         self._rule_fragment_by_id = {fragment.id: fragment for fragment in self._rule_fragments}
-        self._spell_terms: list[tuple[str, Spell]] = []
+        index_started_at = time.perf_counter()
+
+        spell_terms: list[tuple[str, Spell]] = []
         for spell in self._spells:
-            self._spell_terms.append((normalize_lookup_text(spell.nameEn), spell))
-            self._spell_terms.append((normalize_lookup_text(spell.nameKo), spell))
-        self._condition_terms: list[tuple[str, Condition]] = []
+            spell_terms.append((normalize_lookup_text(spell.nameEn), spell))
+            spell_terms.append((normalize_lookup_text(spell.nameKo), spell))
+        condition_terms: list[tuple[str, Condition]] = []
         for condition in self._conditions:
-            self._condition_terms.append((normalize_lookup_text(condition.nameEn), condition))
-            self._condition_terms.append((normalize_lookup_text(condition.nameKo), condition))
+            condition_terms.append((normalize_lookup_text(condition.nameEn), condition))
+            condition_terms.append((normalize_lookup_text(condition.nameKo), condition))
             for keyword in condition.summaryKo.split():
                 normalized = normalize_lookup_text(keyword)
                 if len(normalized) >= 3:
-                    self._condition_terms.append((normalized, condition))
-        self._magic_item_terms: list[tuple[str, MagicItem]] = []
+                    condition_terms.append((normalized, condition))
+        magic_item_terms: list[tuple[str, MagicItem]] = []
         for item in self._magic_items:
-            self._magic_item_terms.append((normalize_lookup_text(item.nameEn), item))
-            self._magic_item_terms.append((normalize_lookup_text(item.nameKo), item))
-        self._monster_terms: list[tuple[str, Monster]] = []
+            magic_item_terms.append((normalize_lookup_text(item.nameEn), item))
+            magic_item_terms.append((normalize_lookup_text(item.nameKo), item))
+        monster_terms: list[tuple[str, Monster]] = []
         for monster in self._monsters:
-            self._monster_terms.append((normalize_lookup_text(monster.nameEn), monster))
-            self._monster_terms.append((normalize_lookup_text(monster.nameKo), monster))
-        self._race_terms: list[tuple[str, RaceOption]] = []
+            monster_terms.append((normalize_lookup_text(monster.nameEn), monster))
+            monster_terms.append((normalize_lookup_text(monster.nameKo), monster))
+        race_terms: list[tuple[str, RaceOption]] = []
         for race in self._races:
             if race.nameEn:
-                self._race_terms.append((normalize_lookup_text(race.nameEn), race))
-            self._race_terms.append((normalize_lookup_text(race.nameKo), race))
-        self._class_terms: list[tuple[str, ClassOption]] = []
+                race_terms.append((normalize_lookup_text(race.nameEn), race))
+            race_terms.append((normalize_lookup_text(race.nameKo), race))
+        class_terms: list[tuple[str, ClassOption]] = []
         for class_option in self._classes:
             if class_option.nameEn:
-                self._class_terms.append((normalize_lookup_text(class_option.nameEn), class_option))
-            self._class_terms.append((normalize_lookup_text(class_option.nameKo), class_option))
+                class_terms.append((normalize_lookup_text(class_option.nameEn), class_option))
+            class_terms.append((normalize_lookup_text(class_option.nameKo), class_option))
+
+        self._spell_index = _SubstringIndex(spell_terms)
+        self._condition_index = _SubstringIndex(condition_terms)
+        self._magic_item_index = _SubstringIndex(magic_item_terms)
+        self._monster_index = _SubstringIndex(monster_terms)
+        self._race_index = _SubstringIndex(race_terms)
+        self._class_index = _SubstringIndex(class_terms)
+
+        self._rule_card_score_terms: tuple[tuple[tuple[str, int], ...], ...] = tuple(
+            tuple(
+                [
+                    (normalized, 3)
+                    for term in {card.titleKo, card.domain}
+                    for normalized in [normalize_lookup_text(term)]
+                    if normalized
+                ]
+                + [
+                    (normalized, 1)
+                    for keyword in card.summaryKo.split()[:25]
+                    for normalized in [normalize_lookup_text(keyword)]
+                    if len(normalized) >= 3
+                ]
+            )
+            for card in self._rule_cards
+        )
+        self._rule_card_text_index = _SubstringIndex(
+            [
+                (term, card_index)
+                for card_index, terms in enumerate(self._rule_card_score_terms)
+                for term, _ in terms
+            ]
+        )
+
+        self._rule_hook_source_entity_ids = tuple(
+            frozenset(hook.sourceEntityIds) for hook in self._rule_hooks
+        )
+        self._rule_hook_source_rule_ids = tuple(
+            frozenset(hook.sourceRuleIds) for hook in self._rule_hooks
+        )
+        hook_entity_indexes: dict[str, set[int]] = defaultdict(set)
+        hook_rule_indexes: dict[str, set[int]] = defaultdict(set)
+        hook_text_terms: list[tuple[str, int]] = []
+        self._rule_hook_generic_terms: list[tuple[str, ...]] = []
+        self._rule_hook_special_terms: list[tuple[int, tuple[str, ...]] | None] = []
+        for hook_index, hook in enumerate(self._rule_hooks):
+            for entity_id in hook.sourceEntityIds:
+                hook_entity_indexes[entity_id].add(hook_index)
+            for rule_id in hook.sourceRuleIds:
+                hook_rule_indexes[rule_id].add(hook_index)
+
+            generic_terms = tuple(
+                normalized
+                for term in {hook.domain, hook.titleKo, hook.engineFunction}
+                for normalized in [normalize_lookup_text(term)]
+                if normalized
+            )
+            special = _HOOK_SPECIAL_TERMS.get(hook.id)
+            normalized_special = (
+                (special[0], tuple(normalize_lookup_text(term) for term in special[1]))
+                if special
+                else None
+            )
+            self._rule_hook_generic_terms.append(generic_terms)
+            self._rule_hook_special_terms.append(normalized_special)
+            hook_text_terms.extend((term, hook_index) for term in generic_terms)
+            if normalized_special:
+                hook_text_terms.extend((term, hook_index) for term in normalized_special[1])
+
+        self._rule_hook_entity_index = {
+            entity_id: frozenset(indexes) for entity_id, indexes in hook_entity_indexes.items()
+        }
+        self._rule_hook_rule_index = {
+            rule_id: frozenset(indexes) for rule_id, indexes in hook_rule_indexes.items()
+        }
+        self._rule_hook_text_index = _SubstringIndex(hook_text_terms)
+
+        indexes = (
+            self._spell_index,
+            self._condition_index,
+            self._magic_item_index,
+            self._monster_index,
+            self._race_index,
+            self._class_index,
+            self._rule_card_text_index,
+            self._rule_hook_text_index,
+        )
+        index_parts = [index.stats() for index in indexes]
+        self.index_stats = {
+            "build_duration_ms": round((time.perf_counter() - index_started_at) * 1000, 3),
+            "entity_count": sum(
+                len(catalog)
+                for catalog in (
+                    self._spells,
+                    self._conditions,
+                    self._magic_items,
+                    self._monsters,
+                    self._races,
+                    self._classes,
+                    self._rule_cards,
+                    self._rule_hooks,
+                )
+            ),
+            "term_count": sum(part["term_count"] for part in index_parts),
+            "alias_count": sum(part["alias_count"] for part in index_parts),
+            "ngram_key_count": sum(part["ngram_key_count"] for part in index_parts),
+            "posting_count": sum(part["posting_count"] for part in index_parts),
+            "estimated_bytes": sum(part["estimated_bytes"] for part in index_parts),
+        }
+        logger.info("srd_retriever_index_built %s", self.index_stats)
 
     def find_spells(self, text: str, limit: int = 5) -> list[Spell]:
-        haystack = normalize_lookup_text(text)
-        matches: list[Spell] = []
-        seen: set[str] = set()
-        for term, spell in self._spell_terms:
-            if term and term in haystack and spell.id not in seen:
-                matches.append(spell)
-                seen.add(spell.id)
-            if len(matches) >= limit:
-                break
-        return matches
+        return self._find_indexed_entities(self._spell_index, text, limit)
 
     def find_conditions(self, text: str, limit: int = 5) -> list[Condition]:
-        haystack = normalize_lookup_text(text)
-        matches: list[Condition] = []
-        seen: set[str] = set()
-        for term, condition in self._condition_terms:
-            if term and term in haystack and condition.id not in seen:
-                matches.append(condition)
-                seen.add(condition.id)
-            if len(matches) >= limit:
-                break
-        return matches
+        return self._find_indexed_entities(self._condition_index, text, limit)
 
     def find_magic_items(self, text: str, limit: int = 5) -> list[MagicItem]:
-        haystack = normalize_lookup_text(text)
-        matches: list[MagicItem] = []
-        seen: set[str] = set()
-        for term, item in self._magic_item_terms:
-            if term and term in haystack and item.id not in seen:
-                matches.append(item)
-                seen.add(item.id)
-            if len(matches) >= limit:
-                break
-        return matches
+        return self._find_indexed_entities(self._magic_item_index, text, limit)
 
     def find_monsters(self, text: str, limit: int = 5) -> list[Monster]:
-        haystack = normalize_lookup_text(text)
-        matches: list[Monster] = []
-        seen: set[str] = set()
-        for term, monster in self._monster_terms:
-            if term and term in haystack and monster.id not in seen:
-                matches.append(monster)
-                seen.add(monster.id)
-            if len(matches) >= limit:
-                break
-        return matches
+        return self._find_indexed_entities(self._monster_index, text, limit)
 
     def find_races(self, text: str, limit: int = 5) -> list[RaceOption]:
-        haystack = normalize_lookup_text(text)
-        matches: list[RaceOption] = []
-        seen: set[str] = set()
-        for term, race in self._race_terms:
-            if term and term in haystack and race.id not in seen:
-                matches.append(race)
-                seen.add(race.id)
-            if len(matches) >= limit:
-                break
-        return matches
+        return self._find_indexed_entities(self._race_index, text, limit)
 
     def find_classes(self, text: str, limit: int = 5) -> list[ClassOption]:
-        haystack = normalize_lookup_text(text)
-        matches: list[ClassOption] = []
-        seen: set[str] = set()
-        for term, class_option in self._class_terms:
-            if term and term in haystack and class_option.id not in seen:
-                matches.append(class_option)
-                seen.add(class_option.id)
-            if len(matches) >= limit:
-                break
-        return matches
+        return self._find_indexed_entities(self._class_index, text, limit)
 
     def related_rule_cards_for_text(self, text: str, limit: int = 5) -> list[RuleCard]:
         haystack = normalize_lookup_text(text)
         scored: list[tuple[int, RuleCard]] = []
-        for card in self._rule_cards:
-            score = 0
-            for term in {card.titleKo, card.domain}:
-                normalized = normalize_lookup_text(term)
-                if normalized and normalized in haystack:
-                    score += 3
-            for keyword in card.summaryKo.split()[:25]:
-                normalized = normalize_lookup_text(keyword)
-                if len(normalized) >= 3 and normalized in haystack:
-                    score += 1
+        candidate_indexes = set(self._rule_card_text_index.matching_values(haystack))
+        for card_index in candidate_indexes:
+            card = self._rule_cards[card_index]
+            score = sum(
+                weight
+                for term, weight in self._rule_card_score_terms[card_index]
+                if term in haystack
+            )
             if score:
                 scored.append((score, card))
         scored.sort(key=lambda item: (-item[0], item[1].id))
@@ -364,71 +513,58 @@ class SrdRetriever:
         rule_ids = {fragment.id for fragment in related_fragments}
         haystack = normalize_lookup_text(text)
 
+        candidate_indexes = set(self._rule_hook_text_index.matching_values(haystack))
+        for entity_id in entity_ids:
+            candidate_indexes.update(self._rule_hook_entity_index.get(entity_id, ()))
+        for rule_id in rule_ids:
+            candidate_indexes.update(self._rule_hook_rule_index.get(rule_id, ()))
+
         scored: list[tuple[int, RuleHookFixture]] = []
-        for hook in self._rule_hooks:
+        for hook_index in candidate_indexes:
+            hook = self._rule_hooks[hook_index]
             score = 0
-            entity_match = set(hook.sourceEntityIds) & entity_ids
+            entity_match = self._rule_hook_source_entity_ids[hook_index] & entity_ids
             if entity_match:
                 score += 8
             if (
                 hook.domain != "class_feature"
-                and set(hook.sourceRuleIds) & rule_ids
+                and self._rule_hook_source_rule_ids[hook_index] & rule_ids
                 and (not hook.sourceEntityIds or entity_match)
             ):
                 score += 6
-            for term in {hook.domain, hook.titleKo, hook.engineFunction}:
-                normalized = normalize_lookup_text(term)
-                if normalized and normalized in haystack:
+            for normalized in self._rule_hook_generic_terms[hook_index]:
+                if normalized in haystack:
                     score += 3
-            if hook.id == "hook.combat.resolve_attack_roll" and any(
-                term in haystack for term in ["공격", "attack", "명중"]
-            ):
-                score += 2
-            if hook.id == "hook.damage.apply_resistance_vulnerability" and any(
-                term in haystack for term in ["피해", "저항", "취약", "면역", "damage", "resistance"]
-            ):
-                score += 2
-            if hook.id == "hook.condition.apply_prone_modifiers" and any(
-                term in haystack for term in ["넘어짐", "넘어진", "prone"]
-            ):
-                score += 2
-            if hook.id == "hook.item.bag_of_holding_capacity" and any(
-                term in haystack for term in ["보유의주머니", "bagofholding", "용량", "넣"]
-            ):
-                score += 2
-            if hook.id == "hook.class.fighter.second_wind" and any(
-                term in haystack for term in ["재기의숨결", "secondwind", "회복"]
-            ):
-                score += 4
-            if hook.id == "hook.class.fighter.action_surge" and any(
-                term in haystack for term in ["행동연쇄", "actionsurge", "추가행동"]
-            ):
-                score += 4
-            if hook.id == "hook.class.fighter.champion_critical_threshold" and any(
-                term in haystack for term in ["향상된치명타", "우월한치명타", "champion", "치명타", "critical"]
-            ):
-                score += 4
-            if hook.id == "hook.class.barbarian.rage" and any(
-                term in haystack for term in ["격노", "rage"]
-            ):
-                score += 4
-            if hook.id == "hook.class.rogue.sneak_attack" and any(
-                term in haystack for term in ["암습", "sneakattack"]
-            ):
-                score += 4
-            if hook.id == "hook.class.rogue.cunning_action" and any(
-                term in haystack for term in ["교활한행동", "cunningaction", "질주", "이탈", "숨기"]
-            ):
-                score += 4
-            if hook.id == "hook.class.barbarian.frenzy" and any(
-                term in haystack for term in ["광분", "frenzy"]
-            ):
-                score += 5
+            special = self._rule_hook_special_terms[hook_index]
+            if special and any(term in haystack for term in special[1]):
+                score += special[0]
             if score:
                 scored.append((score, hook))
 
         scored.sort(key=lambda item: (-item[0], item[1].id))
         return [hook for _, hook in scored[:limit]]
+
+    @staticmethod
+    def _find_indexed_entities(
+        index: _SubstringIndex[T],
+        text: str,
+        limit: int,
+    ) -> list[T]:
+        if limit <= 0:
+            return []
+
+        haystack = normalize_lookup_text(text)
+        matches: list[T] = []
+        seen: set[str] = set()
+        for entity in index.matching_values(haystack):
+            entity_id = str(getattr(entity, "id"))
+            if entity_id in seen:
+                continue
+            matches.append(entity)
+            seen.add(entity_id)
+            if len(matches) >= limit:
+                break
+        return matches
 
     @staticmethod
     def _fragment_ids_for_spell(spell: Spell) -> list[str]:

@@ -1051,7 +1051,6 @@ export class CombatTurnService {
       const latestCombat = await runtime.getActiveCombatEntity(params.session.id);
       const refreshedCombat = await runtime.mapCombat(latestCombat);
       runtime.realtimeEvents.emitCombatUpdated(params.session.id, refreshedCombat);
-      runtime.realtimeEvents.emitSessionSnapshot(params.session.id, await runtime.sessionsService.buildSnapshot(params.session.id));
       resultWithRiders = { ...result, combat: refreshedCombat };
     }
 
@@ -1330,7 +1329,6 @@ export class CombatTurnService {
     });
     runtime.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(params.session.id, await runtime.sessionsService.buildSnapshot(params.session.id));
 
     return {
       combat: response,
@@ -1499,10 +1497,6 @@ export class CombatTurnService {
     );
     runtime.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(
-      params.session.id,
-      await runtime.sessionsService.buildSnapshot(params.session.id),
-    );
     return {
       combat: response,
       message: params.autoEndTurn ? `${message} / 턴 종료` : message,
@@ -1752,10 +1746,12 @@ export class CombatTurnService {
     });
     runtime.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(
-      params.session.id,
-      await runtime.sessionsService.buildSnapshot(params.session.id),
-    );
+    if (response.status !== CombatStatus.ACTIVE) {
+      runtime.realtimeEvents.emitSessionSnapshot(
+        params.session.id,
+        await runtime.sessionsService.buildSnapshot(params.session.id),
+      );
+    }
 
     return {
       combat: response,
@@ -1918,7 +1914,6 @@ export class CombatTurnService {
       .join(" / ")}${params.autoEndTurn ? " / 턴 종료" : ""}`;
 
     runtime.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(params.session.id, await runtime.sessionsService.buildSnapshot(params.session.id));
 
     return {
       combat: response,

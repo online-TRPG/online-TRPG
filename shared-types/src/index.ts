@@ -22,6 +22,8 @@ export * from "./utils/main-command-response";
 export * from "./utils/api-decoders";
 export * from "./utils/runtime-guards";
 export * from "./utils/status-helpers";
+export * from "./utils/state-diff";
+export * from "./utils/vtt-map-delta";
 
 export {
   MONSTER_ACTION_UNAVAILABLE_REASONS,

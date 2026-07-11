@@ -77,6 +77,12 @@ describe("SessionVttMovementFramePublisherService", () => {
     expect(realtimeEvents.emitVttMapUpdated).toHaveBeenCalledTimes(2);
     expect(realtimeEvents.emitVttMapUpdated).toHaveBeenNthCalledWith(1, "session-1", {
       hostUserId: "host-1",
+      previousHostMap: expect.objectContaining({
+        tokens: [expect.objectContaining({ id: "token-1", x: 0, y: 0 })],
+      }),
+      previousPlayerMap: expect.objectContaining({
+        tokens: [expect.objectContaining({ id: "token-1", x: 0, y: 0 })],
+      }),
       hostMap: expect.objectContaining({
         tokens: [expect.objectContaining({ id: "token-1", x: 64, y: 0 })],
       }),
@@ -86,6 +92,12 @@ describe("SessionVttMovementFramePublisherService", () => {
     });
     expect(realtimeEvents.emitVttMapUpdated).toHaveBeenNthCalledWith(2, "session-1", {
       hostUserId: "host-1",
+      previousHostMap: expect.objectContaining({
+        tokens: [expect.objectContaining({ id: "token-1", x: 64, y: 0 })],
+      }),
+      previousPlayerMap: expect.objectContaining({
+        tokens: [expect.objectContaining({ id: "token-1", x: 64, y: 0 })],
+      }),
       hostMap: expect.objectContaining({
         tokens: [expect.objectContaining({ id: "token-1", x: 128, y: 64 })],
       }),
@@ -93,6 +105,6 @@ describe("SessionVttMovementFramePublisherService", () => {
         tokens: [expect.objectContaining({ id: "token-1", x: 128, y: 64 })],
       }),
     });
-    expect(redactVttMapForPlayer).toHaveBeenCalledTimes(2);
+    expect(redactVttMapForPlayer).toHaveBeenCalledTimes(4);
   });
 });

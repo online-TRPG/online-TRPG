@@ -76,7 +76,7 @@ type SessionScenarioWithScenario = SessionScenario & {
 
 type ParticipantWithUserAndCharacter = SessionParticipant & {
   user: User;
-  sessionCharacter?: (SessionCharacter & { character: Character }) | null;
+  sessionCharacter?: Pick<SessionCharacter, "id" | "characterId"> | null;
 };
 
 type CharacterWithAssignments = Character & {
@@ -850,7 +850,10 @@ function parseScenarioRevisionMetadata(attribution: string | null | undefined): 
     };
   }
   const publicAttribution = raw.slice(0, markerIndex).trim() || null;
-  const metadataText = raw.slice(markerIndex + marker.length).trim();
+  const metadataText = raw
+    .slice(markerIndex + marker.length)
+    .split(/\r?\n/, 1)[0]
+    ?.trim() ?? "";
   try {
     const metadata = parseJsonOrFallback(metadataText, null, decodeDomainScenarioRevisionMetadata);
     if (!metadata) {

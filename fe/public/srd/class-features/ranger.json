@@ -1,0 +1,518 @@
+[
+  {
+    "id": "class.ranger.feature.숙적",
+    "classKey": "ranger",
+    "level": 1,
+    "nameKo": "숙적",
+    "category": "class",
+    "summaryKo": "1레벨에 숙적 유형 하나를 선택한다. 선택지는 괴이체, 야수, 천상체, 구조체, 드래곤, 정령, 페이, 악마, 거인, 괴물, 점액체, 식물, 언데드 또는 인간형 종족 둘이다. 숙적 추적을 위한 지혜(생존) 판정에 유리함을 얻는다. 숙적에 대한 정보를 떠올리는 지능 판정에 유리함을 얻는다. 숙적이 사용하는 언어 하나를 배울 수 있다. 6레벨과 14레벨에 숙적과 관련 언어를 추가 선택한다.",
+    "source": "srd",
+    "aliases": [
+      "숙적"
+    ],
+    "availableAtLevels": [
+      1,
+      14,
+      20
+    ]
+  },
+  {
+    "id": "class.ranger.feature.자연_탐험가",
+    "classKey": "ranger",
+    "level": 1,
+    "nameKo": "자연 탐험가",
+    "category": "class",
+    "summaryKo": "선호 지형 하나를 선택한다. 해당 지형과 관련된 지능 또는 지혜 판정에서 숙련 기술을 사용한다면 숙련 보너스가 두 배가 된다. 해당 지형에서 1시간 이상 여행할 때 그룹 이동 둔화, 길 잃기, 채집, 추적 등에 이익을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "자연_탐험가"
+    ],
+    "availableAtLevels": [
+      1,
+      10
+    ]
+  },
+  {
+    "id": "class.ranger.feature.ability_score_improvement",
+    "classKey": "ranger",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.ability_score_improvement_12",
+    "classKey": "ranger",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.ability_score_improvement_14",
+    "classKey": "ranger",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.ability_score_improvement_16",
+    "classKey": "ranger",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.ability_score_improvement_19",
+    "classKey": "ranger",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.ability_score_improvement_8",
+    "classKey": "ranger",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.extra_attack",
+    "classKey": "ranger",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "자기 턴에 공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "추가_공격",
+      "extra_attack"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.ranger.feature.favored_enemy",
+    "classKey": "ranger",
+    "level": 1,
+    "nameKo": "숙적",
+    "category": "class",
+    "summaryKo": "1레벨에 숙적 유형 하나를 선택한다. 선택지는 괴이체, 야수, 천상체, 구조체, 드래곤, 정령, 페이, 악마, 거인, 괴물, 점액체, 식물, 언데드 또는 인간형 종족 둘이다. 숙적 추적을 위한 지혜(생존) 판정에 유리함을 얻는다. 숙적에 대한 정보를 떠올리는 지능 판정에 유리함을 얻는다. 숙적이 사용하는 언어 하나를 배울 수 있다. 6레벨과 14레벨에 숙적과 관련 언어를 추가 선택한다.",
+    "source": "runtime",
+    "aliases": [
+      "숙적",
+      "class.ranger.feature.숙적",
+      "숙적_향상",
+      "favored_enemy"
+    ],
+    "availableAtLevels": [
+      1,
+      14,
+      20
+    ]
+  },
+  {
+    "id": "class.ranger.feature.favored_enemy_improvement",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "주적 향상",
+    "category": "class",
+    "summaryKo": "주적 선택지가 추가되어 더 많은 적 유형에 대한 추적과 지식 판정 이점을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "favored_enemy_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.favored_enemy_improvement_14",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "주적 향상 14레벨",
+    "category": "class",
+    "summaryKo": "주적 선택지가 한 번 더 추가되어 더 많은 적 유형에 대응할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "favored_enemy_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.feral_senses",
+    "classKey": "ranger",
+    "level": 18,
+    "nameKo": "야성 감각",
+    "category": "class",
+    "summaryKo": "보이지 않는 크리처와 싸울 때의 불리함을 줄이고, 조건을 만족하면 투명한 적의 위치를 감지합니다.",
+    "source": "runtime",
+    "aliases": [
+      "야성_감각",
+      "feral_senses"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.ranger.feature.fighting_style",
+    "classKey": "ranger",
+    "level": 2,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "2레벨에 궁술, 방어술, 결투술, 쌍수 전투술 등 레인저 전투 방식을 선택합니다.",
+    "source": "runtime",
+    "aliases": [
+      "전투_방식",
+      "fighting_style"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.ranger.feature.foe_slayer",
+    "classKey": "ranger",
+    "level": 20,
+    "nameKo": "숙적",
+    "category": "class",
+    "summaryKo": "1레벨에 숙적 유형 하나를 선택한다. 선택지는 괴이체, 야수, 천상체, 구조체, 드래곤, 정령, 페이, 악마, 거인, 괴물, 점액체, 식물, 언데드 또는 인간형 종족 둘이다. 숙적 추적을 위한 지혜(생존) 판정에 유리함을 얻는다. 숙적에 대한 정보를 떠올리는 지능 판정에 유리함을 얻는다. 숙적이 사용하는 언어 하나를 배울 수 있다. 6레벨과 14레벨에 숙적과 관련 언어를 추가 선택한다.",
+    "source": "runtime",
+    "aliases": [
+      "숙적_처단자",
+      "class.ranger.feature.숙적",
+      "foe_slayer"
+    ],
+    "availableAtLevels": [
+      1,
+      14,
+      20
+    ]
+  },
+  {
+    "id": "class.ranger.feature.hide_in_plain_sight",
+    "classKey": "ranger",
+    "level": 10,
+    "nameKo": "눈앞의 은신",
+    "category": "class",
+    "summaryKo": "1분 동안 위장을 준비해 움직이지 않는 동안 은신 판정에 큰 보너스를 받을 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "눈앞의_은신",
+      "hide_in_plain_sight"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.ranger.feature.lands_stride",
+    "classKey": "ranger",
+    "level": 8,
+    "nameKo": "대지의 발걸음",
+    "category": "class",
+    "summaryKo": "비마법적 험지와 식물이 이동을 늦추지 않으며, 마법 식물의 방해에 저항하기 쉬워집니다.",
+    "source": "runtime",
+    "aliases": [
+      "대지의_발걸음",
+      "lands_stride"
+    ],
+    "availableAtLevels": [
+      8
+    ]
+  },
+  {
+    "id": "class.ranger.feature.natural_explorer",
+    "classKey": "ranger",
+    "level": 1,
+    "nameKo": "자연 탐험가",
+    "category": "class",
+    "summaryKo": "선호 지형 하나를 선택한다. 해당 지형과 관련된 지능 또는 지혜 판정에서 숙련 기술을 사용한다면 숙련 보너스가 두 배가 된다. 해당 지형에서 1시간 이상 여행할 때 그룹 이동 둔화, 길 잃기, 채집, 추적 등에 이익을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "자연_탐험가",
+      "class.ranger.feature.자연_탐험가",
+      "자연_탐험가_향상",
+      "natural_explorer"
+    ],
+    "availableAtLevels": [
+      1,
+      10
+    ]
+  },
+  {
+    "id": "class.ranger.feature.natural_explorer_improvement",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "자연 탐험가 향상",
+    "category": "class",
+    "summaryKo": "익숙한 지형 선택지가 추가되어 더 많은 환경에서 탐험 이점을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "natural_explorer_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.feature.primeval_awareness",
+    "classKey": "ranger",
+    "level": 3,
+    "nameKo": "원초적 감지",
+    "category": "class",
+    "summaryKo": "주문 슬롯을 소비해 주변의 특정 크리처 유형 존재를 감지합니다.",
+    "source": "runtime",
+    "aliases": [
+      "원초적_감지",
+      "primeval_awareness"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.ranger.feature.ranger_archetype",
+    "classKey": "ranger",
+    "level": 3,
+    "nameKo": "레인저 아키타입",
+    "category": "class",
+    "summaryKo": "3레벨에 레인저 서브클래스를 선택해 사냥 방식과 전투 역할을 확장합니다.",
+    "source": "runtime",
+    "aliases": [
+      "레인저_아키타입",
+      "ranger_archetype"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.ranger.feature.spellcasting",
+    "classKey": "ranger",
+    "level": 2,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "레인저는 지혜를 주문시전 능력치로 사용하며, 알고 있는 레인저 주문을 주문 슬롯으로 시전합니다.",
+    "source": "runtime",
+    "aliases": [
+      "주문시전",
+      "spellcasting"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.ranger.feature.vanish",
+    "classKey": "ranger",
+    "level": 14,
+    "nameKo": "사라지기",
+    "category": "class",
+    "summaryKo": "보조행동으로 숨기 행동을 할 수 있고, 흔적을 남기지 않으면 비마법적 추적을 피할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "사라지기",
+      "vanish"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.다중공격",
+    "classKey": "ranger",
+    "level": 11,
+    "nameKo": "다중공격",
+    "category": "subclass",
+    "summaryKo": "일제 사격 또는 회오리 공격 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "다중공격"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.방어_전술",
+    "classKey": "ranger",
+    "level": 7,
+    "nameKo": "방어 전술",
+    "category": "subclass",
+    "summaryKo": "무리 탈출, 다중공격 방어, 강철 의지 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "방어_전술"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.사냥꾼의_먹잇감",
+    "classKey": "ranger",
+    "level": 3,
+    "nameKo": "사냥꾼의 먹잇감",
+    "category": "subclass",
+    "summaryKo": "거상 살해자, 거인 살해자, 무리 파괴자 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "사냥꾼의_먹잇감"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.우월한_사냥꾼_방어",
+    "classKey": "ranger",
+    "level": 15,
+    "nameKo": "우월한 사냥꾼 방어",
+    "category": "subclass",
+    "summaryKo": "회피, 물결에 맞서기, 불가사의한 회피 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "우월한_사냥꾼_방어"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.defensive_tactics",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "방어 전술",
+    "category": "subclass",
+    "summaryKo": "무리 탈출, 다중공격 방어, 강철 의지 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "defensive_tactics"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.subclass_feature.hunters_prey",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "사냥꾼의 먹잇감",
+    "category": "subclass",
+    "summaryKo": "거상 살해자, 거인 살해자, 무리 파괴자 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "hunters_prey"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.subclass_feature.multiattack",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "다중공격",
+    "category": "subclass",
+    "summaryKo": "일제 사격 또는 회오리 공격 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "multiattack"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.ranger.subclass_feature.superior_hunters_defense",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "우월한 사냥꾼 방어",
+    "category": "subclass",
+    "summaryKo": "회피, 물결에 맞서기, 불가사의한 회피 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "superior_hunters_defense"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.ranger.hunter.feature.defensive_tactics",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "방어 전술",
+    "category": "subclass",
+    "summaryKo": "무리 탈출, 다중공격 방어, 강철 의지 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "defensive_tactics"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.ranger.hunter.feature.hunters_prey",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "사냥꾼의 먹잇감",
+    "category": "subclass",
+    "summaryKo": "거상 살해자, 거인 살해자, 무리 파괴자 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "hunters_prey"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.ranger.hunter.feature.multiattack",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "다중공격",
+    "category": "subclass",
+    "summaryKo": "일제 사격 또는 회오리 공격 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "multiattack"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.ranger.hunter.feature.superior_hunters_defense",
+    "classKey": "ranger",
+    "level": 0,
+    "nameKo": "우월한 사냥꾼 방어",
+    "category": "subclass",
+    "summaryKo": "회피, 물결에 맞서기, 불가사의한 회피 중 하나 선택.",
+    "source": "runtime",
+    "aliases": [
+      "superior_hunters_defense"
+    ],
+    "availableAtLevels": []
+  }
+]

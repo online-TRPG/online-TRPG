@@ -7,6 +7,7 @@ const repoRoot = path.resolve(scriptDir, '..');
 const generatedDir = path.join(repoRoot, 'srd-data', 'generated', 'srd');
 const publicDir = path.join(repoRoot, 'fe', 'public');
 const publicSrdDir = path.join(publicDir, 'srd');
+const publicClassFeatureDir = path.join(publicSrdDir, 'class-features');
 const publicRulebookDir = path.join(publicDir, 'rulebooks');
 
 async function ensureDir(targetDir) {
@@ -59,6 +60,7 @@ async function writeJson(filePath, payload) {
 }
 
 await ensureDir(publicSrdDir);
+await ensureDir(publicClassFeatureDir);
 await ensureDir(publicRulebookDir);
 
 await copyFile(
@@ -73,6 +75,22 @@ await copyFile(
 await copyFile(
   path.join(generatedDir, 'class-features.json'),
   path.join(publicSrdDir, 'class-features.json'),
+);
+const classFeatures = JSON.parse(
+  await readFile(path.join(generatedDir, 'class-features.json'), 'utf8'),
+);
+const classFeaturesByKey = new Map();
+for (const feature of classFeatures) {
+  const classKey = typeof feature.classKey === 'string' ? feature.classKey.trim().toLowerCase() : '';
+  if (!classKey) continue;
+  const entries = classFeaturesByKey.get(classKey) ?? [];
+  entries.push(feature);
+  classFeaturesByKey.set(classKey, entries);
+}
+await Promise.all(
+  Array.from(classFeaturesByKey.entries()).map(([classKey, entries]) =>
+    writeJson(path.join(publicClassFeatureDir, `${classKey}.json`), entries),
+  ),
 );
 await copyFile(
   path.join(generatedDir, 'fe-spell-pools.json'),

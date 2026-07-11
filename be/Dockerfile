@@ -50,6 +50,10 @@ COPY --from=builder --chown=node:node /app/node_modules/prisma ./node_modules/pr
 COPY --from=builder --chown=node:node /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 # Prisma schema
 COPY --from=builder --chown=node:node /app/be/prisma ./be/prisma
+# additive schema 배포 직후 기존 시나리오 projection을 채우는 일회성/멱등 backfill
+COPY --chown=node:node scripts/backfill-scenario-publication.mjs ./scripts/backfill-scenario-publication.mjs
+# 기존 AiTrace response JSON에서 fallbackUsed 구조화 필드를 복구하는 일회성/멱등 backfill
+COPY --chown=node:node scripts/backfill-ai-trace-fallback.mjs ./scripts/backfill-ai-trace-fallback.mjs
 # SRD runtime catalog used by backend rule fragment lookups
 COPY --chown=node:node srd-data/ ./srd-data/
 

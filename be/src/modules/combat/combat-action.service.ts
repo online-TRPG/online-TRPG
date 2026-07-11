@@ -7,6 +7,7 @@ import {
   CombatActorActionDto,
   CombatActionResultDto,
   CombatBasicActionDto,
+  CombatStatus,
   DiceAdvantageState,
   DiceRollResponseDto,
   EquippedWeaponAttackDto,
@@ -66,7 +67,12 @@ export class CombatActionService {
       runtime.realtimeEvents.emitDiceRolled(session.id, concentrationCheck.diceResult);
     }
     runtime.realtimeEvents.emitCombatUpdated(session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(session.id, await runtime.sessionsService.buildSnapshot(session.id));
+    if (response.status !== CombatStatus.ACTIVE) {
+      runtime.realtimeEvents.emitSessionSnapshot(
+        session.id,
+        await runtime.sessionsService.buildSnapshot(session.id),
+      );
+    }
 
     return {
       combat: response,
@@ -3398,7 +3404,12 @@ export class CombatActionService {
     }
     runtime.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(session.id, await runtime.sessionsService.buildSnapshot(session.id));
+    if (response.status !== CombatStatus.ACTIVE) {
+      runtime.realtimeEvents.emitSessionSnapshot(
+        session.id,
+        await runtime.sessionsService.buildSnapshot(session.id),
+      );
+    }
 
     const pendingReactions = [...readySpellCastTriggers.prompts, ...readyAttackTriggers.prompts];
     const readyActionMessage = pendingReactions.length > 0 ? ` / 준비행동 ${pendingReactions.length}개가 발동 대기 중입니다.` : "";
@@ -3833,7 +3844,6 @@ export class CombatActionService {
     });
     runtime.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(session.id, await runtime.sessionsService.buildSnapshot(session.id));
 
     return {
       combat: response,
@@ -3875,7 +3885,6 @@ export class CombatActionService {
     });
     runtime.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(session.id, await runtime.sessionsService.buildSnapshot(session.id));
 
     return {
       combat: response,
@@ -3929,7 +3938,6 @@ export class CombatActionService {
     runtime.realtimeEvents.emitDiceRolled(session.id, diceResult);
     runtime.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(session.id, response);
-    runtime.realtimeEvents.emitSessionSnapshot(session.id, await runtime.sessionsService.buildSnapshot(session.id));
 
     return {
       combat: response,

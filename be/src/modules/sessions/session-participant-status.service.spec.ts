@@ -71,7 +71,10 @@ describe("SessionParticipantStatusService", () => {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+          },
         },
       },
       orderBy: { joinedAt: "asc" },
@@ -167,7 +170,10 @@ describe("SessionParticipantStatusService", () => {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+          },
         },
       },
     });
@@ -377,7 +383,10 @@ describe("SessionParticipantStatusService", () => {
       include: {
         user: true,
         sessionCharacter: {
-          include: { character: true },
+          select: {
+            id: true,
+            characterId: true,
+          },
         },
       },
     });

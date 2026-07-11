@@ -112,7 +112,7 @@ export function CharacterDetailModal({
 
   useEffect(() => {
     let cancelled = false;
-    loadClassFeatureManifest()
+    loadClassFeatureManifest([character.className])
       .then((manifest) => {
         if (!cancelled) {
           setClassFeatureManifest(manifest);
@@ -127,7 +127,7 @@ export function CharacterDetailModal({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [character.className]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

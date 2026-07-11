@@ -1,0 +1,610 @@
+[
+  {
+    "id": "class.paladin.feature.보호의_오라",
+    "classKey": "paladin",
+    "level": 6,
+    "nameKo": "보호의 오라",
+    "category": "class",
+    "summaryKo": "6레벨부터 자신 또는 10피트 이내 우호적 크리처가 내성 굴림을 할 때, 자신이 의식이 있다면 매력 수정치를 보너스로 더한다. 18레벨부터 범위가 30피트가 된다.",
+    "source": "srd",
+    "aliases": [
+      "보호의_오라"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.paladin.feature.신성한_감각",
+    "classKey": "paladin",
+    "level": 1,
+    "nameKo": "신성한 감각",
+    "category": "class",
+    "summaryKo": "행동으로 다음 자기 턴 끝까지 60피트 이내 천상체, 악마, 언데드의 위치를 감지한다. 완전 엄폐 뒤의 존재는 감지하지 못한다. 사용 횟수는 `1 + 매력 수정치`이며 긴 휴식 후 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "신성한_감각"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.paladin.feature.신성한_강타",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "신성한 강타",
+    "category": "class",
+    "summaryKo": "근접 무기 공격으로 명중했을 때 주문 슬롯을 소비해 추가 광휘 피해를 줄 수 있다. 기본 피해는 1레벨 슬롯 2d8이며, 슬롯 레벨이 1 높아질 때마다 1d8 증가한다. 최대 추가 피해는 5d8이다. 대상이 악마나 언데드라면 1d8을 추가로 주며, 이 경우 최대 6d8까지 증가할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "신성한_강타"
+    ],
+    "availableAtLevels": [
+      2,
+      11
+    ]
+  },
+  {
+    "id": "class.paladin.feature.안수치료",
+    "classKey": "paladin",
+    "level": 1,
+    "nameKo": "안수치료",
+    "category": "class",
+    "summaryKo": "긴 휴식마다 `팔라딘 레벨 x 5`점의 치유 풀을 가진다. 행동으로 크리처를 만져 원하는 만큼 HP를 회복시키거나, 5점을 소비해 질병 하나 또는 독 하나를 치료할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "안수치료"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.paladin.feature.ability_score_improvement",
+    "classKey": "paladin",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.ability_score_improvement_12",
+    "classKey": "paladin",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.ability_score_improvement_14",
+    "classKey": "paladin",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.ability_score_improvement_16",
+    "classKey": "paladin",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.ability_score_improvement_19",
+    "classKey": "paladin",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.ability_score_improvement_8",
+    "classKey": "paladin",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.aura_improvements",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "오라 향상",
+    "category": "class",
+    "summaryKo": "팔라딘 오라의 적용 범위가 더 넓어집니다.",
+    "source": "runtime",
+    "aliases": [
+      "aura_improvements"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.aura_of_courage",
+    "classKey": "paladin",
+    "level": 10,
+    "nameKo": "용기의 오라",
+    "category": "class",
+    "summaryKo": "자신과 가까운 아군이 공포 상태에 면역을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "용기의_오라",
+      "aura_of_courage"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.paladin.feature.aura_of_protection",
+    "classKey": "paladin",
+    "level": 6,
+    "nameKo": "보호의 오라",
+    "category": "class",
+    "summaryKo": "6레벨부터 자신 또는 10피트 이내 우호적 크리처가 내성 굴림을 할 때, 자신이 의식이 있다면 매력 수정치를 보너스로 더한다. 18레벨부터 범위가 30피트가 된다.",
+    "source": "runtime",
+    "aliases": [
+      "보호의_오라",
+      "class.paladin.feature.보호의_오라",
+      "aura_of_protection"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.paladin.feature.cleansing_touch",
+    "classKey": "paladin",
+    "level": 14,
+    "nameKo": "정화의 손길",
+    "category": "class",
+    "summaryKo": "행동으로 자신이나 접촉한 크리처에게 걸린 주문 효과 하나를 끝낼 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "정화의_손길",
+      "cleansing_touch"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.paladin.feature.divine_health",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "신성한 건강",
+    "category": "class",
+    "summaryKo": "신성한 힘으로 질병에 면역을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "신성한_건강",
+      "divine_health"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.feature.divine_sense",
+    "classKey": "paladin",
+    "level": 1,
+    "nameKo": "신성한 감각",
+    "category": "class",
+    "summaryKo": "행동으로 다음 자기 턴 끝까지 60피트 이내 천상체, 악마, 언데드의 위치를 감지한다. 완전 엄폐 뒤의 존재는 감지하지 못한다. 사용 횟수는 `1 + 매력 수정치`이며 긴 휴식 후 회복한다.",
+    "source": "runtime",
+    "aliases": [
+      "신성한_감각",
+      "class.paladin.feature.신성한_감각",
+      "divine_sense"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.paladin.feature.divine_smite",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "신성한 강타",
+    "category": "class",
+    "summaryKo": "근접 무기 공격으로 명중했을 때 주문 슬롯을 소비해 추가 광휘 피해를 줄 수 있다. 기본 피해는 1레벨 슬롯 2d8이며, 슬롯 레벨이 1 높아질 때마다 1d8 증가한다. 최대 추가 피해는 5d8이다. 대상이 악마나 언데드라면 1d8을 추가로 주며, 이 경우 최대 6d8까지 증가할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "신성한_강타",
+      "class.paladin.feature.신성한_강타",
+      "divine_smite"
+    ],
+    "availableAtLevels": [
+      2,
+      11
+    ]
+  },
+  {
+    "id": "class.paladin.feature.extra_attack",
+    "classKey": "paladin",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "공격 행동을 할 때 한 번이 아니라 두 번 공격할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "추가_공격",
+      "extra_attack"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.paladin.feature.fighting_style",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "2레벨에 방어, 결투, 대형 무기 전투, 보호 같은 팔라딘 전투 방식을 선택합니다.",
+    "source": "runtime",
+    "aliases": [
+      "전투_방식",
+      "fighting_style"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.paladin.feature.improved_divine_smite",
+    "classKey": "paladin",
+    "level": 11,
+    "nameKo": "향상된 신성한 강타",
+    "category": "class",
+    "summaryKo": "근접 무기 공격이 명중할 때마다 추가 광휘 피해를 줍니다.",
+    "source": "runtime",
+    "aliases": [
+      "향상된_신성한_강타",
+      "improved_divine_smite"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.paladin.feature.lay_on_hands",
+    "classKey": "paladin",
+    "level": 1,
+    "nameKo": "안수치료",
+    "category": "class",
+    "summaryKo": "긴 휴식마다 `팔라딘 레벨 x 5`점의 치유 풀을 가진다. 행동으로 크리처를 만져 원하는 만큼 HP를 회복시키거나, 5점을 소비해 질병 하나 또는 독 하나를 치료할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "안수치료",
+      "class.paladin.feature.안수치료",
+      "lay_on_hands"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.paladin.feature.sacred_oath",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "신성한 맹세",
+    "category": "class",
+    "summaryKo": "3레벨에 팔라딘 맹세를 선택해 맹세 주문과 신성 변환 선택지를 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "신성한_맹세",
+      "sacred_oath"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.feature.sacred_oath_capstone",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "성스러운 맹세 최종 특성",
+    "category": "class",
+    "summaryKo": "선택한 성스러운 맹세의 20레벨 최종 특성을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "sacred_oath_capstone"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.feature.spellcasting",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "팔라딘은 매력을 주문시전 능력치로 사용하며, 긴 휴식 후 준비 주문을 바꿀 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "주문시전",
+      "spellcasting"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.맹세_주문",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "맹세 주문",
+    "category": "subclass",
+    "summaryKo": "지정된 팔라딘 레벨에 맹세 주문을 얻고 항상 준비한 것으로 간주한다.",
+    "source": "srd",
+    "aliases": [
+      "맹세_주문"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.부정한_존재_퇴치",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "부정한 존재 퇴치",
+    "category": "subclass",
+    "summaryKo": "악마와 언데드를 퇴치한다.",
+    "source": "srd",
+    "aliases": [
+      "부정한_존재_퇴치"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.성스러운_광휘",
+    "classKey": "paladin",
+    "level": 20,
+    "nameKo": "성스러운 광휘",
+    "category": "subclass",
+    "summaryKo": "1분 동안 햇빛 오라를 발산해 적에게 광휘 피해를 주고, 악마/언데드 주문에 대한 내성 굴림에 유리함을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "성스러운_광휘"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.성스러운_무기",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "성스러운 무기",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 무기 공격 굴림에 매력 수정치를 더하고, 무기를 마법 무기로 만든다.",
+    "source": "srd",
+    "aliases": [
+      "성스러운_무기"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.영혼의_순수함",
+    "classKey": "paladin",
+    "level": 15,
+    "nameKo": "영혼의 순수함",
+    "category": "subclass",
+    "summaryKo": "항상 protection from evil and good 효과를 받는다.",
+    "source": "srd",
+    "aliases": [
+      "영혼의_순수함"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.헌신의_오라",
+    "classKey": "paladin",
+    "level": 7,
+    "nameKo": "헌신의 오라",
+    "category": "subclass",
+    "summaryKo": "자신과 10피트 이내 우호적 크리처는 매혹되지 않는다. 18레벨부터 30피트.",
+    "source": "srd",
+    "aliases": [
+      "헌신의_오라"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.aura_of_devotion",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "헌신의 오라",
+    "category": "subclass",
+    "summaryKo": "자신과 10피트 이내 우호적 크리처는 매혹되지 않는다. 18레벨부터 30피트.",
+    "source": "runtime",
+    "aliases": [
+      "aura_of_devotion"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.subclass_feature.holy_nimbus",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "성스러운 광휘",
+    "category": "subclass",
+    "summaryKo": "1분 동안 햇빛 오라를 발산해 적에게 광휘 피해를 주고, 악마/언데드 주문에 대한 내성 굴림에 유리함을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "holy_nimbus"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.subclass_feature.oath_spells_level_9",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "맹세 주문",
+    "category": "subclass",
+    "summaryKo": "지정된 팔라딘 레벨에 맹세 주문을 얻고 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "oath_spells_level_9"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.subclass_feature.purity_of_spirit",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "영혼의 순수함",
+    "category": "subclass",
+    "summaryKo": "항상 protection from evil and good 효과를 받는다.",
+    "source": "runtime",
+    "aliases": [
+      "purity_of_spirit"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.subclass_feature.sacred_weapon",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "맹세 주문",
+    "category": "subclass",
+    "summaryKo": "지정된 팔라딘 레벨에 맹세 주문을 얻고 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "sacred_weapon"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.paladin.subclass_feature.turn_the_unholy",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "성스러운 무기",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 무기 공격 굴림에 매력 수정치를 더하고, 무기를 마법 무기로 만든다.",
+    "source": "runtime",
+    "aliases": [
+      "turn_the_unholy"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.paladin.devotion.feature.aura_of_devotion",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "헌신의 오라",
+    "category": "subclass",
+    "summaryKo": "자신과 10피트 이내 우호적 크리처는 매혹되지 않는다. 18레벨부터 30피트.",
+    "source": "runtime",
+    "aliases": [
+      "aura_of_devotion"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.paladin.devotion.feature.holy_nimbus",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "성스러운 광휘",
+    "category": "subclass",
+    "summaryKo": "1분 동안 햇빛 오라를 발산해 적에게 광휘 피해를 주고, 악마/언데드 주문에 대한 내성 굴림에 유리함을 얻는다.",
+    "source": "runtime",
+    "aliases": [
+      "holy_nimbus"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.paladin.devotion.feature.oath_spells_level_9",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "맹세 주문",
+    "category": "subclass",
+    "summaryKo": "지정된 팔라딘 레벨에 맹세 주문을 얻고 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "oath_spells_level_9"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.paladin.devotion.feature.purity_of_spirit",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "영혼의 순수함",
+    "category": "subclass",
+    "summaryKo": "항상 protection from evil and good 효과를 받는다.",
+    "source": "runtime",
+    "aliases": [
+      "purity_of_spirit"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.paladin.devotion.feature.sacred_weapon",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "맹세 주문",
+    "category": "subclass",
+    "summaryKo": "지정된 팔라딘 레벨에 맹세 주문을 얻고 항상 준비한 것으로 간주한다.",
+    "source": "runtime",
+    "aliases": [
+      "sacred_weapon"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.paladin.devotion.feature.turn_the_unholy",
+    "classKey": "paladin",
+    "level": 0,
+    "nameKo": "성스러운 무기",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 무기 공격 굴림에 매력 수정치를 더하고, 무기를 마법 무기로 만든다.",
+    "source": "runtime",
+    "aliases": [
+      "turn_the_unholy"
+    ],
+    "availableAtLevels": []
+  }
+]

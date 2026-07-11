@@ -1,0 +1,593 @@
+[
+  {
+    "id": "class.bard.feature.만물박사",
+    "classKey": "bard",
+    "level": 2,
+    "nameKo": "만물박사",
+    "category": "class",
+    "summaryKo": "2레벨부터 숙련 보너스를 더하지 않는 능력 판정에 숙련 보너스의 절반(내림)을 더할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "만물박사"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.bard.feature.바드의_고양감",
+    "classKey": "bard",
+    "level": 1,
+    "nameKo": "바드의 고양감",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동으로 60피트 이내에서 자신을 들을 수 있는 자신 이외의 크리처 하나를 선택한다. 대상은 바드의 고양감 주사위 d6을 얻는다. 10분 안에 한 번, 능력 판정/공격 굴림/내성 굴림에 주사위를 굴려 더할 수 있다. d20을 굴린 뒤 사용할지 정할 수 있지만, GM이 성공/실패를 말하기 전이어야 한다. 동시에 하나의 바드 고양감 주사위만 가질 수 있다. 사용 횟수는 매력 수정치만큼, 최소 1회다. 긴 휴식 후 회복한다. 5레벨부터는 짧은 휴식…",
+    "source": "srd",
+    "aliases": [
+      "바드의_고양감"
+    ],
+    "availableAtLevels": [
+      1,
+      5,
+      10,
+      15
+    ]
+  },
+  {
+    "id": "class.bard.feature.휴식의_노래",
+    "classKey": "bard",
+    "level": 2,
+    "nameKo": "휴식의 노래",
+    "category": "class",
+    "summaryKo": "2레벨부터 짧은 휴식 끝에 자신 또는 공연을 들을 수 있는 우호적 크리처가 히트 다이스로 HP를 회복하면 추가 HP를 회복한다. 추가 회복량은 2레벨 d6, 9레벨 d8, 13레벨 d10, 17레벨 d12다.",
+    "source": "srd",
+    "aliases": [
+      "휴식의_노래"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.bard.feature.ability_score_improvement",
+    "classKey": "bard",
+    "level": 4,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.ability_score_improvement_12",
+    "classKey": "bard",
+    "level": 12,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.ability_score_improvement_14",
+    "classKey": "bard",
+    "level": 14,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.ability_score_improvement_16",
+    "classKey": "bard",
+    "level": 16,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_16"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.ability_score_improvement_19",
+    "classKey": "bard",
+    "level": 19,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_19"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.ability_score_improvement_8",
+    "classKey": "bard",
+    "level": 8,
+    "nameKo": "능력치 향상",
+    "category": "asi",
+    "summaryKo": "능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.",
+    "source": "runtime",
+    "aliases": [
+      "ability_score_improvement_8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.bard_college",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "바드 대학",
+    "category": "class",
+    "summaryKo": "3레벨에 바드 대학을 선택해 공연, 지식, 전투 방식에 맞는 서브클래스 특성을 얻습니다.",
+    "source": "runtime",
+    "aliases": [
+      "바드_대학",
+      "bard_college"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.bard.feature.bard_college_feature",
+    "classKey": "bard",
+    "level": 6,
+    "nameKo": "바드 대학 기능",
+    "category": "class",
+    "summaryKo": "선택한 바드 대학에서 제공하는 추가 서브클래스 특성을 얻습니다.",
+    "source": "derived",
+    "aliases": [
+      "바드_대학_기능"
+    ],
+    "availableAtLevels": [
+      6,
+      14
+    ]
+  },
+  {
+    "id": "class.bard.feature.bardic_inspiration",
+    "classKey": "bard",
+    "level": 1,
+    "nameKo": "바드의 고양감",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동으로 60피트 이내에서 자신을 들을 수 있는 자신 이외의 크리처 하나를 선택한다. 대상은 바드의 고양감 주사위 d6을 얻는다. 10분 안에 한 번, 능력 판정/공격 굴림/내성 굴림에 주사위를 굴려 더할 수 있다. d20을 굴린 뒤 사용할지 정할 수 있지만, GM이 성공/실패를 말하기 전이어야 한다. 동시에 하나의 바드 고양감 주사위만 가질 수 있다. 사용 횟수는 매력 수정치만큼, 최소 1회다. 긴 휴식 후 회복한다. 5레벨부터는 짧은 휴식…",
+    "source": "runtime",
+    "aliases": [
+      "바드의_고양감",
+      "class.bard.feature.바드의_고양감",
+      "bardic_inspiration"
+    ],
+    "availableAtLevels": [
+      1,
+      5,
+      10,
+      15
+    ]
+  },
+  {
+    "id": "class.bard.feature.bardic_inspiration_d10",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "바드의 고양감 d10",
+    "category": "class",
+    "summaryKo": "바드의 고양감 주사위가 d10으로 커집니다.",
+    "source": "runtime",
+    "aliases": [
+      "bardic_inspiration_d10"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.bardic_inspiration_d12",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "바드의 고양감 d12",
+    "category": "class",
+    "summaryKo": "바드의 고양감 주사위가 d12로 커집니다.",
+    "source": "runtime",
+    "aliases": [
+      "bardic_inspiration_d12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.bardic_inspiration_d8",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "바드의 고양감 d8",
+    "category": "class",
+    "summaryKo": "바드의 고양감 주사위가 d8로 커집니다.",
+    "source": "runtime",
+    "aliases": [
+      "bardic_inspiration_d8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.countercharm",
+    "classKey": "bard",
+    "level": 6,
+    "nameKo": "반대매혹",
+    "category": "class",
+    "summaryKo": "행동으로 공연을 시작해 주변 아군이 매혹과 공포에 대한 내성 굴림에 이점을 얻도록 돕습니다.",
+    "source": "runtime",
+    "aliases": [
+      "반대매혹",
+      "countercharm"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.bard.feature.expertise",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "전문화",
+    "category": "class",
+    "summaryKo": "선택한 두 숙련 기술의 숙련 보너스를 두 배로 적용합니다.",
+    "source": "runtime",
+    "aliases": [
+      "전문화",
+      "expertise"
+    ],
+    "availableAtLevels": [
+      3,
+      10
+    ]
+  },
+  {
+    "id": "class.bard.feature.expertise_10",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "전문화 추가",
+    "category": "class",
+    "summaryKo": "추가로 두 숙련 기술을 선택해 숙련 보너스를 두 배로 적용합니다.",
+    "source": "runtime",
+    "aliases": [
+      "expertise_10"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.font_of_inspiration",
+    "classKey": "bard",
+    "level": 5,
+    "nameKo": "고양감의 원천",
+    "category": "class",
+    "summaryKo": "바드의 고양감 사용 횟수가 긴 휴식뿐 아니라 짧은 휴식 후에도 회복됩니다.",
+    "source": "runtime",
+    "aliases": [
+      "고양감의_원천",
+      "font_of_inspiration"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.bard.feature.jack_of_all_trades",
+    "classKey": "bard",
+    "level": 2,
+    "nameKo": "만물박사",
+    "category": "class",
+    "summaryKo": "2레벨부터 숙련 보너스를 더하지 않는 능력 판정에 숙련 보너스의 절반(내림)을 더할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "만물박사",
+      "class.bard.feature.만물박사",
+      "jack_of_all_trades"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.bard.feature.magical_secrets",
+    "classKey": "bard",
+    "level": 10,
+    "nameKo": "마법의 비밀",
+    "category": "class",
+    "summaryKo": "다른 직업 주문 목록에서도 주문을 선택해 바드 주문으로 배울 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "마법의_비밀",
+      "magical_secrets"
+    ],
+    "availableAtLevels": [
+      10,
+      14
+    ]
+  },
+  {
+    "id": "class.bard.feature.magical_secrets_14",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "마법적 비밀 14레벨",
+    "category": "class",
+    "summaryKo": "바드 주문 목록 밖의 주문을 추가로 배워 바드 주문으로 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "magical_secrets_14"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.magical_secrets_18",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "마법적 비밀 18레벨",
+    "category": "class",
+    "summaryKo": "바드 주문 목록 밖의 주문을 추가로 배워 바드 주문으로 사용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "magical_secrets_18"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.song_of_rest",
+    "classKey": "bard",
+    "level": 2,
+    "nameKo": "휴식의 노래",
+    "category": "class",
+    "summaryKo": "2레벨부터 짧은 휴식 끝에 자신 또는 공연을 들을 수 있는 우호적 크리처가 히트 다이스로 HP를 회복하면 추가 HP를 회복한다. 추가 회복량은 2레벨 d6, 9레벨 d8, 13레벨 d10, 17레벨 d12다.",
+    "source": "runtime",
+    "aliases": [
+      "휴식의_노래",
+      "class.bard.feature.휴식의_노래",
+      "song_of_rest"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.bard.feature.song_of_rest_d10",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "휴식의 노래 d10",
+    "category": "class",
+    "summaryKo": "휴식의 노래로 추가 회복하는 주사위가 d10으로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "song_of_rest_d10"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.song_of_rest_d12",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "휴식의 노래 d12",
+    "category": "class",
+    "summaryKo": "휴식의 노래로 추가 회복하는 주사위가 d12로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "song_of_rest_d12"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.song_of_rest_d8",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "휴식의 노래 d8",
+    "category": "class",
+    "summaryKo": "휴식의 노래로 추가 회복하는 주사위가 d8로 증가합니다.",
+    "source": "runtime",
+    "aliases": [
+      "song_of_rest_d8"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.feature.spellcasting",
+    "classKey": "bard",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "바드는 매력을 주문시전 능력치로 사용하며, 알고 있는 바드 주문을 주문 슬롯으로 시전합니다. 의식 주문과 악기 초점구를 활용할 수 있습니다.",
+    "source": "runtime",
+    "aliases": [
+      "주문시전",
+      "spellcasting"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.bard.feature.superior_inspiration",
+    "classKey": "bard",
+    "level": 20,
+    "nameKo": "뛰어난 고양감",
+    "category": "class",
+    "summaryKo": "전투 시작 시 바드의 고양감 사용 횟수가 없으면 1회를 회복합니다.",
+    "source": "runtime",
+    "aliases": [
+      "뛰어난_고양감",
+      "superior_inspiration"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.날카로운_말",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "날카로운 말",
+    "category": "subclass",
+    "summaryKo": "반응으로 바드의 고양감을 소비해 60피트 이내 크리처의 공격 굴림, 능력 판정, 피해 굴림에서 고양감 주사위 값을 뺀다.",
+    "source": "srd",
+    "aliases": [
+      "날카로운_말"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.비할_데_없는_기술",
+    "classKey": "bard",
+    "level": 14,
+    "nameKo": "비할 데 없는 기술",
+    "category": "subclass",
+    "summaryKo": "능력 판정에 바드의 고양감을 소비해 값을 더할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "비할_데_없는_기술"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.추가_마법의_비밀",
+    "classKey": "bard",
+    "level": 6,
+    "nameKo": "추가 마법의 비밀",
+    "category": "subclass",
+    "summaryKo": "어떤 직업 주문 목록에서든 주문 2개를 배운다. 바드 주문으로 취급하되 알고 있는 주문 수에 포함하지 않는다.",
+    "source": "srd",
+    "aliases": [
+      "추가_마법의_비밀"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.추가_숙련",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "원하는 기술 3개에 숙련된다.",
+    "source": "srd",
+    "aliases": [
+      "추가_숙련"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.additional_magical_secrets",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "추가 마법의 비밀",
+    "category": "subclass",
+    "summaryKo": "어떤 직업 주문 목록에서든 주문 2개를 배운다. 바드 주문으로 취급하되 알고 있는 주문 수에 포함하지 않는다.",
+    "source": "runtime",
+    "aliases": [
+      "additional_magical_secrets"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.subclass_feature.bonus_proficiencies",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "원하는 기술 3개에 숙련된다.",
+    "source": "runtime",
+    "aliases": [
+      "bonus_proficiencies"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.subclass_feature.cutting_words",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "날카로운 말",
+    "category": "subclass",
+    "summaryKo": "반응으로 바드의 고양감을 소비해 60피트 이내 크리처의 공격 굴림, 능력 판정, 피해 굴림에서 고양감 주사위 값을 뺀다.",
+    "source": "runtime",
+    "aliases": [
+      "cutting_words"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.bard.subclass_feature.peerless_skill",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "비할 데 없는 기술",
+    "category": "subclass",
+    "summaryKo": "능력 판정에 바드의 고양감을 소비해 값을 더할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "peerless_skill"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.bard.lore.feature.additional_magical_secrets",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "추가 마법의 비밀",
+    "category": "subclass",
+    "summaryKo": "어떤 직업 주문 목록에서든 주문 2개를 배운다. 바드 주문으로 취급하되 알고 있는 주문 수에 포함하지 않는다.",
+    "source": "runtime",
+    "aliases": [
+      "additional_magical_secrets"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.bard.lore.feature.bonus_proficiencies",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "원하는 기술 3개에 숙련된다.",
+    "source": "runtime",
+    "aliases": [
+      "bonus_proficiencies"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.bard.lore.feature.cutting_words",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "날카로운 말",
+    "category": "subclass",
+    "summaryKo": "반응으로 바드의 고양감을 소비해 60피트 이내 크리처의 공격 굴림, 능력 판정, 피해 굴림에서 고양감 주사위 값을 뺀다.",
+    "source": "runtime",
+    "aliases": [
+      "cutting_words"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "subclass.bard.lore.feature.peerless_skill",
+    "classKey": "bard",
+    "level": 0,
+    "nameKo": "비할 데 없는 기술",
+    "category": "subclass",
+    "summaryKo": "능력 판정에 바드의 고양감을 소비해 값을 더할 수 있다.",
+    "source": "runtime",
+    "aliases": [
+      "peerless_skill"
+    ],
+    "availableAtLevels": []
+  }
+]

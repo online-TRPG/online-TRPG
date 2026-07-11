@@ -5,7 +5,7 @@ import {
   MainCommandIntent,
   MainCommandScreenType,
   MainCommandTargetType,
-} from '@trpg/shared-types';
+} from '@trpg/shared-types/frontend';
 
 export type MainCommandHelperGroup =
   | 'NPC_INTERACTION'

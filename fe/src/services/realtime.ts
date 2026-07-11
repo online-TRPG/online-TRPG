@@ -1,4 +1,5 @@
 import { io, Socket } from "socket.io-client";
+import { VTT_MAP_DELTA_V2_CAPABILITY } from "@trpg/shared-types/browser-runtime";
 import { SOCKET_BASE_URL } from "./httpClient";
 import {
   type ActionAcceptedEventDto,
@@ -9,6 +10,7 @@ import {
   type StateDiffResponseDto,
   type SystemMessageEventDto,
   type TurnLogResponseDto,
+  type VttMapDeltaDto,
   type VttMapStateDto,
 } from "@trpg/shared-types";
 import {
@@ -37,8 +39,9 @@ export interface RealtimeHandlers {
   onTurnLogCreated(turnLog: TurnLogResponseDto): void;
   onSystemMessage(message: SystemMessageEventDto): void;
   onDiceRolled(diceResult: DiceRollResponseDto): void;
-  onStateDiffApplied(stateDiff: StateDiffResponseDto): void;
+  onStateDiffApplied(stateDiff: StateDiffResponseDto): boolean;
   onVttMapUpdated(map: VttMapStateDto): void;
+  onVttMapDelta(delta: VttMapDeltaDto): boolean;
   onCombatUpdated(combat: CombatResponseDto): void;
   onStatusChange(connected: boolean): void;
   onLog(title: string, message: string): void;
@@ -49,6 +52,8 @@ export function connectSessionSocket(
   sessionId: string,
   handlers: RealtimeHandlers,
 ): Socket {
+  let mapResyncRequested = false;
+  let stateResyncRequested = false;
   const socket = io(`${SOCKET_BASE_URL}/ws`, {
     // 로컬/프록시 환경에서 WebSocket 업그레이드가 바로 실패해도 세션 이벤트가 끊기지 않도록
     // Socket.IO 기본 흐름처럼 polling으로 먼저 연결한 뒤 websocket으로 업그레이드한다.
@@ -64,7 +69,10 @@ export function connectSessionSocket(
   socket.on("connect", () => {
     handlers.onStatusChange(true);
     handlers.onLog("Realtime connected", "Joined the live session channel.");
-    socket.emit("session.join", { sessionId });
+    socket.emit("session.join", {
+      sessionId,
+      capabilities: [VTT_MAP_DELTA_V2_CAPABILITY],
+    });
   });
 
   socket.on("disconnect", () => {
@@ -78,6 +86,8 @@ export function connectSessionSocket(
   });
 
   safeSocketOn(socket, "session.snapshot", decodeSessionSnapshotPayload, (payload) => {
+    mapResyncRequested = false;
+    stateResyncRequested = false;
     handlers.onSnapshot(normalizeSessionSnapshot(payload.snapshot));
     handlers.onLog("Session synced", "Loaded the latest room snapshot.");
   }, handlers);
@@ -116,13 +126,38 @@ export function connectSessionSocket(
   }, handlers);
 
   safeSocketOn(socket, "state.diff.applied", decodeStateDiffPayload, (payload) => {
-    handlers.onStateDiffApplied(payload.stateDiff);
+    if (handlers.onStateDiffApplied(payload.stateDiff)) {
+      stateResyncRequested = false;
+      window.dispatchEvent(
+        new CustomEvent("trpg:state-diff-applied", { detail: payload.stateDiff }),
+      );
+      return;
+    }
+    if (!stateResyncRequested) {
+      stateResyncRequested = true;
+      socket.emit("session.resync", { sessionId });
+      handlers.onLog("State resync requested", "The local session state version was stale.");
+    }
   }, handlers);
 
   safeSocketOn(socket, "vtt.map.updated", decodeVttMapUpdatedPayload, (payload) => {
+    mapResyncRequested = false;
     handlers.onVttMapUpdated(payload.map);
     handlers.onLog("Map updated", "The tabletop map changed.");
   }, handlers);
+
+  socket.on("vtt.map.delta.v2", (payload: { delta: VttMapDeltaDto }) => {
+    if (handlers.onVttMapDelta(payload.delta)) {
+      mapResyncRequested = false;
+      handlers.onLog("Map updated", "The tabletop map delta was applied.");
+      return;
+    }
+    if (!mapResyncRequested) {
+      mapResyncRequested = true;
+      socket.emit("session.resync", { sessionId });
+      handlers.onLog("Map resync requested", "The local map version was stale.");
+    }
+  });
 
   safeSocketOn(socket, "combat.updated", decodeCombatUpdatedPayload, (payload) => {
     handlers.onCombatUpdated(payload.combat);

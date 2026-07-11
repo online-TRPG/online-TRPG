@@ -9,6 +9,8 @@
 | `README.md` | 문서 지도 |
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
+| `performance_scalability_remediation_plan.md` | 데이터 10배·100배 증가 대비 성능·확장성 개선 계획 |
+| `performance_scalability_followup_remediation_plan.md` | 성능 확장성 변경 정적 검토에서 확인된 데이터·실시간 동기화 문제의 후속 보완 계획 |
 | `completed/future_plan_srd_character_rules_single_source.md` | 완료된 캐릭터 생성/레벨업/주문 진행 규칙 단일 원천화 계획 기록 |
 | `completed/future_plan_srd_data_consistency.md` | 완료된 SRD 데이터 단일 원천화 및 FE/BE/AI 정합성 보장 계획 기록 |
 | `completed/future_plan_mvp.md` | 완료된 End-to-End Playable MVP 로드맵 기록 |
@@ -72,6 +74,8 @@
 ## 기록용 문서
 
 `dev-notes/`는 특정 날짜의 구현 배경과 당시 확인 결과를 보관하는 기록이다. 현재 API, 실행법, 모델 구조의 기준으로 삼지 않는다. 현재 기준과 충돌하면 `structure/` 문서와 실제 코드가 우선이다.
+
+성능 확장성 작업의 동적 검증 상태는 `dev-notes/PERFORMANCE_ACCEPTANCE_EVIDENCE.md`, 1x·10x·100x 측정값은 `dev-notes/PERFORMANCE_SCALE_RESULT_TEMPLATE.md`에 기록한다.
 
 `completed/`는 구현 계획, UI 설계, 점검표 중 대응 작업이 끝나 현재 작업 체크리스트로 보지 않아도 되는 문서를 보관한다.
 

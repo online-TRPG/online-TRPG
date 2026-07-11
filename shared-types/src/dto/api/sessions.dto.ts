@@ -2369,6 +2369,50 @@ export class VttMapStateDto {
   updatedAt!: string;
 }
 
+type VttMapDeltaPatchKey = Exclude<
+  keyof VttMapStateDto,
+  "id" | "tokens" | "objectCells" | "updatedAt"
+>;
+
+export type VttMapDeltaPatchDto = {
+  [K in VttMapDeltaPatchKey]?: Exclude<VttMapStateDto[K], undefined> | null;
+};
+
+export class VttMapDeltaDto {
+  @ApiProperty()
+  mapId!: string;
+
+  @ApiProperty()
+  baseUpdatedAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
+
+  @ApiProperty({ type: Object })
+  patch!: VttMapDeltaPatchDto;
+
+  @ApiProperty({ type: [VttMapTokenDto] })
+  changedTokens!: VttMapTokenDto[];
+
+  @ApiProperty({ type: [String] })
+  removedTokenIds!: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  tokenOrder?: string[];
+
+  @ApiProperty({ type: [VttObjectCellDto] })
+  changedObjectCells!: VttObjectCellDto[];
+
+  @ApiProperty({ type: [String] })
+  removedObjectCellIds!: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  objectCellOrder?: string[];
+
+  @ApiProperty()
+  objectCellsDefined!: boolean;
+}
+
 export class UpdateVttMapDto {
   @ApiProperty({ type: VttMapStateDto })
   @ValidateNested()

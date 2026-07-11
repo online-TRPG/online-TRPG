@@ -7,11 +7,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./frontend": {
       "types": "./dist/frontend.d.ts",
+      "require": "./dist/frontend.js",
       "default": "./dist/frontend.js"
+    },
+    "./browser-runtime": {
+      "types": "./dist/browser-runtime.d.ts",
+      "require": "./dist/browser-runtime.js",
+      "default": "./dist/browser-runtime.js"
     }
   },
   "files": [

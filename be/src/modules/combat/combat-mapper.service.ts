@@ -53,6 +53,7 @@ type CombatParticipantForMapping = {
 type SessionCharacterForMapping = {
   id: string;
   currentHp: number | null;
+  tempHp: number | null;
   conditionsJson: string | null;
   character: {
     className: string;
@@ -237,6 +238,7 @@ export class CombatMapperService {
           tokenId: participant.tokenId ?? null,
           name: participant.nameSnapshot,
           currentHp,
+          tempHp: sessionCharacter?.tempHp ?? null,
           maxHp,
           armorClass,
           initiative: participant.initiative,

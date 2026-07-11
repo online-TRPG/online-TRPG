@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   GatewayTimeoutException,
   Injectable,
   Logger,
@@ -25,10 +26,8 @@ import {
   AiTraceResponseDto,
   AiTraceStatus,
   HumanGmAiAssistSuggestionDto,
-  isRecord,
 } from "@trpg/shared-types";
 import { randomUUID } from "node:crypto";
-import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -63,13 +62,6 @@ type HarnessResponse =
 // NPC 대사 생성 실패가 캐릭터의 행동 선언처럼 보이지 않도록, 재입력을 부탁하는 중립 대사로 통일합니다.
 const NPC_DIALOGUE_FALLBACK_DIALOGUE =
   "잠시만요. 다시 한 번 말해 줄래요?";
-
-function decodeAiTraceFallbackFlag(value: unknown): boolean {
-  if (!isRecord(value)) {
-    throw new Error("ai trace response must be an object.");
-  }
-  return value.fallback === true;
-}
 
 interface PersistTraceParams {
   sessionId: string;
@@ -372,13 +364,29 @@ export class AiService {
     if (query.kind) where.kind = query.kind;
     if (query.status) where.status = query.status;
 
+    if (query.cursor) {
+      const cursorExists = await this.prisma.aiTrace.findFirst({
+        where: {
+          ...where,
+          id: query.cursor,
+        },
+        select: { id: true },
+      });
+      if (!cursorExists) {
+        throw new BadRequestException("AI trace cursor is invalid for this session or filter.");
+      }
+    }
+
     const rows = await this.prisma.aiTrace.findMany({
       where,
-      orderBy: { createdAt: "desc" },
-      take: size,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: size + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     });
+    const hasNext = rows.length > size;
+    const pageRows = rows.slice(0, size);
 
-    const items: AiTraceResponseDto[] = rows.map((row) => ({
+    const items: AiTraceResponseDto[] = pageRows.map((row) => ({
       id: row.id,
       sessionId: row.sessionId,
       userId: row.userId,
@@ -392,7 +400,11 @@ export class AiService {
       createdAt: row.createdAt.toISOString(),
     }));
 
-    return { items, size };
+    return {
+      items,
+      size,
+      nextCursor: hasNext ? pageRows[pageRows.length - 1]?.id ?? null : null,
+    };
   }
 
   async getQualityMetrics(
@@ -400,39 +412,53 @@ export class AiService {
     sessionId: string,
   ): Promise<AiTraceQualityMetricsResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
-    const traces = await this.prisma.aiTrace.findMany({
-      where: { sessionId },
-      select: {
-        kind: true,
-        status: true,
-        latencyMs: true,
-        failureType: true,
-        responseJson: true,
-      },
-    });
+    const [summary, groups] = await Promise.all([
+      this.prisma.aiTrace.aggregate({
+        where: { sessionId },
+        _count: { _all: true },
+        _avg: { latencyMs: true },
+      }),
+      this.prisma.aiTrace.groupBy({
+        by: ["kind", "status", "fallbackUsed"],
+        where: { sessionId },
+        _count: { _all: true },
+      }),
+    ]);
     const rate = (count: number, total: number) =>
       total > 0 ? Number((count / total).toFixed(4)) : 0;
-    const interpreters = traces.filter((trace) => trace.kind === PrismaAiTraceKind.INTERPRETER);
-    const narrators = traces.filter((trace) => trace.kind === PrismaAiTraceKind.NARRATION);
-    const fallbackCount = traces.filter((trace) => {
-      if (trace.failureType?.includes("fallback")) return true;
-      if (!trace.responseJson) return false;
-      return parseJsonOrFallback(trace.responseJson, false, decodeAiTraceFallbackFlag);
-    }).length;
+    const countGroups = (predicate: (group: (typeof groups)[number]) => boolean) =>
+      groups.reduce(
+        (count, group) => count + (predicate(group) ? group._count._all : 0),
+        0,
+      );
+    const totalTraces = summary._count._all;
+    const interpreterCount = countGroups(
+      (group) => group.kind === PrismaAiTraceKind.INTERPRETER,
+    );
+    const narratorCount = countGroups(
+      (group) => group.kind === PrismaAiTraceKind.NARRATION,
+    );
+    const fallbackCount = countGroups((group) => group.fallbackUsed);
     const interpreterTimeoutRate = rate(
-      interpreters.filter((trace) => trace.status === PrismaAiTraceStatus.TIMEOUT).length,
-      interpreters.length,
+      countGroups(
+        (group) =>
+          group.kind === PrismaAiTraceKind.INTERPRETER &&
+          group.status === PrismaAiTraceStatus.TIMEOUT,
+      ),
+      interpreterCount,
     );
     const narratorTimeoutRate = rate(
-      narrators.filter((trace) => trace.status === PrismaAiTraceStatus.TIMEOUT).length,
-      narrators.length,
+      countGroups(
+        (group) =>
+          group.kind === PrismaAiTraceKind.NARRATION &&
+          group.status === PrismaAiTraceStatus.TIMEOUT,
+      ),
+      narratorCount,
     );
-    const fallbackRate = rate(fallbackCount, traces.length);
+    const fallbackRate = rate(fallbackCount, totalTraces);
     return {
-      totalTraces: traces.length,
-      averageLatencyMs: traces.length
-        ? Math.round(traces.reduce((sum, trace) => sum + trace.latencyMs, 0) / traces.length)
-        : 0,
+      totalTraces,
+      averageLatencyMs: Math.round(summary._avg.latencyMs ?? 0),
       interpreterTimeoutRate,
       narratorTimeoutRate,
       fallbackRate,
@@ -672,6 +698,7 @@ export class AiService {
   }
 
   private async persistTrace(params: PersistTraceParams): Promise<string | null> {
+    const failureType = params.failureType ?? params.responsePayload?.trace?.failureType ?? null;
     const data: Prisma.AiTraceCreateInput = {
       session: { connect: { id: params.sessionId } },
       user: { connect: { id: params.userId } },
@@ -684,7 +711,10 @@ export class AiService {
       attempts: params.responsePayload?.trace?.attempts ?? null,
       finishReason: params.responsePayload?.finishReason ?? null,
       providerRequestId: params.responsePayload?.providerRequestId ?? null,
-      failureType: params.failureType ?? params.responsePayload?.trace?.failureType ?? null,
+      failureType,
+      fallbackUsed:
+        params.responsePayload?.fallback === true ||
+        failureType?.toLowerCase().includes("fallback") === true,
       errorMessage: params.errorMessage ?? null,
       requestJson: JSON.stringify(params.requestPayload),
       responseJson: params.responsePayload ? JSON.stringify(params.responsePayload) : null,

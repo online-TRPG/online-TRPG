@@ -1,5 +1,5 @@
-import { VTT_MAP_INTERACTION_KINDS } from '@trpg/shared-types/frontend';
-import { MainCommandIntent, type SubmitMainCommandDto } from '@trpg/shared-types';
+import { MainCommandIntent, VTT_MAP_INTERACTION_KINDS } from '@trpg/shared-types/frontend';
+import type { SubmitMainCommandDto } from '@trpg/shared-types';
 import type { GameIconName } from '../../../components/GameIcon';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 

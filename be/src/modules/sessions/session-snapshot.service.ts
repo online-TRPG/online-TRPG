@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
   ActionQueueStatus as PrismaActionQueueStatus,
   ParticipantStatus as PrismaParticipantStatus,
@@ -14,81 +14,121 @@ import {
   mapSessionScenario,
   mapUser,
 } from "../../common/mappers/domain.mapper";
+import type { PrismaQueryMetrics } from "../../database/prisma.service";
 import { getRestApprovalCutoff, getRestApprovalExpiresAt } from "../actions/rest-approval-policy";
 import type { SessionsService } from "./sessions.service";
 
 type SessionSnapshotRuntime = ReturnType<SessionsService["createSessionSnapshotRuntime"]>;
+type SnapshotRowCounts = Record<string, number>;
 
 @Injectable()
 export class SessionSnapshotService {
+  private readonly logger = new Logger(SessionSnapshotService.name);
+
   async buildSnapshot(runtime: SessionSnapshotRuntime, sessionId: string): Promise<SessionSnapshotDto> {
-    const resolvedSessionId = (await runtime.getSessionEntityOrThrow(sessionId)).id;
-    const session = await runtime.prisma.session.findUnique({
-      where: { id: resolvedSessionId },
-      include: {
-        participants: {
-          where: { status: PrismaParticipantStatus.JOINED },
-          include: {
-            user: true,
-            sessionCharacter: {
-              include: {
-                character: true,
-                resource: true,
-                inventoryEntries: {
-                  include: { itemDefinition: true },
-                  orderBy: { createdAt: "asc" },
+    const startedAt = performance.now();
+    let prismaOperationCount = 1;
+    const sessionMeasurement = await runtime.prisma.measureQueries(() =>
+      runtime.prisma.session.findFirst({
+        where: {
+          OR: [{ id: sessionId }, { publicId: sessionId }],
+        },
+        include: {
+          participants: {
+            where: { status: PrismaParticipantStatus.JOINED },
+            include: {
+              user: true,
+              sessionCharacter: {
+                select: {
+                  id: true,
+                  characterId: true,
                 },
               },
             },
+            orderBy: { joinedAt: "asc" },
           },
-          orderBy: { joinedAt: "asc" },
-        },
-        sessionCharacters: {
-          where: {
-            status: PrismaSessionCharacterStatus.ACTIVE,
-          },
-          include: {
-            character: true,
-            resource: true,
-            inventoryEntries: {
-              include: { itemDefinition: true },
-              orderBy: { createdAt: "asc" },
+          sessionCharacters: {
+            where: {
+              status: PrismaSessionCharacterStatus.ACTIVE,
             },
+            include: {
+              character: true,
+              resource: true,
+              inventoryEntries: {
+                include: { itemDefinition: true },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+            orderBy: { createdAt: "asc" },
           },
-          orderBy: { createdAt: "asc" },
-        },
-        sessionScenarios: {
-          include: {
-            scenario: true,
-            gameState: true,
+          sessionScenarios: {
+            include: {
+              scenario: true,
+              gameState: true,
+            },
+            orderBy: { sequence: "asc" },
           },
-          orderBy: { sequence: "asc" },
         },
-      },
-    });
+      }),
+    );
+    const session = sessionMeasurement.result;
+    let queryMetrics = sessionMeasurement.metrics;
 
     if (!session) {
-      throw new NotFoundException(`Session ${resolvedSessionId} was not found.`);
+      throw new NotFoundException(`Session ${sessionId} was not found.`);
     }
 
-    const ensuredSession = await runtime.ensureSessionPublicId(session);
+    const resolvedSessionId = session.id;
+    if (!session.publicId) prismaOperationCount += 1;
+    const publicIdMeasurement = await runtime.prisma.measureQueries(() =>
+      runtime.ensureSessionPublicId(session),
+    );
+    const ensuredSession = publicIdMeasurement.result;
+    queryMetrics = this.mergeQueryMetrics(queryMetrics, publicIdMeasurement.metrics);
     const activeScenario = runtime.getActiveSessionScenario(session.sessionScenarios);
     if (!activeScenario?.gameState) {
       throw new NotFoundException(`Game state for session ${resolvedSessionId} was not found.`);
     }
-    const pendingRestApprovals = await this.buildPendingRestApprovals(runtime, resolvedSessionId);
+    const pendingMeasurement = await runtime.prisma.measureQueries(() =>
+      this.loadPendingRestApprovals(runtime, resolvedSessionId),
+    );
+    const pending = pendingMeasurement.result;
+    prismaOperationCount += pending.prismaOperationCount;
+    queryMetrics = this.mergeQueryMetrics(queryMetrics, pendingMeasurement.metrics);
 
-    return {
+    const snapshot = {
       session: mapSession(ensuredSession),
       sessionScenarios: ensuredSession.sessionScenarios.map(mapSessionScenario),
       participants: ensuredSession.participants.map(mapParticipant),
       sessionCharacters: ensuredSession.sessionCharacters.map(mapSessionCharacter),
       state: mapGameState(activeScenario.gameState, resolvedSessionId),
-      pendingRestApprovals,
+      pendingRestApprovals: pending.items,
     };
+    this.logSnapshotMetrics(
+      "snapshot",
+      resolvedSessionId,
+      startedAt,
+      prismaOperationCount,
+      queryMetrics,
+      this.buildSnapshotRowCounts(ensuredSession, pending.rowCounts),
+      snapshot,
+    );
+    return snapshot;
   }
 
   async buildPendingRestApprovals(runtime: SessionSnapshotRuntime, sessionId: string): Promise<NonNullable<SessionSnapshotDto["pendingRestApprovals"]>> {
+    return (await this.loadPendingRestApprovals(runtime, sessionId)).items;
+  }
+
+  private async loadPendingRestApprovals(
+    runtime: SessionSnapshotRuntime,
+    sessionId: string,
+  ): Promise<{
+    items: NonNullable<SessionSnapshotDto["pendingRestApprovals"]>;
+    prismaOperationCount: number;
+    rowCounts: SnapshotRowCounts;
+  }> {
+    let prismaOperationCount = 1;
     const actions = await runtime.prisma.playerAction.findMany({
       where: {
         sessionId,
@@ -102,6 +142,8 @@ export class SessionSnapshotService {
     const sessionCharacterIds = Array.from(
       new Set(actions.flatMap((action) => (action.sessionCharacterId ? [action.sessionCharacterId] : []))),
     );
+    if (requesterUserIds.length) prismaOperationCount += 1;
+    if (sessionCharacterIds.length) prismaOperationCount += 1;
     const [requesters, sessionCharacters] = await Promise.all([
       requesterUserIds.length
         ? runtime.prisma.user.findMany({
@@ -124,7 +166,7 @@ export class SessionSnapshotService {
     const requesterById = new Map(requesters.map((user) => [user.id, user]));
     const sessionCharacterById = new Map(sessionCharacters.map((sessionCharacter) => [sessionCharacter.id, sessionCharacter]));
 
-    return actions
+    const items = actions
       .filter((action) => action.rawText.trim().toLowerCase().startsWith("/rest "))
       .map((action) => ({
         actionId: action.id,
@@ -137,6 +179,15 @@ export class SessionSnapshotService {
         requestedAt: action.clientCreatedAt.toISOString(),
         expiresAt: getRestApprovalExpiresAt(action.clientCreatedAt).toISOString(),
       }));
+    return {
+      items,
+      prismaOperationCount,
+      rowCounts: {
+        pendingActionRows: actions.length,
+        pendingRequesterRows: requesters.length,
+        pendingSessionCharacterRows: sessionCharacters.length,
+      },
+    };
   }
 
   resolveRestTypeFromRawText(runtime: SessionSnapshotRuntime, rawText: string): "short" | "long" | null {
@@ -163,75 +214,175 @@ export class SessionSnapshotService {
   }
 
   async buildDetail(runtime: SessionSnapshotRuntime, sessionId: string): Promise<SessionDetailResponseDto> {
-    const resolvedSessionId = (await runtime.getSessionEntityOrThrow(sessionId)).id;
-    const session = await runtime.prisma.session.findUnique({
-      where: { id: resolvedSessionId },
-      include: {
-        host: true,
-        participants: {
-          where: { status: PrismaParticipantStatus.JOINED },
-          include: {
-            user: true,
-            sessionCharacter: {
-              include: {
-                character: true,
-                resource: true,
-                inventoryEntries: {
-                  include: { itemDefinition: true },
-                  orderBy: { createdAt: "asc" },
+    const startedAt = performance.now();
+    let prismaOperationCount = 1;
+    const sessionMeasurement = await runtime.prisma.measureQueries(() =>
+      runtime.prisma.session.findFirst({
+        where: {
+          OR: [{ id: sessionId }, { publicId: sessionId }],
+        },
+        include: {
+          host: true,
+          participants: {
+            where: { status: PrismaParticipantStatus.JOINED },
+            include: {
+              user: true,
+              sessionCharacter: {
+                select: {
+                  id: true,
+                  characterId: true,
                 },
               },
             },
+            orderBy: { joinedAt: "asc" },
           },
-          orderBy: { joinedAt: "asc" },
-        },
-        sessionCharacters: {
-          where: {
-            status: PrismaSessionCharacterStatus.ACTIVE,
-          },
-          include: {
-            character: true,
-            resource: true,
-            inventoryEntries: {
-              include: { itemDefinition: true },
-              orderBy: { createdAt: "asc" },
+          sessionCharacters: {
+            where: {
+              status: PrismaSessionCharacterStatus.ACTIVE,
             },
+            include: {
+              character: true,
+              resource: true,
+              inventoryEntries: {
+                include: { itemDefinition: true },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+            orderBy: { createdAt: "asc" },
           },
-          orderBy: { createdAt: "asc" },
-        },
-        sessionScenarios: {
-          include: {
-            scenario: true,
-            gameState: true,
+          sessionScenarios: {
+            include: {
+              scenario: true,
+              gameState: true,
+            },
+            orderBy: { sequence: "asc" },
           },
-          orderBy: { sequence: "asc" },
         },
-      },
-    });
+      }),
+    );
+    const session = sessionMeasurement.result;
+    let queryMetrics = sessionMeasurement.metrics;
 
     if (!session) {
-      throw new NotFoundException(`Session ${resolvedSessionId} was not found.`);
+      throw new NotFoundException(`Session ${sessionId} was not found.`);
     }
 
-    const ensuredSession = await runtime.ensureSessionPublicId(session);
-    const ensuredHost = await runtime.usersService.getUserEntityOrThrow(session.hostUserId);
+    const resolvedSessionId = session.id;
+    if (!session.publicId) prismaOperationCount += 1;
+    const publicIdMeasurement = await runtime.prisma.measureQueries(() =>
+      runtime.ensureSessionPublicId(session),
+    );
+    const ensuredSession = publicIdMeasurement.result;
+    queryMetrics = this.mergeQueryMetrics(queryMetrics, publicIdMeasurement.metrics);
     const activeScenario = runtime.getActiveSessionScenario(ensuredSession.sessionScenarios);
     if (!activeScenario?.gameState) {
       throw new NotFoundException(`Game state for session ${resolvedSessionId} was not found.`);
     }
-    const pendingRestApprovals = await this.buildPendingRestApprovals(runtime, resolvedSessionId);
+    const pendingMeasurement = await runtime.prisma.measureQueries(() =>
+      this.loadPendingRestApprovals(runtime, resolvedSessionId),
+    );
+    const pending = pendingMeasurement.result;
+    prismaOperationCount += pending.prismaOperationCount;
+    queryMetrics = this.mergeQueryMetrics(queryMetrics, pendingMeasurement.metrics);
 
-    return {
+    const detail = {
       session: mapSession(ensuredSession),
       sessionScenarios: ensuredSession.sessionScenarios.map(mapSessionScenario),
       participants: ensuredSession.participants.map(mapParticipant),
       sessionCharacters: ensuredSession.sessionCharacters.map(mapSessionCharacter),
       state: mapGameState(activeScenario.gameState, resolvedSessionId),
       scenario: mapScenarioSummary(activeScenario.scenario),
-      host: mapUser(ensuredHost),
-      owner: mapUser(ensuredHost),
-      pendingRestApprovals,
+      host: mapUser(ensuredSession.host),
+      owner: mapUser(ensuredSession.host),
+      pendingRestApprovals: pending.items,
       captain: null,
+    };
+    this.logSnapshotMetrics(
+      "detail",
+      resolvedSessionId,
+      startedAt,
+      prismaOperationCount,
+      queryMetrics,
+      this.buildSnapshotRowCounts(ensuredSession, {
+        ...pending.rowCounts,
+        hostRows: 1,
+      }),
+      detail,
+    );
+    return detail;
+  }
+
+  private logSnapshotMetrics(
+    kind: "snapshot" | "detail",
+    sessionId: string,
+    startedAt: number,
+    prismaOperationCount: number,
+    queryMetrics: PrismaQueryMetrics | null,
+    rowCounts: SnapshotRowCounts,
+    payload: SessionSnapshotDto | SessionDetailResponseDto,
+  ): void {
+    if (process.env.PERFORMANCE_DIAGNOSTICS !== "1") return;
+    this.logger.debug({
+      event: "session_snapshot_built",
+      kind,
+      sessionId,
+      durationMs: Number((performance.now() - startedAt).toFixed(3)),
+      prismaOperationCount,
+      dbQueryCount: queryMetrics?.count ?? null,
+      dbDurationMs: queryMetrics?.durationMs ?? null,
+      jsonBytes: Buffer.byteLength(JSON.stringify(payload), "utf8"),
+      participantCount: payload.participants.length,
+      characterCount: payload.sessionCharacters.length,
+      scenarioCount: payload.sessionScenarios.length,
+      pendingRestApprovalCount: payload.pendingRestApprovals?.length ?? 0,
+      returnedModelRowCount: Object.values(rowCounts).reduce((sum, count) => sum + count, 0),
+      rowCounts,
+    });
+  }
+
+  private mergeQueryMetrics(
+    current: PrismaQueryMetrics | null,
+    next: PrismaQueryMetrics | null,
+  ): PrismaQueryMetrics | null {
+    if (!current && !next) return null;
+    return {
+      count: (current?.count ?? 0) + (next?.count ?? 0),
+      durationMs: Number(((current?.durationMs ?? 0) + (next?.durationMs ?? 0)).toFixed(3)),
+    };
+  }
+
+  private buildSnapshotRowCounts(
+    session: {
+      participants: Array<{ sessionCharacter: unknown | null }>;
+      sessionCharacters: Array<{
+        character: unknown;
+        resource: unknown | null;
+        inventoryEntries: Array<{ itemDefinition: unknown }>;
+      }>;
+      sessionScenarios: Array<{ scenario: unknown; gameState: unknown | null }>;
+    },
+    pendingRowCounts: SnapshotRowCounts,
+  ): SnapshotRowCounts {
+    const inventoryEntryRows = session.sessionCharacters.reduce(
+      (count, character) => count + character.inventoryEntries.length,
+      0,
+    );
+    return {
+      sessionRows: 1,
+      participantRows: session.participants.length,
+      participantUserRows: session.participants.length,
+      participantAssignmentRows: session.participants.filter(
+        (participant) => participant.sessionCharacter,
+      ).length,
+      sessionCharacterRows: session.sessionCharacters.length,
+      characterRows: session.sessionCharacters.length,
+      resourceRows: session.sessionCharacters.filter((character) => character.resource).length,
+      inventoryEntryRows,
+      itemDefinitionRows: inventoryEntryRows,
+      sessionScenarioRows: session.sessionScenarios.length,
+      scenarioRows: session.sessionScenarios.length,
+      gameStateRows: session.sessionScenarios.filter((scenario) => scenario.gameState).length,
+      ...pendingRowCounts,
     };
   }
 }

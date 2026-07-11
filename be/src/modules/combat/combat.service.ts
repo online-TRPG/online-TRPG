@@ -868,7 +868,12 @@ export class CombatService {
     }
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     this.realtimeEvents.emitCombatUpdated(session.id, response);
-    this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
+    if (response.status !== CombatStatus.ACTIVE || triggeredReadyActions.count > 0) {
+      this.realtimeEvents.emitSessionSnapshot(
+        session.id,
+        await this.sessionsService.buildSnapshot(session.id),
+      );
+    }
     return {
       combat: response,
       map: responseMap,
@@ -1141,10 +1146,7 @@ export class CombatService {
     const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
     if (
-      triggeredReadyActionCount > 0 ||
-      terrainEffectApplication.damageRoll ||
-      terrainEffectApplication.appliedConditionTags.length > 0 ||
-      terrainEffectApplication.removedConditionTags.length > 0
+      triggeredReadyActionCount > 0
     ) {
       this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
     }
@@ -1248,7 +1250,12 @@ export class CombatService {
 
     const response = await this.completeCombatIfResolved(session.id, await this.getActiveCombatEntity(session.id));
     this.realtimeEvents.emitCombatUpdated(session.id, response);
-    this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
+    if (response.status !== CombatStatus.ACTIVE) {
+      this.realtimeEvents.emitSessionSnapshot(
+        session.id,
+        await this.sessionsService.buildSnapshot(session.id),
+      );
+    }
     return { combat: response, map: savedMap, message, pendingReaction: null };
   }
 
@@ -1380,7 +1387,12 @@ export class CombatService {
 
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
+    if (response.status !== CombatStatus.ACTIVE) {
+      this.realtimeEvents.emitSessionSnapshot(
+        params.session.id,
+        await this.sessionsService.buildSnapshot(params.session.id),
+      );
+    }
     return {
       combat: response,
       map,
@@ -3133,7 +3145,12 @@ export class CombatService {
       }
     }
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
+    if (response.status !== CombatStatus.ACTIVE) {
+      this.realtimeEvents.emitSessionSnapshot(
+        params.session.id,
+        await this.sessionsService.buildSnapshot(params.session.id),
+      );
+    }
     return {
       combat: response,
       map: await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id),
@@ -3754,6 +3771,10 @@ export class CombatService {
           where: { id: sessionCharacter.id },
           data: {
             currentHp: nextHp,
+            status:
+              nextHp > 0
+                ? PrismaSessionCharacterStatus.ACTIVE
+                : PrismaSessionCharacterStatus.DEAD,
             ...((sessionCharacter.tempHp ?? 0) > 0
               ? { tempHp: nextTempHp }
               : {}),

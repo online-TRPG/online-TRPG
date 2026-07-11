@@ -46,4 +46,55 @@ describe("StateDiffService", () => {
       },
     });
   });
+
+  it("persists DEAD and ACTIVE session character status from explicit life-state patches", async () => {
+    const tx = {
+      sessionCharacter: { update: jest.fn() },
+      combatParticipant: { update: jest.fn() },
+      gameState: { update: jest.fn() },
+      stateDiff: { create: jest.fn() },
+    };
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          sessionScenarioId: "session-scenario-1",
+          version: 3,
+        }),
+      },
+      $transaction: jest.fn(async (callback: (transaction: typeof tx) => Promise<void>) =>
+        callback(tx),
+      ),
+    };
+    const service = new StateDiffService(prisma as never);
+
+    await service.applyCharacterChanges({
+      sessionScenarioId: "session-scenario-1",
+      baseVersion: 3,
+      turnLogId: "turn-log-life-state",
+      reason: "life_state",
+      changes: [
+        { sessionCharacterId: "character-dead", currentHp: 0, markDead: true },
+        { sessionCharacterId: "character-revived", currentHp: 4, markDead: false },
+      ],
+    });
+
+    expect(tx.sessionCharacter.update).toHaveBeenNthCalledWith(1, {
+      where: { id: "character-dead" },
+      data: {
+        currentHp: 0,
+        tempHp: undefined,
+        conditionsJson: undefined,
+        status: "DEAD",
+      },
+    });
+    expect(tx.sessionCharacter.update).toHaveBeenNthCalledWith(2, {
+      where: { id: "character-revived" },
+      data: {
+        currentHp: 4,
+        tempHp: undefined,
+        conditionsJson: undefined,
+        status: "ACTIVE",
+      },
+    });
+  });
 });

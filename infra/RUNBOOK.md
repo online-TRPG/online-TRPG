@@ -242,6 +242,117 @@ npm run prisma:push -w @trpg/be   # push + generate 까지 한번에
 
 ---
 
+## 성능 확장성 additive schema와 projection backfill
+
+### 적용 대상
+
+202607100001_performance_scalability_phase1 변경은 다음 additive 객체를 포함한다.
+
+- AiTrace.fallbackUsed
+- TurnLog.idempotencyKey nullable unique
+- ScenarioPublication
+- ScenarioCollaboratorGrant
+- 세션·시나리오·TurnLog·AiTrace·SessionReveal 조회 인덱스
+
+기존 attribution과 TurnLog 계약을 제거하지 않으므로 코드 롤백과 독립적으로 남길 수 있다.
+
+### 자동 배포 순서
+
+Jenkins 배포는 사전 pg_dump 이후 아래 순서를 지킨다.
+
+1. 새 backend image 빌드
+2. prisma db push로 additive schema 반영
+3. 서비스 중 초기 AiTrace fallback backfill dry-run과 apply
+4. 서비스 중 scenario publication backfill dry-run과 apply
+5. 제공 시나리오 seed
+6. 기존 backend writer 중지
+7. 두 backfill 최종 catch-up apply
+8. 새 backend 기동과 health smoke
+
+backfill 스크립트는 runtime image의 `/app/scripts/`에 포함된다. 초기 backfill은 기존 backend가 서비스하는 동안 bulk를 처리하고, 마지막에는 기존 writer를 중지한 뒤 catch-up을 다시 실행해 구 코드의 동시 write를 닫는다. catch-up 실패 시 Jenkins trap이 중지했던 기존 컨테이너를 다시 시작한다. AiTrace 스크립트의 `parseFailureCount`가 0보다 크면 `parseFailureIds` 표본을 별도 점검하며 해당 false 값을 신뢰 가능한 legacy 판정으로 간주하지 않는다.
+
+### 수동 재실행과 검증
+
+~~~bash
+docker exec -it jenkins bash
+cd /var/jenkins_home/workspace/trpg_develop
+
+# 예상 처리량만 확인
+docker compose run --rm --entrypoint "" backend node /app/scripts/backfill-ai-trace-fallback.mjs
+docker compose run --rm --entrypoint "" backend node /app/scripts/backfill-scenario-publication.mjs
+
+# upsert/deleteMany/createMany 기반 멱등 적용
+docker compose run --rm --entrypoint "" backend node /app/scripts/backfill-ai-trace-fallback.mjs --apply
+docker compose run --rm --entrypoint "" backend node /app/scripts/backfill-scenario-publication.mjs --apply
+
+# Scenario와 projection 수, orphan 여부 확인
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT (SELECT count(*) FROM "Scenario") AS scenarios,
+          (SELECT count(*) FROM "ScenarioPublication") AS publications,
+          (SELECT count(*) FROM "ScenarioPublication" p
+             LEFT JOIN "Scenario" s ON s.id = p."scenarioId"
+            WHERE s.id IS NULL) AS orphan_publications;'
+~~~
+
+정상 기준:
+
+- publications는 scenarios와 같다.
+- orphan_publications는 0이다.
+- dry-run 출력의 scanned와 publicationCount가 같고 스크립트 실행 오류가 없다.
+- `metadataFailureCount`, `publicationFailClosedCount`, `missingCollaboratorUserCount`가 기록되며, 0보다 크면 해당 표본을 검토한다. publication 파싱 실패는 `UNPUBLISHED/HIDDEN`, 잘못되거나 존재하지 않는 협업 사용자는 grant 생략으로 처리되어 권한이 넓어지지 않는다.
+- AiTrace dry-run/apply의 `wouldUpdate`, `updated`, `parseFailureCount`가 기록되고 재실행 apply의 `updated`는 0이다.
+- backend 로그에 scenario_publication_projection_mismatch가 지속적으로 증가하지 않는다.
+
+### 실패와 rollback
+
+- schema 적용 전 실패: 코드/DB 변화가 없으므로 원인 수정 후 재배포한다.
+- schema 적용 후 backfill 실패: 새 backend 기동을 중단하고 기존 backend를 유지한다. 원인을 수정한 뒤 dry-run과 apply를 재실행한다.
+- 최종 catch-up 실패: Jenkins가 기존 backend 컨테이너를 `docker compose start backend`로 복구한다. additive schema는 구 코드와 호환되며, 원인 해결 후 catch-up부터 재실행한다.
+- 새 read 경로 문제: 이전 backend image로 롤백한다. 신규 테이블·컬럼·인덱스는 즉시 삭제하지 않는다.
+- projection 데이터 오류: attribution을 source of truth로 backfill을 다시 실행한다. 권한을 수동으로 넓히지 않는다.
+- DB 자체 복구가 필요할 때만 이 문서 첫 절의 pre-deploy dump와 pg_restore 절차를 사용한다.
+
+### 대용량 인덱스 lock 판단과 rollback
+
+기본 Jenkins 경로의 `prisma db push`와 migration SQL의 일반 `CREATE INDEX`는 대상 테이블에서 write를 지연시킬 수 있다. 운영 적용 전 staging에서 같은 규모 fixture로 `scripts/performance/explain-performance-queries.sql`과 index build 시간을 기록하고, 허용 가능한 배포 창을 넘으면 해당 인덱스를 DB 관리자 단계에서 먼저 `CONCURRENTLY` 생성한다. `CREATE INDEX CONCURRENTLY`는 transaction block 안에서 실행하지 않는다.
+
+~~~sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "AiTrace_sessionId_createdAt_id_idx"
+ON "AiTrace" ("sessionId", "createdAt", "id");
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "AiTrace_sessionId_kind_status_createdAt_id_idx"
+ON "AiTrace" ("sessionId", "kind", "status", "createdAt", "id");
+~~~
+
+적용 중에는 `pg_stat_progress_create_index`, `pg_stat_activity`, `pg_locks`에서 진행률과 대기 write를 확인한다. 예상 시간은 임의 숫자로 정하지 않고 staging의 같은 행 수 build 결과와 운영 I/O 여유를 함께 기록한다. 실패한 concurrent index가 `indisvalid = false`로 남았는지 확인하고, 사용되지 않는 invalid index만 제거한 뒤 재시도한다. 정상 인덱스를 제거해 이전 구성을 복원해야 한다면 먼저 기존 prefix 인덱스를 다시 만든다.
+
+~~~sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "AiTrace_sessionId_createdAt_idx"
+ON "AiTrace" ("sessionId", "createdAt");
+
+DROP INDEX CONCURRENTLY IF EXISTS "AiTrace_sessionId_createdAt_id_idx";
+DROP INDEX CONCURRENTLY IF EXISTS "AiTrace_sessionId_kind_status_createdAt_id_idx";
+~~~
+
+정상 생성된 인덱스 rollback은 코드 rollback에 필수적이지 않다. write/storage 비용이 측정상 문제일 때만 query plan이 대체 인덱스를 사용하는지 확인한 뒤 별도 변경 창에서 제거한다.
+
+### 성능 fixture 안전 수칙
+
+scripts/performance/seed-scale.mjs는 운영 DB에서 실행하지 않는다. 별도 로컬/스테이징 DB에서 dry-run 출력과 prefix를 확인한 뒤에만 --apply를 사용한다. fixture는 일반 사용자와 MODERATOR 사용자를 따로 만들고, 공개 시나리오는 ScenarioPublication과 attribution marker 양쪽에서 유효한 CLONED revision으로 생성한다. 대표 세션에는 scale별 participant/character/inventory와 reveal/visit, PlayerAction/TurnLog/StateDiff/AiTrace 누적 이력을 함께 생성한다.
+
+~~~bash
+npm run benchmark:performance:seed -- --scale=1 --prefix=perf_1x_
+npm run benchmark:performance:seed -- --scale=1 --prefix=perf_1x_ --apply
+psql "$DATABASE_URL" -v scale=1 -v prefix='perf_1x_' \
+  -f scripts/performance/verify-scale-fixture.sql
+
+# 측정 완료 후 같은 prefix만 제거
+npm run benchmark:performance:seed -- --scale=1 --prefix=perf_1x_ --cleanup --apply
+~~~
+
+apply는 같은 prefix의 fixture 행이 하나라도 있으면 실패한다. cleanup 전에 DATABASE_URL과 prefix를 다시 확인하고, cleanup 출력의 session/scenario/itemDefinition/user 삭제 수를 기록한 뒤 새 fixture를 만든다. 10x·100x fixture는 행 수와 WAL이 크므로 운영 백업 DB를 재사용하지 않는다.
+
+---
+
 ## 향후 추가 예정 절차
 
 - HTTPS 인증서 수동 갱신 / 만료 임박 대응

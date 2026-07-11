@@ -2788,6 +2788,7 @@ function decodeCombatParticipant(value: unknown): CombatParticipantResponseDto {
     tokenId: readNullableString(record, "tokenId", "combat.participant.tokenId"),
     name: readString(record, "name", "combat.participant.name"),
     currentHp: readNullableNonNegativeInteger(record, "currentHp", "combat.participant.currentHp"),
+    tempHp: readNullableNonNegativeInteger(record, "tempHp", "combat.participant.tempHp"),
     maxHp: readNullableNonNegativeInteger(record, "maxHp", "combat.participant.maxHp"),
     armorClass: readNullableNonNegativeInteger(record, "armorClass", "combat.participant.armorClass"),
     initiative: readInteger(record, "initiative", "combat.participant.initiative"),

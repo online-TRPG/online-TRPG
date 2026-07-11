@@ -53,6 +53,7 @@ export function listScenarios(
   if (query?.gmMode) params.set('gmMode', query.gmMode);
   if (query?.limit !== undefined) params.set('limit', String(query.limit));
   if (query?.offset !== undefined) params.set('offset', String(query.offset));
+  if (query?.cursor) params.set('cursor', query.cursor);
   const search = params.toString();
   return requestJson<Scenario[]>(`/scenarios${search ? `?${search}` : ''}`, {
     user,
