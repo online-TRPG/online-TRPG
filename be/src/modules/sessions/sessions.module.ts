@@ -19,7 +19,6 @@ import { SessionDeletePolicyService } from "./session-delete-policy.service";
 import { SessionEconomyService } from "./session-economy.service";
 import { SessionGmRuntimeParticipantAccessService } from "./session-gm-runtime-participant-access.service";
 import { SessionHumanGmAiAssistFailureAuditService } from "./session-human-gm-ai-assist-failure-audit.service";
-import { SessionHumanGmAssignmentPolicyService } from "./session-human-gm-assignment-policy.service";
 import { SessionHumanGmAiAssistSuggestionStoreService } from "./session-human-gm-ai-assist-suggestion-store.service";
 import { SessionHumanGmMessageStoreService } from "./session-human-gm-message-store.service";
 import { SessionHumanGmPrivateNoteStoreService } from "./session-human-gm-private-note-store.service";
@@ -30,6 +29,7 @@ import { SessionLeaveResolutionService } from "./session-leave-resolution.servic
 import { SessionListFilterService } from "./session-list-filter.service";
 import { SessionListItemService } from "./session-list-item.service";
 import { SessionParticipantStatusService } from "./session-participant-status.service";
+import { SessionPlayService } from "./session-play.service";
 import { SessionPublicIdService } from "./session-public-id.service";
 import { SessionRevealService } from "./session-reveal.service";
 import { SessionScenarioNodeSnapshotService } from "./session-scenario-node-snapshot.service";
@@ -78,7 +78,6 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
     SessionGmRuntimeParticipantAccessService,
     SessionHumanGmAiAssistFailureAuditService,
     SessionHumanGmAiAssistSuggestionStoreService,
-    SessionHumanGmAssignmentPolicyService,
     SessionHumanGmMessageStoreService,
     SessionHumanGmPrivateNoteStoreService,
     SessionInventoryService,
@@ -88,6 +87,7 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
     SessionListFilterService,
     SessionListItemService,
     SessionParticipantStatusService,
+    SessionPlayService,
     SessionPublicIdService,
     SessionRevealService,
     SessionScenarioLinkService,

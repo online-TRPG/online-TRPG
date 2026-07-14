@@ -104,7 +104,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     }
 
     await this.usersService.getUserEntityOrThrow(userId);
-    await this.sessionsService.ensureMembership(userId, dto.sessionId);
+    await this.sessionsService.ensureActivePlayAccess(userId, dto.sessionId);
     await this.sessionsService.updateParticipantConnectionStatus(
       userId,
       dto.sessionId,
@@ -142,7 +142,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       throw new WsException("You must join the session before requesting a resync.");
     }
 
-    await this.sessionsService.ensureMembership(membership.userId, dto.sessionId);
+    await this.sessionsService.ensureActivePlayAccess(membership.userId, dto.sessionId);
     const snapshot = await this.sessionsService.buildSnapshot(dto.sessionId);
     client.emit("session.snapshot", {
       sessionId: dto.sessionId,
@@ -171,7 +171,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
 
     // Main RP/Chat 메시지는 현재 접속 중인 참가자끼리만 쓰는 휘발성 창구라서 DB에 저장하지 않는다.
     // 클라이언트가 보낸 sender를 믿지 않고, join 때 확인한 membership 기준으로만 발신자를 정한다.
-    await this.sessionsService.ensureMembership(membership.userId, dto.sessionId);
+    await this.sessionsService.ensureActivePlayAccess(membership.userId, dto.sessionId);
     const sender = await this.usersService.getUserEntityOrThrow(membership.userId);
 
     this.realtimeEvents.emitChatMessage(dto.sessionId, {

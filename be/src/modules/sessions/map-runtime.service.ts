@@ -34,6 +34,10 @@ export class MapRuntimeService {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     await this.sessionsService.ensureMembership(userId, resolvedSessionId);
+    const isGmOperator = session.gmMode === PrismaGmMode.HUMAN && session.hostUserId === userId;
+    if (!isGmOperator) {
+      throw new ForbiddenException("GM map changes require GM permission.");
+    }
     const { state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const previousMap = await this.sessionsService.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
@@ -44,13 +48,9 @@ export class MapRuntimeService {
         select: { id: true },
       }),
     );
-    const isGmOperator = session.gmMode === PrismaGmMode.HUMAN && (session.gmUserId ?? session.hostUserId) === userId;
     this.logger.debug(
       `[VTT_GM_MAP_UPDATE] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} gmOperator=${isGmOperator} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
-    if (!isGmOperator) {
-      throw new ForbiddenException("GM map changes require GM permission.");
-    }
     if (hasActiveCombat) {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");
     }

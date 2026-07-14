@@ -69,9 +69,18 @@ describe("SessionVttDefaultMapReaderService", () => {
     expect(service.extractChecksFromCheckOptions("{malformed")).toEqual([]);
   });
 
-  it("returns null for invalid VTT map payloads", () => {
+  it("hydrates partial VTT maps and returns null for invalid payloads", () => {
     expect(service.extractVttMapFromCheckOptions(JSON.stringify([]))).toBeNull();
-    expect(service.extractVttMapFromCheckOptions(JSON.stringify({ vttMap: { id: "missing-arrays" } }))).toBeNull();
+    expect(
+      service.extractVttMapFromCheckOptions(JSON.stringify({ vttMap: { id: "missing-arrays" } })),
+    ).toMatchObject({
+      id: "missing-arrays",
+      gridSize: 64,
+      width: 1280,
+      height: 832,
+      tokens: [],
+      fogRects: [],
+    });
     expect(service.extractVttMapFromCheckOptions("{malformed")).toBeNull();
   });
 });

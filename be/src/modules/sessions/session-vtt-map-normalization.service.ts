@@ -270,8 +270,8 @@ export class SessionVttMapNormalizationService {
                 kind: this.normalizeHazardKind(cell.hazard.kind),
                 armed: cell.hazard.armed !== false,
                 triggerOnce: cell.hazard.triggerOnce !== false,
-                detectionRadiusCells: this.readIntegerInRange(cell.hazard.detectionRadiusCells, 1, 20, 3),
-                detectionDc: this.readIntegerInRange(cell.hazard.detectionDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX, 12),
+                detectionRadiusCells: this.readClampedInteger(cell.hazard.detectionRadiusCells, 1, 20, 3),
+                detectionDc: this.readClampedInteger(cell.hazard.detectionDc, VTT_CHECK_DC_MIN, VTT_CHECK_DC_MAX, 12),
                 linkedClueIds: Array.isArray(cell.hazard.linkedClueIds) ? cell.hazard.linkedClueIds.filter((id) => typeof id === "string").slice(0, 30) : [],
                 attemptedBySessionCharacterIds: Array.isArray(cell.hazard.attemptedBySessionCharacterIds)
                   ? cell.hazard.attemptedBySessionCharacterIds.filter((id) => typeof id === "string").slice(0, 80)
@@ -368,6 +368,12 @@ export class SessionVttMapNormalizationService {
   private readIntegerInRange(value: unknown, min: number, max: number, fallback: number): number {
     return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
       ? value
+      : fallback;
+  }
+
+  private readClampedInteger(value: unknown, min: number, max: number, fallback: number): number {
+    return typeof value === "number" && Number.isInteger(value)
+      ? this.clampNumber(value, min, max)
       : fallback;
   }
 

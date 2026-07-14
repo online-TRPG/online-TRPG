@@ -14,6 +14,8 @@ import {
   SessionResponseDto,
   SessionSnapshotDto,
   SessionSnapshotEventDto,
+  SessionPlayResponseDto,
+  ActivePlayResponseDto,
   SessionStatusUpdatedEventDto,
   VttMapDeltaEventDto,
   VttMapStateDto,
@@ -65,6 +67,41 @@ export class RealtimeEventsService {
     const payload: ParticipantUpdatedEventDto = { sessionId, participant };
     this.logPayload("participant.updated", sessionId, payload);
     this.server.to(this.getRoomName(sessionId)).emit("participant.updated", payload);
+  }
+
+  evictUserFromSession(sessionId: string, userId: string): void {
+    if (!this.server) return;
+    const userRoom = this.getUserRoomName(sessionId, userId);
+    this.server.in(userRoom).socketsLeave([
+      this.getRoomName(sessionId),
+      userRoom,
+      this.getVttDeltaRoomName(sessionId),
+      this.getUserVttDeltaRoomName(sessionId, userId),
+    ]);
+  }
+
+  hasUserConnection(sessionId: string, userId: string): boolean {
+    if (!this.server) return false;
+    return (this.server.sockets.adapter.rooms.get(this.getUserRoomName(sessionId, userId))?.size ?? 0) > 0;
+  }
+
+  emitSessionPlayUpdated(sessionId: string, play: SessionPlayResponseDto): void {
+    this.server?.to(this.getRoomName(sessionId)).emit("session.play.updated", { sessionId, play });
+  }
+
+  emitSessionAttendanceUpdated(sessionId: string, play: SessionPlayResponseDto): void {
+    this.server?.to(this.getRoomName(sessionId)).emit("session.attendance.updated", { sessionId, play });
+  }
+
+  emitActivePlayChanged(
+    sessionId: string,
+    userId: string,
+    activePlay: ActivePlayResponseDto | null,
+  ): void {
+    this.server?.to(this.getUserRoomName(sessionId, userId)).emit("session.active-play.changed", {
+      sessionId,
+      activePlay,
+    });
   }
 
   emitCharacterUpdated(sessionId: string, character: SessionCharacterResponseDto): void {

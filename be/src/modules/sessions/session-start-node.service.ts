@@ -20,12 +20,17 @@ export class SessionStartNodeService {
 
     const incoming = new Map<string, number>();
     nodes.forEach((node) => {
-      const transitions = parseJsonOrThrow(
-        node.transitionsJson,
-        [],
-        decodeScenarioTransitionArray,
-        "scenarioNode.transitionsJson",
-      );
+      let transitions: ReturnType<typeof decodeScenarioTransitionArray>;
+      try {
+        transitions = parseJsonOrThrow(
+          node.transitionsJson,
+          [],
+          decodeScenarioTransitionArray,
+          "scenarioNode.transitionsJson",
+        );
+      } catch {
+        transitions = [];
+      }
       transitions.forEach((transition) => {
         const nextNodeId = transition.nextNodeId;
         if (typeof nextNodeId === "string" && nodeIds.has(nextNodeId)) {

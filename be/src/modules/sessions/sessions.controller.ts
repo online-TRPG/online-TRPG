@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -31,6 +30,17 @@ import {
   CharacterVaultItemDto,
   CompleteCampaignDto,
   CreateSessionDto,
+  CreateSessionPlayDto,
+  UpdateSessionPlayDto,
+  SessionPlayTransitionDto,
+  UpdateSessionPlayAttendanceDto,
+  AcquireActivePlayDto,
+  CreateSessionApplicationDto,
+  ResolveSessionApplicationDto,
+  SessionPlayResponseDto,
+  ActivePlayResponseDto,
+  SessionApplicationResponseDto,
+  SessionScheduleProximityWarningDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateVttMapPingDto,
   GameStateResponseDto,
@@ -39,7 +49,9 @@ import {
   HumanGmAiAssistSuggestionDto,
   HumanGmNodeMoveOptionDto,
   HumanGmPrivateNoteDto,
+  HumanGmRevealOptionDto,
   JoinSessionDto,
+  JoinSessionByIdDto,
   MoveSessionTokenDto,
   PaginatedResponse,
   ParticipantStatusResponseDto,
@@ -53,12 +65,12 @@ import {
   SessionRevealResponseDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
+  SessionInvitePreviewResponseDto,
   SessionListItemResponseDto,
+  SessionListQueryDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
-  SessionStatus,
-  UpdateHumanGmDto,
   UpdateParticipantReadyDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
@@ -71,6 +83,7 @@ import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { MapRuntimeService } from "./map-runtime.service";
 import { SessionsService } from "./sessions.service";
+import { SessionPlayService } from "./session-play.service";
 
 @ApiTags("sessions")
 @Controller("sessions")
@@ -78,26 +91,158 @@ export class SessionsController {
   constructor(
     private readonly sessionsService: SessionsService,
     private readonly mapRuntimeService: MapRuntimeService,
+    private readonly sessionPlayService: SessionPlayService,
   ) {}
+
+  @Get(":id/plays")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [SessionPlayResponseDto] })
+  async listPlays(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<SessionPlayResponseDto[]>> {
+    return apiResponse("SESSION_200", "플레이 일정을 조회했습니다.", await this.sessionPlayService.listPlays(userId, sessionId));
+  }
+
+  @Post(":id/plays")
+  @ApiSecurity("x-user-id")
+  @ApiCreatedResponse({ type: SessionPlayResponseDto })
+  async createPlay(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: CreateSessionPlayDto,
+  ): Promise<ApiResponse<SessionPlayResponseDto>> {
+    return apiResponse(
+      "SESSION_201",
+      dto.openLobbyNow ? "대기실을 열었습니다." : "다음 플레이 일정을 만들었습니다.",
+      await this.sessionPlayService.createPlay(userId, sessionId, dto),
+    );
+  }
+
+  @Patch(":id/plays/:playId")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionPlayResponseDto })
+  async updatePlay(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Param("playId") playId: string,
+    @Body() dto: UpdateSessionPlayDto,
+  ): Promise<ApiResponse<SessionPlayResponseDto>> {
+    return apiResponse("SESSION_200", "플레이 일정을 변경했습니다.", await this.sessionPlayService.updatePlay(userId, sessionId, playId, dto));
+  }
+
+  @Post(":id/plays/:playId/cancel")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionPlayResponseDto })
+  async cancelPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
+    return apiResponse("SESSION_200", "플레이 일정을 취소했습니다.", await this.sessionPlayService.cancelPlay(userId, sessionId, playId, dto));
+  }
+
+  @Post(":id/plays/:playId/open-lobby")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionPlayResponseDto })
+  async openPlayLobby(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
+    return apiResponse("SESSION_200", "대기실을 열었습니다.", await this.sessionPlayService.openLobby(userId, sessionId, playId, dto));
+  }
+
+  @Post(":id/plays/:playId/start")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionSnapshotDto })
+  async startPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
+    return apiResponse("SESSION_200", "플레이를 시작했습니다.", await this.sessionsService.startSession(userId, sessionId, { playId, expectedStateVersion: dto.expectedStateVersion }));
+  }
+
+  @Post(":id/plays/:playId/finish")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionPlayResponseDto })
+  async finishPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
+    return apiResponse("SESSION_200", "플레이를 닫고 대기 중으로 전환했습니다.", await this.sessionPlayService.finishPlay(userId, sessionId, playId, dto));
+  }
+
+  @Patch(":id/plays/:playId/attendance/me")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionPlayResponseDto })
+  async updatePlayAttendance(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: UpdateSessionPlayAttendanceDto) {
+    return apiResponse("SESSION_200", "참석 응답을 저장했습니다.", await this.sessionPlayService.updateAttendance(userId, sessionId, playId, dto));
+  }
+
+  @Post(":id/plays/:playId/enter")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: ActivePlayResponseDto })
+  async enterPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: AcquireActivePlayDto) {
+    return apiResponse("SESSION_200", "실시간 플레이에 입장했습니다.", await this.sessionPlayService.acquireActivePlay(userId, sessionId, playId, dto));
+  }
+
+  @Delete("active-play/me")
+  @HttpCode(204)
+  @ApiSecurity("x-user-id")
+  async leaveActivePlay(@CurrentUserId() userId: string): Promise<void> {
+    await this.sessionPlayService.releaseActivePlay(userId);
+  }
+
+  @Post("active-play/:playId/heartbeat")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: ActivePlayResponseDto })
+  async heartbeatActivePlay(@CurrentUserId() userId: string, @Param("playId") playId: string) {
+    return apiResponse("SESSION_200", "실시간 참여 상태를 갱신했습니다.", await this.sessionPlayService.heartbeat(userId, playId));
+  }
+
+  @Post(":id/applications")
+  @ApiSecurity("x-user-id")
+  @ApiCreatedResponse({ type: SessionApplicationResponseDto })
+  async createApplication(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Body() dto: CreateSessionApplicationDto) {
+    return apiResponse("SESSION_201", "참가 신청을 보냈습니다.", await this.sessionPlayService.createApplication(userId, sessionId, dto));
+  }
+
+  @Get(":id/application-proximity-warnings")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [SessionScheduleProximityWarningDto] })
+  async getApplicationProximityWarnings(@CurrentUserId() userId: string, @Param("id") sessionId: string) {
+    return apiResponse(
+      "SESSION_200",
+      "시작 시간이 가까운 일정을 조회했습니다.",
+      await this.sessionPlayService.getApplicationProximityWarnings(userId, sessionId),
+    );
+  }
+
+  @Get(":id/applications")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [SessionApplicationResponseDto] })
+  async listApplications(@CurrentUserId() userId: string, @Param("id") sessionId: string) {
+    return apiResponse("SESSION_200", "참가 신청을 조회했습니다.", await this.sessionPlayService.listApplications(userId, sessionId));
+  }
+
+  @Patch(":id/applications/:applicationId")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionApplicationResponseDto })
+  async resolveApplication(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("applicationId") applicationId: string, @Body() dto: ResolveSessionApplicationDto) {
+    return apiResponse("SESSION_200", "참가 신청을 처리했습니다.", await this.sessionPlayService.resolveApplication(userId, sessionId, applicationId, dto));
+  }
 
   @Get()
   @ApiSecurity("x-user-id")
   @ApiOkResponse({ type: [SessionListItemResponseDto] })
   async listSessions(
     @CurrentUserId() userId: string,
-    @Query("status") status?: string,
-    @Query("scenarioId") scenarioId?: string,
-    @Query("ruleSetId") ruleSetId?: string,
-    @Query("page") page = "0",
-    @Query("size") size = "10",
+    @Query() query: SessionListQueryDto,
   ): Promise<ApiResponse<PaginatedResponse<SessionListItemResponseDto>>> {
-    const currentPage = this.toPageNumber(page);
-    const pageSize = this.toPageSize(size);
+    const currentPage = query.page ?? 0;
+    const pageSize = query.size ?? 10;
     const result = await this.sessionsService.listAvailableSessions({
-      status: this.toSessionStatus(status),
-      scenarioId,
-      ruleSetId,
+      query: query.query,
+      status: query.status,
+      activityStatus: query.activityStatus,
+      gmMode: query.gmMode,
+      scenarioId: query.scenarioId,
+      ruleSetId: query.ruleSetId,
       requesterUserId: userId,
+      sort: query.sort,
       page: currentPage,
       size: pageSize,
     });
@@ -150,6 +295,33 @@ export class SessionsController {
       "SESSION_201",
       "Session joined.",
       await this.sessionsService.joinSessionByInvite(userId, dto),
+    );
+  }
+
+  @Get("invites/:inviteCode/preview")
+  @ApiParam({ name: "inviteCode" })
+  @ApiOkResponse({ type: SessionInvitePreviewResponseDto })
+  async getInvitePreview(
+    @Param("inviteCode") inviteCode: string,
+  ): Promise<ApiResponse<SessionInvitePreviewResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Invite preview fetched.",
+      await this.sessionsService.getInvitePreview(inviteCode),
+    );
+  }
+
+  @Get("invites/:inviteCode/proximity-warnings")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [SessionScheduleProximityWarningDto] })
+  async getInviteProximityWarnings(
+    @CurrentUserId() userId: string,
+    @Param("inviteCode") inviteCode: string,
+  ) {
+    return apiResponse(
+      "SESSION_200",
+      "시작 시간이 가까운 일정을 조회했습니다.",
+      await this.sessionsService.getInviteProximityWarnings(userId, inviteCode),
     );
   }
 
@@ -280,22 +452,6 @@ export class SessionsController {
     );
   }
 
-  @Patch(":id/gm")
-  @ApiSecurity("x-user-id")
-  @ApiParam({ name: "id" })
-  @ApiOkResponse({ type: SessionSnapshotDto })
-  async updateHumanGm(
-    @CurrentUserId() userId: string,
-    @Param("id") sessionId: string,
-    @Body() dto: UpdateHumanGmDto,
-  ): Promise<ApiResponse<SessionSnapshotDto>> {
-    return apiResponse(
-      "SESSION_200",
-      "Human GM updated.",
-      await this.sessionsService.updateHumanGm(userId, sessionId, dto),
-    );
-  }
-
   @Delete(":id/leave")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -315,11 +471,12 @@ export class SessionsController {
   async joinSessionById(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
+    @Body() dto: JoinSessionByIdDto,
   ): Promise<ApiResponse<SessionSnapshotDto>> {
     return apiResponse(
       "SESSION_201",
       "Session joined.",
-      await this.sessionsService.joinSessionById(userId, sessionId),
+      await this.sessionsService.joinSessionById(userId, sessionId, dto),
     );
   }
 
@@ -351,6 +508,37 @@ export class SessionsController {
     );
   }
 
+  @Delete(":id/participants/:participantPublicId")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionParticipantResponseDto })
+  async removeParticipant(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Param("participantPublicId") participantPublicId: string,
+  ): Promise<ApiResponse<SessionParticipantResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "참가자를 세션에서 내보냈습니다.",
+      await this.sessionsService.removeParticipant(userId, sessionId, participantPublicId),
+    );
+  }
+
+  @Post(":id/participants/:participantPublicId/restore")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: SessionParticipantResponseDto })
+  async restoreParticipant(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Param("participantPublicId") participantPublicId: string,
+  ): Promise<ApiResponse<SessionParticipantResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "참가자가 다시 초대받을 수 있도록 복구했습니다.",
+      await this.sessionsService.restoreParticipant(userId, sessionId, participantPublicId),
+    );
+  }
+
   @Get(":id/participants/status")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -362,6 +550,20 @@ export class SessionsController {
     return apiResponse("SESSION_200", "Participant statuses fetched.", {
       participants: await this.sessionsService.getParticipantStatusesForUser(userId, sessionId),
     });
+  }
+
+  @Get(":id/participants/removed")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [SessionParticipantResponseDto] })
+  async getRemovedParticipants(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<SessionParticipantResponseDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "내보낸 참가자 목록을 조회했습니다.",
+      await this.sessionsService.getRemovedParticipantsForHost(userId, sessionId),
+    );
   }
 
   @Get(":id/state")
@@ -603,6 +805,21 @@ export class SessionsController {
       "SESSION_200",
       "Session content revealed.",
       await this.sessionsService.revealSessionContent(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/gm/reveal-options")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [HumanGmRevealOptionDto] })
+  async listHumanGmRevealOptions(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<HumanGmRevealOptionDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "Human GM reveal options fetched.",
+      await this.sessionsService.listHumanGmRevealOptions(userId, sessionId),
     );
   }
 
@@ -873,32 +1090,4 @@ export class SessionsController {
     );
   }
 
-  private toSessionStatus(value: string | undefined): SessionStatus | undefined {
-    if (!value) {
-      return undefined;
-    }
-
-    const match = Object.values(SessionStatus).find((status) => status === value.toLowerCase());
-    if (!match) {
-      throw new BadRequestException("Invalid session status.");
-    }
-
-    return match;
-  }
-
-  private toPageNumber(value: string): number {
-    const page = Number(value);
-    if (!Number.isInteger(page) || page < 0) {
-      throw new BadRequestException("Invalid page value.");
-    }
-    return page;
-  }
-
-  private toPageSize(value: string): number {
-    const size = Number(value);
-    if (!Number.isInteger(size) || size < 1 || size > 100) {
-      throw new BadRequestException("Invalid size value.");
-    }
-    return size;
-  }
 }

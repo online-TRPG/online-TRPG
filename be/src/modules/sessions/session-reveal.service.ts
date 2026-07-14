@@ -9,6 +9,7 @@ import {
   PlayerScenarioNodeDto,
   PlayerScenarioViewDto,
   PlayerVisibleTargetDto,
+  HumanGmRevealOptionDto,
   RevealSessionContentDto,
   ScenarioClueDto,
   ScenarioCheckOptionDto,
@@ -75,6 +76,49 @@ export type RevealPolicyMode = "AUTO_REVEAL" | "PLAYER_ACTION" | "CHECK_SUCCESS"
 
 @Injectable()
 export class SessionRevealService {
+  async listHumanGmRevealOptions(
+    runtime: SessionRevealRuntime,
+    userId: string,
+    sessionId: string,
+  ): Promise<HumanGmRevealOptionDto[]> {
+    const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
+    const { sessionScenario, state } = await runtime.getGameStateEntityOrThrow(session.id);
+    await runtime.ensureSessionScenarioNodeSnapshotForScenario(sessionScenario.id, sessionScenario.scenarioId);
+    if (!state.currentNodeId) return [];
+
+    const node = await runtime.prisma.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId: sessionScenario.id,
+          nodeId: state.currentNodeId,
+        },
+      },
+      select: { cluesJson: true },
+    });
+    if (!node) return [];
+
+    const clues = this.parseScenarioCluesJson(node.cluesJson).filter(
+      (clue): clue is ScenarioClueDto & { id: string } => typeof clue.id === "string" && clue.id.length > 0,
+    );
+    if (!clues.length) return [];
+    const revealed = await runtime.prisma.sessionReveal.findMany({
+      where: {
+        sessionScenarioId: sessionScenario.id,
+        contentKind: "clue",
+        contentId: { in: clues.map((clue) => clue.id) },
+      },
+      select: { contentId: true },
+    });
+    const revealedIds = new Set(revealed.map((item) => item.contentId));
+    return clues
+      .filter((clue) => !revealedIds.has(clue.id))
+      .map((clue) => ({
+        contentId: clue.id,
+        title: clue.title?.trim() || "제목 없는 단서",
+        preview: clue.handoutText?.trim() || clue.playerText?.trim() || clue.text?.trim() || null,
+      }));
+  }
+
   async getPlayerScenarioForUser(runtime: SessionRevealRuntime, userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
     const session = await runtime.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;

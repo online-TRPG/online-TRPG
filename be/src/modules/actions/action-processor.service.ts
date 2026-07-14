@@ -6,6 +6,7 @@ import {
   CombatStatus as PrismaCombatStatus,
   DiceAdvantageState as PrismaDiceAdvantageState,
   Prisma,
+  SessionActivityStatus as PrismaSessionActivityStatus,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import {
@@ -245,6 +246,17 @@ export class ActionProcessorService {
       }
     } catch (error) {
       const errorMessage = this.toErrorMessage(error);
+      if (errorMessage === "PLAY_FINISHED") {
+        await this.prisma.playerAction.updateMany({
+          where: { id: action.id, queueStatus: PrismaActionQueueStatus.PROCESSING },
+          data: {
+            queueStatus: PrismaActionQueueStatus.FAILED,
+            failureReason: errorMessage,
+            processedAt: new Date(),
+          },
+        });
+        return;
+      }
       await this.prisma.playerAction.update({
         where: { id: action.id },
         data: {
@@ -374,6 +386,17 @@ export class ActionProcessorService {
     };
     await this.assertRuntimeEffectPreconditions(resolution, runtimeEffectParams);
     const mutation = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.id}))`;
+      const [currentSession, currentAction] = await Promise.all([
+        tx.session.findUnique({ where: { id: session.id }, select: { activityStatus: true } }),
+        tx.playerAction.findUnique({ where: { id: action.id }, select: { queueStatus: true } }),
+      ]);
+      if (
+        currentSession?.activityStatus !== PrismaSessionActivityStatus.PLAYING ||
+        currentAction?.queueStatus !== PrismaActionQueueStatus.PROCESSING
+      ) {
+        throw new Error("PLAY_FINISHED");
+      }
       const earlyRuntimeStateChanged = await this.applyEarlyRuntimeEffects(
         resolution,
         runtimeEffectParams,

@@ -24,7 +24,7 @@ type SessionListSource = Prisma.SessionGetPayload<{
     participants: true;
     sessionScenarios: {
       include: {
-        scenario: true;
+        scenario: { include: { publication: true } };
         gameState: true;
       };
     };
@@ -36,6 +36,7 @@ export class SessionListItemService {
   build(
     session: SessionListSource,
     requesterUserId?: string,
+    currentSceneTitleBySessionId: ReadonlyMap<string, string> = new Map(),
   ): SessionListItemResponseDto | null {
     const activeScenario = this.getActiveSessionScenario(session.sessionScenarios);
     if (!activeScenario) {
@@ -50,16 +51,19 @@ export class SessionListItemService {
       participantCount: session.participants.length,
       availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
       role: this.getParticipantRoleForUser(session.participants, requesterUserId),
+      currentSceneTitle: currentSceneTitleBySessionId.get(session.id) ?? null,
+      lastActivityAt: session.updatedAt.toISOString(),
     };
   }
 
   buildMany(
     sessions: SessionListSource[],
     requesterUserId?: string,
+    currentSceneTitleBySessionId: ReadonlyMap<string, string> = new Map(),
   ): SessionListItemResponseDto[] {
     return sessions
       .flatMap((session) => {
-        const item = this.build(session, requesterUserId);
+        const item = this.build(session, requesterUserId, currentSceneTitleBySessionId);
         return item ? [item] : [];
       });
   }

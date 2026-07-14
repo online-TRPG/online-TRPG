@@ -1,5 +1,7 @@
 import { VttMapStateDto } from "@trpg/shared-types";
 import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
+import { RuleEngineService } from "../rules/rule-engine.service";
+import { SpellSlotService } from "../rules/spell-slot.service";
 import { ActionProcessorService } from "./action-processor.service";
 
 describe("ActionProcessorService session action queue", () => {
@@ -453,8 +455,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
+      new SpellSlotService(),
+      new RuleEngineService(),
       {} as never,
     );
 
@@ -1204,8 +1206,8 @@ describe("ActionProcessorService rest runtime effects", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
+      new SpellSlotService(),
+      new RuleEngineService(),
       {} as never,
     );
 

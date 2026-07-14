@@ -27,7 +27,6 @@ import { SessionEconomyService } from "./session-economy.service";
 import { SessionGmRuntimeParticipantAccessService } from "./session-gm-runtime-participant-access.service";
 import { SessionHumanGmAiAssistFailureAuditService } from "./session-human-gm-ai-assist-failure-audit.service";
 import { SessionHumanGmAiAssistSuggestionStoreService } from "./session-human-gm-ai-assist-suggestion-store.service";
-import { SessionHumanGmAssignmentPolicyService } from "./session-human-gm-assignment-policy.service";
 import { SessionHumanGmMessageStoreService } from "./session-human-gm-message-store.service";
 import { SessionHumanGmPrivateNoteStoreService } from "./session-human-gm-private-note-store.service";
 import { SessionInventoryService } from "./session-inventory.service";
@@ -37,6 +36,7 @@ import { SessionLeaveResolutionService } from "./session-leave-resolution.servic
 import { SessionListFilterService } from "./session-list-filter.service";
 import { SessionListItemService } from "./session-list-item.service";
 import { SessionParticipantStatusService } from "./session-participant-status.service";
+import { SessionPlayService } from "./session-play.service";
 import { SessionPublicIdService } from "./session-public-id.service";
 import { SessionRevealService } from "./session-reveal.service";
 import { SessionScenarioLinkService } from "./session-scenario-link.service";
@@ -100,6 +100,7 @@ function createSessionsService(
     new SessionHumanGmAiAssistFailureAuditService(prisma),
     sessionInventory,
     sessionParticipantStatus,
+    new SessionPlayService(prisma, realtimeEvents),
     new SessionCharacterSelectionService(
       prisma,
       realtimeEvents,
@@ -111,9 +112,8 @@ function createSessionsService(
     new SessionPublicIdService(prisma),
     new SessionInviteService(prisma),
     new SessionSettingsService(),
-    new SessionStartPolicyService(campaignArchiveRuntime),
+    new SessionStartPolicyService(),
     new SessionUpdatePolicyService(prisma),
-    new SessionHumanGmAssignmentPolicyService(prisma),
     new SessionHumanGmAiAssistSuggestionStoreService(),
     new SessionHumanGmPrivateNoteStoreService(),
     new SessionDeletePolicyService(),
@@ -1892,7 +1892,7 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
     expect(prisma.sessionParticipant.findUnique).not.toHaveBeenCalled();
   });
 
-  it("rejects a joined GM participant when they are not the assigned HUMAN GM operator", async () => {
+  it("rejects a joined GM participant when they are not the session manager", async () => {
     const { prisma, service } = createPermissionService({
       status: "JOINED",
       role: "GM",
@@ -1911,7 +1911,7 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
     expect(prisma.sessionParticipant.findUnique).not.toHaveBeenCalled();
   });
 
-  it("allows the assigned HUMAN GM only when they are still a joined GM participant", async () => {
+  it("allows the session manager to operate the HUMAN GM session", async () => {
     const { prisma, service } = createPermissionService({
       status: "JOINED",
       role: "GM",
@@ -1920,22 +1920,22 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
       id: "session-1",
       hostUserId: "host-user",
       gmMode: "HUMAN",
-      gmUserId: "gm-user",
+      gmUserId: "legacy-gm-user",
     });
 
     await expect(
-      service.getHumanGmSessionForOperator("gm-user", "session-1"),
+      service.getHumanGmSessionForOperator("host-user", "session-1"),
     ).resolves.toMatchObject({
       id: "session-1",
       gmMode: "HUMAN",
-      gmUserId: "gm-user",
+      hostUserId: "host-user",
     });
 
     expect(prisma.sessionParticipant.findUnique).toHaveBeenCalledWith({
       where: {
         sessionId_userId: {
           sessionId: "session-1",
-          userId: "gm-user",
+          userId: "host-user",
         },
       },
       select: {
@@ -1945,7 +1945,7 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
     });
   });
 
-  it("rejects a stale gmUserId when the user is not a joined GM participant", async () => {
+  it("rejects the session manager when their GM participant membership is stale", async () => {
     const { prisma, service } = createPermissionService({
       status: "LEFT",
       role: "PLAYER",
@@ -1954,18 +1954,18 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
       id: "session-1",
       hostUserId: "host-user",
       gmMode: "HUMAN",
-      gmUserId: "gm-user",
+      gmUserId: "legacy-gm-user",
     });
 
     await expect(
-      service.getHumanGmSessionForOperator("gm-user", "session-1"),
+      service.getHumanGmSessionForOperator("host-user", "session-1"),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(prisma.sessionParticipant.findUnique).toHaveBeenCalledWith({
       where: {
         sessionId_userId: {
           sessionId: "session-1",
-          userId: "gm-user",
+          userId: "host-user",
         },
       },
       select: {
@@ -2093,7 +2093,10 @@ describe("SessionsService session listing", () => {
     expect(prisma.session.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         visibility: "PUBLIC",
-        status: "RECRUITING",
+        recruitmentStatus: "OPEN",
+        status: {
+          notIn: ["COMPLETED", "DISBANDED"],
+        },
         host: {
           is: {
             deletedAt: null,
@@ -2126,7 +2129,7 @@ describe("SessionsService session listing", () => {
 });
 
 describe("SessionsService player scenario mapping", () => {
-  const service = Object.create(SessionsService.prototype) as {
+  const service = createSessionsService({} as never, {} as never, {} as never, {} as never) as unknown as {
     mapPlayerScenarioNode: (
       node: {
         id: string;
@@ -2212,7 +2215,7 @@ describe("SessionsService player scenario mapping", () => {
 });
 
 describe("SessionsService VTT map structures", () => {
-  const service = Object.create(SessionsService.prototype) as {
+  const service = createSessionsService({} as never, {} as never, {} as never, {} as never) as unknown as {
     redactVttMapForPlayer: (map: Record<string, unknown>) => Record<string, unknown>;
     normalizeVttMap: (map: Record<string, unknown>, scenarioNodeId: string | null) => Record<string, unknown>;
     ensurePlayerMapShellUnchanged: (
@@ -2594,7 +2597,10 @@ describe("SessionsService VTT map structures", () => {
         },
       ],
     });
-    expect(runtimeService.refreshSessionInventorySnapshot).toHaveBeenCalledWith("session-character-1");
+    expect(runtimeService.refreshSessionInventorySnapshot).toHaveBeenCalledWith(
+      "session-character-1",
+      undefined,
+    );
     expect(result.revealedItems).toEqual([
       { id: "item.rope", name: "Rope", quantity: 1, description: "50 feet of hempen rope." },
     ]);
@@ -3196,6 +3202,7 @@ describe("SessionsService P5 campaign calendar API", () => {
       },
       gameState: {
         findUnique: jest.fn().mockResolvedValue({
+          version: 1,
           flagsJson: "{}",
         }),
         update: jest.fn().mockResolvedValue({}),
@@ -3254,7 +3261,7 @@ describe("SessionsService P5 campaign calendar API", () => {
     const payload: ApplyCampaignCalendarActionDto = {
       actionType: "propose_schedule",
       scheduleId: "schedule-1",
-      title: "P5 다음 회차",
+      title: "P5 다음 플레이",
       startsAt: "2026-06-25T12:00:00.000Z",
       durationMinutes: 180,
       timeZone: "Asia/Seoul",
@@ -3500,8 +3507,31 @@ describe("SessionsService P6 campaign archive, vault, and transfer", () => {
           partyStash: [{ itemDefinitionId: "magic_item.staff_of_power", quantity: 1 }],
           walletsBySessionCharacterId: { "session-character-1": { gp: 250 } },
           shopStatesById: { "shop-final": { shopId: "shop-final", inventory: [] } },
-          craftingProgressById: { "craft-legacy": { status: "completed" } },
-          downtimeCompletionsById: { "dt-complete": { downtimeTaskId: "dt-complete" } },
+          craftingProgressById: {
+            "craft-legacy": {
+              craftingId: "craft-legacy",
+              recipeId: "recipe.p6_crown",
+              sessionCharacterId: "session-character-1",
+              outputItemDefinitionId: "reward.p6_crown",
+              outputQuantity: 1,
+              completedHours: 40,
+              requiredHours: 40,
+              status: "completed",
+            },
+          },
+          downtimeCompletionsById: {
+            "dt-complete": {
+              downtimeTaskId: "dt-complete",
+              downtimeType: "crafting",
+              sessionCharacterId: "session-character-1",
+              title: "P6 왕관 제작",
+              costGp: 250,
+              completedAt: now.toISOString(),
+              economyEffects: [],
+              inventoryEffects: [],
+              characterResourceEffects: [],
+            },
+          },
         },
       }),
       updatedAt: now,
@@ -3620,6 +3650,7 @@ describe("SessionsService P6 campaign archive, vault, and transfer", () => {
       stateDiff: {
         create: jest.fn().mockResolvedValue({}),
       },
+      $executeRaw: jest.fn(),
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) =>

@@ -21,6 +21,11 @@ import {
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionScenarioStatus as PrismaSessionScenarioStatus,
   SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
+  RecruitmentStatus as PrismaRecruitmentStatus,
+  SessionJoinPolicy as PrismaSessionJoinPolicy,
+  SessionPlayStatus as PrismaSessionPlayStatus,
+  SessionAttendanceStatus as PrismaSessionAttendanceStatus,
   SessionVisibility as PrismaSessionVisibility,
 } from "@prisma/client";
 import {
@@ -42,6 +47,7 @@ import {
   CreateVttMapPingDto,
   DiceAdvantageState,
   GameStateResponseDto,
+  GmMode,
   GrantHumanGmInventoryItemDto,
   RemoveHumanGmInventoryItemDto,
   HumanGmNodeMoveOptionDto,
@@ -52,6 +58,7 @@ import {
   HumanGmPrivateNoteDto,
   InventoryItemDto,
   JoinSessionDto,
+  JoinSessionByIdDto,
   MainCommandCheckOptionDto,
   MainCommandCheckEffectDto,
   MainCommandStatus,
@@ -69,7 +76,10 @@ import {
   SelectSessionCharacterDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
+  SessionInvitePreviewResponseDto,
   SessionListItemResponseDto,
+  SessionListSort,
+  SessionActivityStatus,
   SessionParticipantResponseDto,
   SessionRevealResponseDto,
   SessionResponseDto,
@@ -79,7 +89,6 @@ import {
   StateDiffResponseDto,
   TurnLogResponseDto,
   UpdateParticipantReadyDto,
-  UpdateHumanGmDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
   UpdateVttMapDto,
@@ -134,7 +143,6 @@ import { SessionDeletePolicyService } from "./session-delete-policy.service";
 import { SessionEconomyService } from "./session-economy.service";
 import { SessionGmRuntimeParticipantAccessService } from "./session-gm-runtime-participant-access.service";
 import { SessionHumanGmAiAssistFailureAuditService } from "./session-human-gm-ai-assist-failure-audit.service";
-import { SessionHumanGmAssignmentPolicyService } from "./session-human-gm-assignment-policy.service";
 import { SessionHumanGmAiAssistSuggestionStoreService } from "./session-human-gm-ai-assist-suggestion-store.service";
 import { SessionHumanGmPrivateNoteStoreService } from "./session-human-gm-private-note-store.service";
 import { SessionInventoryService } from "./session-inventory.service";
@@ -144,6 +152,7 @@ import { SessionLeaveResolutionService } from "./session-leave-resolution.servic
 import { SessionListFilterService } from "./session-list-filter.service";
 import { SessionListItemService } from "./session-list-item.service";
 import { SessionParticipantStatusService } from "./session-participant-status.service";
+import { SessionPlayService } from "./session-play.service";
 import { SessionPublicIdService } from "./session-public-id.service";
 import { SessionRevealService, type RecordSessionRevealParams, type RevealableScenarioClue, type RevealPolicyMode } from "./session-reveal.service";
 import { SessionVttInteractionPointService } from "./session-vtt-interaction-point.service";
@@ -173,11 +182,15 @@ import {
 import { SessionVttPlayerMapUpdateService } from "./session-vtt-player-map-update.service";
 
 export type SessionPageParams = {
+  query?: string;
   status?: SessionStatus;
+  activityStatus?: SessionActivityStatus;
+  gmMode?: GmMode;
   scenarioId?: string;
   ruleSetId?: string;
   role?: ParticipantRole;
   requesterUserId?: string;
+  sort?: SessionListSort;
   page?: number;
   size?: number;
 };
@@ -223,6 +236,7 @@ export class SessionsService {
     private readonly sessionHumanGmAiAssistFailureAudit: SessionHumanGmAiAssistFailureAuditService,
     private readonly sessionInventory: SessionInventoryService,
     private readonly sessionParticipantStatus: SessionParticipantStatusService,
+    private readonly sessionPlay: SessionPlayService,
     private readonly sessionCharacterSelection: SessionCharacterSelectionService,
     private readonly sessionListItem: SessionListItemService,
     private readonly sessionPublicId: SessionPublicIdService,
@@ -230,7 +244,6 @@ export class SessionsService {
     private readonly sessionSettings: SessionSettingsService,
     private readonly sessionStartPolicy: SessionStartPolicyService,
     private readonly sessionUpdatePolicy: SessionUpdatePolicyService,
-    private readonly sessionHumanGmAssignmentPolicy: SessionHumanGmAssignmentPolicyService,
     private readonly sessionHumanGmAiAssistSuggestionStore: SessionHumanGmAiAssistSuggestionStoreService,
     private readonly sessionHumanGmPrivateNoteStore: SessionHumanGmPrivateNoteStoreService,
     private readonly sessionDeletePolicy: SessionDeletePolicyService,
@@ -347,7 +360,7 @@ export class SessionsService {
 
     const startNodeId = this.sessionStartNode.resolveStartNodeId(scenario.nodes, scenario.startNodeId);
     if (!startNodeId) {
-      throw new UnprocessableEntityException("The selected scenario does not have a start node.");
+      throw new UnprocessableEntityException("선택한 시나리오에 시작 장면이 없습니다.");
     }
 
     const inviteCode = await this.generateInviteCode();
@@ -357,7 +370,20 @@ export class SessionsService {
       isPublic: dto.isPublic,
     });
     const gmMode = this.sessionSettings.resolveGmMode(dto.gmMode);
-    const isHumanGmSession = gmMode === PrismaGmMode.HUMAN;
+    const openLobbyNow = dto.openLobbyNow ?? true;
+    const activityStatus = openLobbyNow
+      ? PrismaSessionActivityStatus.LOBBY_OPEN
+      : PrismaSessionActivityStatus.DORMANT;
+    const recruitmentStatus = dto.recruitmentStatus
+      ? PrismaRecruitmentStatus[dto.recruitmentStatus]
+      : visibility === PrismaSessionVisibility.PUBLIC
+        ? PrismaRecruitmentStatus.OPEN
+        : PrismaRecruitmentStatus.CLOSED;
+    const joinPolicy = dto.joinPolicy
+      ? PrismaSessionJoinPolicy[dto.joinPolicy]
+      : visibility === PrismaSessionVisibility.PUBLIC
+        ? PrismaSessionJoinPolicy.APPROVAL_REQUIRED
+        : PrismaSessionJoinPolicy.INVITE_ONLY;
 
     const session = await this.prisma.$transaction(async (tx) => {
       const createdSession = await tx.session.create({
@@ -371,8 +397,11 @@ export class SessionsService {
           visibility,
           ruleSetId: dto.ruleSetId ?? scenario.ruleSetId ?? null,
           gmMode,
-          gmUserId: isHumanGmSession ? userId : null,
+          gmUserId: this.sessionSettings.resolveGmUserId(gmMode, userId),
           nextSessionAt: dto.nextSessionAt ? new Date(dto.nextSessionAt) : null,
+          activityStatus,
+          recruitmentStatus,
+          joinPolicy,
         },
       });
 
@@ -385,15 +414,15 @@ export class SessionsService {
         },
       });
 
-      await tx.sessionParticipant.create({
+      const hostParticipant = await tx.sessionParticipant.create({
         data: {
           sessionId: createdSession.id,
           userId,
-          role: isHumanGmSession ? PrismaParticipantRole.GM : PrismaParticipantRole.HOST,
+          role: this.sessionSettings.resolveManagerParticipantRole(gmMode),
           status: PrismaParticipantStatus.JOINED,
-          connectionStatus: PrismaConnectionStatus.ONLINE,
-          isReady: isHumanGmSession,
-          readyAt: isHumanGmSession ? new Date() : null,
+          connectionStatus: PrismaConnectionStatus.OFFLINE,
+          isReady: false,
+          readyAt: null,
         },
       });
 
@@ -412,6 +441,33 @@ export class SessionsService {
         await this.recordNodeVisit(tx, {
           sessionScenarioId: sessionScenario.id,
           nodeId: startNodeId,
+        });
+      }
+
+      if (openLobbyNow || dto.nextSessionAt) {
+        const play = await tx.sessionPlay.create({
+          data: {
+            sessionId: createdSession.id,
+            sequence: 1,
+            status: openLobbyNow ? PrismaSessionPlayStatus.LOBBY_OPEN : PrismaSessionPlayStatus.SCHEDULED,
+            scheduledStartAt: dto.nextSessionAt ? new Date(dto.nextSessionAt) : null,
+            lobbyOpensAt: openLobbyNow ? new Date() : dto.nextSessionAt ? new Date(dto.nextSessionAt) : null,
+            createdByUserId: userId,
+          },
+        });
+        await tx.sessionPlayAttendance.create({
+          data: {
+            playId: play.id,
+            participantId: hostParticipant.id,
+            attendance: PrismaSessionAttendanceStatus.ATTENDING,
+            enteredLobbyAt: null,
+            isReady: false,
+            readyAt: null,
+          },
+        });
+        await tx.session.update({
+          where: { id: createdSession.id },
+          data: { currentPlayId: play.id },
         });
       }
 
@@ -435,13 +491,13 @@ export class SessionsService {
           },
           sessionScenarios: {
             include: {
-              scenario: true,
+              scenario: { include: { publication: true } },
               gameState: true,
             },
             orderBy: { sequence: "asc" },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: this.buildSessionListOrderBy(params.sort),
         skip: (params.page ?? 0) * (params.size ?? 10),
         take: params.size ?? 10,
       }),
@@ -453,16 +509,158 @@ export class SessionsService {
     return { items, totalElements };
   }
 
-  async joinSessionById(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
+  private buildSessionListOrderBy(
+    sort: SessionListSort = SessionListSort.RECENT,
+  ): Prisma.SessionOrderByWithRelationInput[] {
+    if (sort === SessionListSort.SOONEST) {
+      return [{ nextSessionAt: "asc" }, { id: "asc" }];
+    }
+    if (sort === SessionListSort.TITLE) {
+      return [{ title: "asc" }, { id: "asc" }];
+    }
+    return [{ updatedAt: "desc" }, { id: "asc" }];
+  }
+
+  private async loadCurrentSceneTitleBySessionId(
+    sessions: Array<{
+      id: string;
+      sessionScenarios: Array<{
+        id: string;
+        status: PrismaSessionScenarioStatus;
+        gameState: { currentNodeId: string | null } | null;
+      }>;
+    }>,
+  ): Promise<Map<string, string>> {
+    const references = sessions.flatMap((session) => {
+      const activeScenario =
+        session.sessionScenarios.find((item) => item.status === PrismaSessionScenarioStatus.ACTIVE) ??
+        session.sessionScenarios[0];
+      const nodeId = activeScenario?.gameState?.currentNodeId;
+      return activeScenario && nodeId
+        ? [{ sessionId: session.id, sessionScenarioId: activeScenario.id, nodeId }]
+        : [];
+    });
+    if (!references.length) return new Map();
+
+    const nodes = await this.prisma.sessionScenarioNode.findMany({
+      where: {
+        OR: references.map((reference) => ({
+          sessionScenarioId: reference.sessionScenarioId,
+          nodeId: reference.nodeId,
+        })),
+      },
+      select: { sessionScenarioId: true, nodeId: true, title: true },
+    });
+    const titleByNode = new Map(
+      nodes.map((node) => [`${node.sessionScenarioId}:${node.nodeId}`, node.title] as const),
+    );
+    return new Map(
+      references.flatMap((reference) => {
+        const title = titleByNode.get(`${reference.sessionScenarioId}:${reference.nodeId}`);
+        return title ? [[reference.sessionId, title] as const] : [];
+      }),
+    );
+  }
+
+  async joinSessionById(
+    userId: string,
+    sessionId: string,
+    dto: JoinSessionByIdDto = {},
+  ): Promise<SessionSnapshotDto> {
     await this.usersService.getUserEntityOrThrow(userId);
     const session = await this.getSessionEntityOrThrow(sessionId);
+    if (session.recruitmentStatus !== PrismaRecruitmentStatus.OPEN) {
+      throw new UnprocessableEntityException("현재 모집 중인 세션이 아닙니다.");
+    }
+    if (session.joinPolicy === PrismaSessionJoinPolicy.APPROVAL_REQUIRED) {
+      throw new ConflictException("참가 신청 후 세션 관리자의 승인이 필요한 세션입니다.");
+    }
+    if (session.joinPolicy === PrismaSessionJoinPolicy.INVITE_ONLY) {
+      throw new ForbiddenException("초대 링크로만 참가할 수 있는 세션입니다.");
+    }
+    await this.sessionPlay.validateJoinProximity(userId, session.id, dto.acknowledgedScheduleVersions);
     return this.joinSessionEntity(userId, session);
   }
 
   async joinSessionByInvite(userId: string, dto: JoinSessionDto): Promise<SessionSnapshotDto> {
     await this.usersService.getUserEntityOrThrow(userId);
     const session = await this.sessionInvite.getSessionByCode(dto.inviteCode);
+    await this.sessionPlay.validateJoinProximity(userId, session.id, dto.acknowledgedScheduleVersions);
     return this.joinSessionEntity(userId, session);
+  }
+
+  async getInviteProximityWarnings(userId: string, inviteCode: string) {
+    const session = await this.sessionInvite.getSessionByCode(inviteCode);
+    return this.sessionPlay.getJoinProximityWarnings(userId, session.id);
+  }
+
+  async getInvitePreview(inviteCode: string): Promise<SessionInvitePreviewResponseDto> {
+    const session = await this.sessionInvite.getSessionByCode(inviteCode);
+    const preview = await this.prisma.session.findUniqueOrThrow({
+      where: { id: session.id },
+      select: {
+        title: true,
+        description: true,
+        gmMode: true,
+        maxParticipants: true,
+        nextSessionAt: true,
+        _count: {
+          select: {
+            participants: { where: { status: PrismaParticipantStatus.JOINED } },
+          },
+        },
+        sessionScenarios: {
+          where: { status: PrismaSessionScenarioStatus.ACTIVE },
+          orderBy: { sequence: "asc" },
+          take: 1,
+          select: {
+            scenario: {
+              select: {
+                title: true,
+                description: true,
+                thumbnailUrl: true,
+                difficulty: true,
+                startLevel: true,
+                recommendedEndLevel: true,
+                publication: {
+                  select: {
+                    tags: true,
+                    estimatedMinutes: true,
+                    recommendedPlayersMin: true,
+                    recommendedPlayersMax: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const scenario = preview.sessionScenarios[0]?.scenario;
+    if (!scenario) {
+      throw new NotFoundException("Invite is invalid or unavailable.");
+    }
+
+    return {
+      title: preview.title,
+      description: preview.description,
+      gmMode: preview.gmMode === PrismaGmMode.HUMAN ? GmMode.HUMAN : GmMode.AI,
+      participantCount: preview._count.participants,
+      maxParticipants: preview.maxParticipants,
+      nextSessionAt: preview.nextSessionAt?.toISOString() ?? null,
+      scenario: {
+        title: scenario.title,
+        description: scenario.description,
+        thumbnailUrl: scenario.thumbnailUrl,
+        difficulty: scenario.difficulty,
+        tags: scenario.publication?.tags ?? [],
+        startLevel: scenario.startLevel,
+        recommendedEndLevel: scenario.recommendedEndLevel,
+        estimatedMinutes: scenario.publication?.estimatedMinutes ?? null,
+        recommendedPlayersMin: scenario.publication?.recommendedPlayersMin ?? null,
+        recommendedPlayersMax: scenario.publication?.recommendedPlayersMax ?? null,
+      },
+    };
   }
 
   async leaveSession(userId: string, sessionId: string): Promise<void> {
@@ -470,6 +668,7 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     const participant = await this.getJoinedParticipantOrThrow(userId, resolvedSessionId);
     let canEmitSnapshot = true;
+    let evictedUserIds = [userId];
 
     await this.prisma.$transaction(async (tx) => {
       await tx.sessionParticipant.update({
@@ -489,6 +688,13 @@ export class SessionsService {
           userId,
         },
       });
+      await tx.userActivePlay.deleteMany({ where: { userId, sessionId: resolvedSessionId } });
+      await tx.sessionPlayAttendance.deleteMany({
+        where: {
+          participantId: participant.id,
+          play: { status: { notIn: [PrismaSessionPlayStatus.FINISHED, PrismaSessionPlayStatus.CANCELLED] } },
+        },
+      });
 
       const remainingParticipants = await tx.sessionParticipant.findMany({
         where: {
@@ -501,50 +707,111 @@ export class SessionsService {
       const leaveResolution = this.sessionLeaveResolution.resolve({
         leavingUserId: userId,
         sessionHostUserId: session.hostUserId,
-        sessionGmUserId: session.gmUserId,
         remainingParticipants,
       });
 
       if (leaveResolution.shouldDisband) {
-        await this.deleteSessionScenarioLinks(tx, resolvedSessionId);
-        await tx.session.update({
-          where: { id: resolvedSessionId },
-          data: { status: PrismaSessionStatus.DISBANDED },
-        });
+        evictedUserIds = [
+          userId,
+          ...remainingParticipants.map((remainingParticipant) => remainingParticipant.userId),
+        ];
+        await this.disbandSession(tx, resolvedSessionId);
         canEmitSnapshot = leaveResolution.canEmitSnapshot;
         return;
       }
 
-      if (leaveResolution.shouldClearGmUser) {
-        await tx.session.update({
-          where: { id: resolvedSessionId },
-          data: { gmUserId: null },
-        });
-      }
-
-      if (leaveResolution.nextHostUserId && leaveResolution.nextHostRole) {
-        await tx.session.update({
-          where: { id: resolvedSessionId },
-          data: { hostUserId: leaveResolution.nextHostUserId },
-        });
-
-        await tx.sessionParticipant.update({
-          where: {
-            sessionId_userId: {
-              sessionId: resolvedSessionId,
-              userId: leaveResolution.nextHostUserId,
-            },
-          },
-          data: {
-            role: leaveResolution.nextHostRole,
-          },
-        });
-      }
     });
 
+    for (const evictedUserId of new Set(evictedUserIds)) {
+      this.realtimeEvents.evictUserFromSession(resolvedSessionId, evictedUserId);
+    }
     if (canEmitSnapshot) {
       this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
     }
+  }
+
+  async removeParticipant(
+    actorUserId: string,
+    sessionId: string,
+    participantPublicId: string,
+  ): Promise<SessionParticipantResponseDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.ensureHost(actorUserId, session.hostUserId);
+    const participant = await this.prisma.sessionParticipant.findFirst({
+      where: {
+        sessionId: session.id,
+        status: PrismaParticipantStatus.JOINED,
+        user: { is: { publicId: participantPublicId } },
+      },
+      include: {
+        user: true,
+        sessionCharacter: { select: { id: true, characterId: true } },
+      },
+    });
+    if (!participant) throw new NotFoundException("세션 참가자를 찾을 수 없습니다.");
+    if (participant.userId === session.hostUserId || participant.role === PrismaParticipantRole.HOST) {
+      throw new ConflictException("세션 관리자는 세션에서 내보낼 수 없습니다.");
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.sessionCharacter.deleteMany({
+        where: { sessionId: session.id, userId: participant.userId },
+      });
+      await tx.userActivePlay.deleteMany({ where: { userId: participant.userId, sessionId: session.id } });
+      await tx.sessionPlayAttendance.deleteMany({
+        where: {
+          participantId: participant.id,
+          play: { status: { notIn: [PrismaSessionPlayStatus.FINISHED, PrismaSessionPlayStatus.CANCELLED] } },
+        },
+      });
+
+      return tx.sessionParticipant.update({
+        where: { id: participant.id },
+        data: {
+          status: PrismaParticipantStatus.KICKED,
+          connectionStatus: PrismaConnectionStatus.OFFLINE,
+          isReady: false,
+          readyAt: null,
+          leftAt: new Date(),
+        },
+        include: {
+          user: true,
+          sessionCharacter: { select: { id: true, characterId: true } },
+        },
+      });
+    });
+    const mapped = mapParticipant(updated);
+    this.realtimeEvents.emitParticipantUpdated(session.id, mapped);
+    this.realtimeEvents.evictUserFromSession(session.id, participant.userId);
+    this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
+    return mapped;
+  }
+
+  async restoreParticipant(
+    actorUserId: string,
+    sessionId: string,
+    participantPublicId: string,
+  ): Promise<SessionParticipantResponseDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.ensureHost(actorUserId, session.hostUserId);
+    const participant = await this.prisma.sessionParticipant.findFirst({
+      where: {
+        sessionId: session.id,
+        status: PrismaParticipantStatus.KICKED,
+        user: { is: { publicId: participantPublicId } },
+      },
+      select: { id: true },
+    });
+    if (!participant) throw new NotFoundException("내보낸 참가자를 찾을 수 없습니다.");
+    const updated = await this.prisma.sessionParticipant.update({
+      where: { id: participant.id },
+      data: { status: PrismaParticipantStatus.LEFT, leftAt: new Date() },
+      include: {
+        user: true,
+        sessionCharacter: { select: { id: true, characterId: true } },
+      },
+    });
+    return mapParticipant(updated);
   }
 
   async getSessionForUser(userId: string, sessionId: string): Promise<SessionDetailResponseDto> {
@@ -563,6 +830,23 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     return this.sessionParticipantStatus.listJoinedParticipants(resolvedSessionId);
+  }
+
+  async getRemovedParticipantsForHost(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionParticipantResponseDto[]> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.ensureHost(userId, session.hostUserId);
+    const participants = await this.prisma.sessionParticipant.findMany({
+      where: { sessionId: session.id, status: PrismaParticipantStatus.KICKED },
+      include: {
+        user: true,
+        sessionCharacter: { select: { id: true, characterId: true } },
+      },
+      orderBy: { leftAt: "desc" },
+    });
+    return participants.map(mapParticipant);
   }
 
   async getParticipantStatusesForUser(userId: string, sessionId: string): Promise<ParticipantStatusResponseDto[]> {
@@ -636,7 +920,7 @@ export class SessionsService {
       `[VTT_MOVE_REQUEST] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} host=${session.hostUserId === userId} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
     if (hasActiveCombat) {
-      throw new ForbiddenException("Combat map changes must use combat command endpoints.");
+      throw new ForbiddenException("전투 중에는 전투 이동 기능으로 지도를 변경해주세요.");
     }
 
     const result = await this.finalizeRuntimeVttMapChange({
@@ -664,7 +948,7 @@ export class SessionsService {
       select: { id: true },
     });
     if (activeCombat) {
-      throw new ForbiddenException("Combat movement must use the combat move command.");
+      throw new ForbiddenException("전투 중에는 전투 이동 기능을 사용해주세요.");
     }
 
     const flags = this.parseRecordJson(state.flagsJson);
@@ -923,103 +1207,201 @@ export class SessionsService {
     return this.sessionReveal.revealSessionContent(this.createSessionRevealRuntime(), userId, sessionId, dto);
   }
 
+  async listHumanGmRevealOptions(userId: string, sessionId: string) {
+    return this.sessionReveal.listHumanGmRevealOptions(this.createSessionRevealRuntime(), userId, sessionId);
+  }
+
   async updateSession(userId: string, sessionId: string, dto: UpdateSessionDto): Promise<SessionResponseDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     this.ensureHost(userId, session.hostUserId);
 
+    const nextScenario = dto.scenarioId
+      ? await this.scenariosService.getScenarioEntityForViewer(dto.scenarioId, userId)
+      : null;
+    const nextStartNodeId = nextScenario
+      ? this.sessionStartNode.resolveStartNodeId(nextScenario.nodes, nextScenario.startNodeId)
+      : null;
+    if (nextScenario && !nextStartNodeId) {
+      throw new UnprocessableEntityException("선택한 시나리오에 시작 장면이 없습니다.");
+    }
+
     const nextMaxParticipants = dto.maxParticipants ?? dto.maxPlayers;
     await this.sessionUpdatePolicy.ensureCanUpdate({
       sessionId: resolvedSessionId,
-      sessionStatus: session.status,
+      activityStatus: session.activityStatus,
       nextMaxParticipants,
       captainUserId: dto.captainUserId,
     });
 
-    const updated = await this.prisma.session.update({
-      where: { id: resolvedSessionId },
-      data: {
-        title: dto.title?.trim() ?? session.title,
-        description: dto.description?.trim() ?? session.description,
-        maxParticipants: nextMaxParticipants ?? session.maxParticipants,
-        visibility: this.sessionSettings.resolveVisibility({
-          visibility: dto.visibility,
-          isPrivate: dto.isPrivate,
-          isPublic: dto.isPublic,
-          fallback: session.visibility,
-        }),
-        gmMode: dto.gmMode ? this.sessionSettings.resolveGmMode(dto.gmMode) : session.gmMode,
-        captainUserId: dto.captainUserId === undefined ? session.captainUserId : dto.captainUserId,
-        nextSessionAt: dto.nextSessionAt === undefined ? session.nextSessionAt : dto.nextSessionAt === null ? null : new Date(dto.nextSessionAt),
-      },
-      include: {
-        sessionScenarios: {
-          include: {
-            scenario: true,
-            gameState: true,
-          },
-          orderBy: { sequence: "asc" },
-        },
-      },
-    });
-
-    const mapped = mapSession(updated);
-    this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, mapped);
-    return mapped;
-  }
-
-  async updateHumanGm(userId: string, sessionId: string, dto: UpdateHumanGmDto): Promise<SessionSnapshotDto> {
-    const session = await this.getSessionEntityOrThrow(sessionId);
-    const resolvedSessionId = session.id;
-    this.ensureHost(userId, session.hostUserId);
-
-    await this.sessionHumanGmAssignmentPolicy.ensureCanAssign({
-      sessionId: resolvedSessionId,
-      sessionGmMode: session.gmMode,
-      sessionStatus: session.status,
-      gmUserId: dto.gmUserId,
-    });
-
+    const nextGmMode = dto.gmMode ? this.sessionSettings.resolveGmMode(dto.gmMode) : session.gmMode;
     await this.prisma.$transaction(async (tx) => {
-      await tx.sessionCharacter.deleteMany({
-        where: {
-          sessionId: resolvedSessionId,
-          userId: dto.gmUserId,
-        },
-      });
-      await tx.sessionParticipant.updateMany({
-        where: {
-          sessionId: resolvedSessionId,
-          role: PrismaParticipantRole.GM,
-        },
-        data: {
-          role: PrismaParticipantRole.PLAYER,
-          isReady: false,
-          readyAt: null,
-        },
-      });
-      await tx.sessionParticipant.update({
-        where: {
-          sessionId_userId: {
+      await this.lockSessionRuntime(tx, resolvedSessionId);
+      if (nextMaxParticipants !== undefined) {
+        const joinedCount = await tx.sessionParticipant.count({
+          where: { sessionId: resolvedSessionId, status: PrismaParticipantStatus.JOINED },
+        });
+        if (nextMaxParticipants < joinedCount) {
+          throw new ConflictException("총 인원은 현재 참가 인원보다 작게 설정할 수 없습니다.");
+        }
+      }
+      if (dto.captainUserId !== undefined && dto.captainUserId !== null) {
+        const captain = await tx.sessionParticipant.findFirst({
+          where: {
             sessionId: resolvedSessionId,
-            userId: dto.gmUserId,
+            userId: dto.captainUserId,
+            status: PrismaParticipantStatus.JOINED,
+          },
+          select: { id: true },
+        });
+        if (!captain) throw new ConflictException("반장은 현재 세션 구성원 중에서 선택해주세요.");
+      }
+      const updatedSession = await tx.session.updateMany({
+        where: {
+          id: resolvedSessionId,
+          activityStatus: {
+            in: [PrismaSessionActivityStatus.DORMANT, PrismaSessionActivityStatus.LOBBY_OPEN],
           },
         },
         data: {
-          role: PrismaParticipantRole.GM,
-          isReady: true,
-          readyAt: new Date(),
+          title: dto.title?.trim() ?? session.title,
+          description: dto.description?.trim() ?? session.description,
+          maxParticipants: nextMaxParticipants ?? session.maxParticipants,
+          ruleSetId: nextScenario?.ruleSetId ?? session.ruleSetId,
+          visibility: this.sessionSettings.resolveVisibility({
+            visibility: dto.visibility,
+            isPrivate: dto.isPrivate,
+            isPublic: dto.isPublic,
+            fallback: session.visibility,
+          }),
+          gmMode: nextGmMode,
+          gmUserId: this.sessionSettings.resolveGmUserId(nextGmMode, session.hostUserId),
+          captainUserId: dto.captainUserId === undefined ? session.captainUserId : dto.captainUserId,
+          nextSessionAt: dto.nextSessionAt === undefined ? session.nextSessionAt : dto.nextSessionAt === null ? null : new Date(dto.nextSessionAt),
+          recruitmentStatus: dto.recruitmentStatus
+            ? PrismaRecruitmentStatus[dto.recruitmentStatus]
+            : session.recruitmentStatus,
+          joinPolicy: dto.joinPolicy
+            ? PrismaSessionJoinPolicy[dto.joinPolicy]
+            : session.joinPolicy,
         },
       });
-      await tx.session.update({
-        where: { id: resolvedSessionId },
-        data: { gmUserId: dto.gmUserId },
-      });
+      if (updatedSession.count !== 1) {
+        throw new ConflictException("진행 중인 플레이를 저장하고 닫은 뒤 방 설정을 변경해주세요.");
+      }
+
+      if (dto.gmMode && nextGmMode !== session.gmMode) {
+        await tx.sessionParticipant.updateMany({
+          where: {
+            sessionId: resolvedSessionId,
+            userId: { not: session.hostUserId },
+            role: { in: [PrismaParticipantRole.HOST, PrismaParticipantRole.GM] },
+          },
+          data: {
+            role: PrismaParticipantRole.PLAYER,
+            isReady: false,
+            readyAt: null,
+          },
+        });
+        await tx.sessionParticipant.updateMany({
+          where: {
+            sessionId: resolvedSessionId,
+            userId: session.hostUserId,
+            status: PrismaParticipantStatus.JOINED,
+          },
+          data: {
+            role: this.sessionSettings.resolveManagerParticipantRole(nextGmMode),
+            isReady: false,
+            readyAt: null,
+          },
+        });
+
+        const managerParticipant = await tx.sessionParticipant.findUnique({
+          where: {
+            sessionId_userId: {
+              sessionId: resolvedSessionId,
+              userId: session.hostUserId,
+            },
+          },
+          select: { id: true },
+        });
+        if (managerParticipant) {
+          await tx.sessionPlayAttendance.updateMany({
+            where: { participantId: managerParticipant.id },
+            data: { isReady: false, readyAt: null },
+          });
+        }
+
+        if (nextGmMode === PrismaGmMode.HUMAN) {
+          await tx.sessionCharacter.deleteMany({
+            where: {
+              sessionId: resolvedSessionId,
+              userId: session.hostUserId,
+            },
+          });
+        }
+      }
+
+      const currentActiveScenario = nextScenario
+        ? await tx.sessionScenario.findFirst({
+            where: {
+              sessionId: resolvedSessionId,
+              status: PrismaSessionScenarioStatus.ACTIVE,
+            },
+            orderBy: { sequence: "desc" },
+          })
+        : null;
+      if (
+        nextScenario &&
+        nextStartNodeId &&
+        currentActiveScenario &&
+        currentActiveScenario.scenarioId !== nextScenario.id
+      ) {
+        const sequence = await tx.sessionScenario.aggregate({
+          where: { sessionId: resolvedSessionId },
+          _max: { sequence: true },
+        });
+        await tx.sessionScenario.update({
+          where: { id: currentActiveScenario.id },
+          data: {
+            status: PrismaSessionScenarioStatus.ABANDONED,
+            endedAt: new Date(),
+          },
+        });
+        const replacement = await tx.sessionScenario.create({
+          data: {
+            sessionId: resolvedSessionId,
+            scenarioId: nextScenario.id,
+            sequence: (sequence._max.sequence ?? 0) + 1,
+            status: PrismaSessionScenarioStatus.ACTIVE,
+          },
+        });
+        await tx.gameState.create({
+          data: {
+            sessionScenarioId: replacement.id,
+            version: 1,
+            currentNodeId: nextStartNodeId,
+            phase: PrismaGamePhase.LOBBY,
+            flagsJson: JSON.stringify(this.sessionScenarioRevisionSnapshot.buildInitialFlags(nextScenario)),
+          },
+        });
+        await this.ensureSessionScenarioNodeSnapshot(
+          tx,
+          replacement.id,
+          nextScenario.id,
+        );
+        await this.recordNodeVisit(tx, {
+          sessionScenarioId: replacement.id,
+          nodeId: nextStartNodeId,
+        });
+      }
+
     });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, snapshot.session);
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
-    return snapshot;
+    return snapshot.session;
   }
 
   async deleteSession(userId: string, sessionId: string): Promise<void> {
@@ -1029,27 +1411,21 @@ export class SessionsService {
 
     this.sessionDeletePolicy.ensureCanDelete(session.status);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.sessionCharacter.deleteMany({ where: { sessionId: resolvedSessionId } });
-      await this.deleteSessionScenarioLinks(tx, resolvedSessionId);
-      await tx.sessionParticipant.updateMany({
+    const evictedUserIds = await this.prisma.$transaction(async (tx) => {
+      const joinedParticipants = await tx.sessionParticipant.findMany({
         where: {
           sessionId: resolvedSessionId,
           status: PrismaParticipantStatus.JOINED,
         },
-        data: {
-          status: PrismaParticipantStatus.LEFT,
-          leftAt: new Date(),
-          connectionStatus: PrismaConnectionStatus.OFFLINE,
-          isReady: false,
-          readyAt: null,
-        },
+        select: { userId: true },
       });
-      await tx.session.update({
-        where: { id: resolvedSessionId },
-        data: { status: PrismaSessionStatus.DISBANDED },
-      });
+      await this.disbandSession(tx, resolvedSessionId);
+      return joinedParticipants.map((participant) => participant.userId);
     });
+
+    for (const evictedUserId of evictedUserIds) {
+      this.realtimeEvents.evictUserFromSession(resolvedSessionId, evictedUserId);
+    }
   }
 
   async listMySessions(userId: string, params: SessionPageParams = {}): Promise<SessionPageResult> {
@@ -1068,20 +1444,21 @@ export class SessionsService {
           },
           sessionScenarios: {
             include: {
-              scenario: true,
+              scenario: { include: { publication: true } },
               gameState: true,
             },
             orderBy: { sequence: "asc" },
           },
         },
-        orderBy: { updatedAt: "desc" },
+        orderBy: this.buildSessionListOrderBy(params.sort),
         skip: (params.page ?? 0) * (params.size ?? 10),
         take: params.size ?? 10,
       }),
     ]);
 
     const ensuredSessions = await Promise.all(sessions.map((session) => this.ensureSessionPublicId(session)));
-    const items = this.sessionListItem.buildMany(ensuredSessions, userId);
+    const currentSceneTitles = await this.loadCurrentSceneTitleBySessionId(ensuredSessions);
+    const items = this.sessionListItem.buildMany(ensuredSessions, userId, currentSceneTitles);
 
     return { items, totalElements };
   }
@@ -1107,7 +1484,8 @@ export class SessionsService {
     const mappedParticipant = await this.sessionParticipantStatus.updateReadyState({
       sessionId: resolvedSessionId,
       userId,
-      sessionStatus: session.status,
+      activityStatus: session.activityStatus,
+      currentPlayId: session.currentPlayId,
       isReady: dto.isReady,
       getScenarioForReadyValidation: () =>
         this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId),
@@ -1143,7 +1521,7 @@ export class SessionsService {
         },
       })
       .catch(() => {
-        throw new ForbiddenException("You must join the session before resuming it.");
+        throw new ForbiddenException("세션 구성원만 다시 입장할 수 있습니다.");
       });
 
     const mapped = mapParticipant(participant);
@@ -1164,10 +1542,17 @@ export class SessionsService {
     });
   }
 
-  async startSession(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
+  async startSession(
+    userId: string,
+    sessionId: string,
+    playTransition?: { playId: string; expectedStateVersion: number },
+  ): Promise<SessionSnapshotDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     this.ensureGmRuntimeOperator(userId, session);
+    if (!playTransition || session.currentPlayId !== playTransition.playId) {
+      throw new ConflictException("현재 열려 있는 대기실에서 플레이를 시작해주세요.");
+    }
 
     const participants = await this.prisma.sessionParticipant.findMany({
       where: {
@@ -1202,13 +1587,33 @@ export class SessionsService {
         : await this.buildDefaultVttMap(resolvedSessionId, currentNodeId);
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, resolvedSessionId);
       await this.ensureSessionScenarioNodeSnapshot(tx, activeScenario.id, activeScenario.scenarioId);
       await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
           status: PrismaSessionStatus.PLAYING,
+          activityStatus: PrismaSessionActivityStatus.PLAYING,
+          currentPlayId: playTransition.playId,
         },
       });
+      const playId = playTransition.playId;
+      if (playId) {
+        const changed = await tx.sessionPlay.updateMany({
+          where: {
+            id: playId,
+            sessionId: resolvedSessionId,
+            status: PrismaSessionPlayStatus.LOBBY_OPEN,
+            stateVersion: playTransition.expectedStateVersion,
+          },
+          data: {
+            status: PrismaSessionPlayStatus.PLAYING,
+            startedAt: new Date(),
+            stateVersion: { increment: 1 },
+          },
+        });
+        if (changed.count !== 1) throw new ConflictException("대기실 상태가 이미 변경되었습니다.");
+      }
       await tx.sessionScenario.update({
         where: { id: activeScenario.id },
         data: {
@@ -2285,7 +2690,7 @@ export class SessionsService {
     });
 
     if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
-      throw new ForbiddenException("You must join the session before accessing it.");
+      throw new ForbiddenException("세션 구성원만 접근할 수 있습니다.");
     }
   }
 
@@ -2337,10 +2742,28 @@ export class SessionsService {
     });
 
     if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
-      throw new ForbiddenException("You must join the session before accessing it.");
+      throw new ForbiddenException("세션 구성원만 접근할 수 있습니다.");
     }
 
     return participant;
+  }
+
+  async ensureActivePlayAccess(userId: string, sessionId: string): Promise<void> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    await this.ensureMembership(userId, session.id);
+    if (
+      !session.currentPlayId ||
+      (
+        session.activityStatus !== PrismaSessionActivityStatus.LOBBY_OPEN &&
+        session.activityStatus !== PrismaSessionActivityStatus.PLAYING
+      )
+    ) {
+      throw new ConflictException("현재 입장할 수 있는 플레이가 없습니다.");
+    }
+    const activePlay = await this.prisma.userActivePlay.findUnique({ where: { userId } });
+    if (!activePlay || activePlay.sessionId !== session.id || activePlay.playId !== session.currentPlayId) {
+      throw new ConflictException("대기실 입장을 확정한 뒤 연결해주세요.");
+    }
   }
 
   private async joinSessionEntity(
@@ -2348,54 +2771,87 @@ export class SessionsService {
     session: {
       id: string;
       status: PrismaSessionStatus;
+      activityStatus: PrismaSessionActivityStatus;
       maxParticipants: number;
+      currentPlayId: string | null;
     },
   ): Promise<SessionSnapshotDto> {
-    const existingParticipant = await this.sessionJoinPolicy.ensureCanJoin({
-      sessionId: session.id,
-      userId,
-      sessionStatus: session.status,
-      maxParticipants: session.maxParticipants,
-    });
+    const participant = await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, session.id);
+      const currentSession = await tx.session.findUniqueOrThrow({
+        where: { id: session.id },
+        select: {
+          status: true,
+          activityStatus: true,
+          maxParticipants: true,
+          currentPlayId: true,
+        },
+      });
+      const existingParticipant = await this.sessionJoinPolicy.ensureCanJoin({
+        sessionId: session.id,
+        userId,
+        sessionStatus: currentSession.status,
+        activityStatus: currentSession.activityStatus,
+        maxParticipants: currentSession.maxParticipants,
+      }, tx);
 
-    const participant = existingParticipant
-      ? await this.prisma.sessionParticipant.update({
-          where: { id: existingParticipant.id },
-          data: {
-            role: existingParticipant.role === PrismaParticipantRole.HOST ? PrismaParticipantRole.HOST : PrismaParticipantRole.PLAYER,
-            status: PrismaParticipantStatus.JOINED,
-            joinedAt: new Date(),
-            leftAt: null,
-            connectionStatus: PrismaConnectionStatus.ONLINE,
-          },
-          include: {
-            user: true,
-            sessionCharacter: {
-              select: {
-                id: true,
-                characterId: true,
+      const joinedParticipant = existingParticipant
+        ? await tx.sessionParticipant.update({
+            where: { id: existingParticipant.id },
+            data: {
+              role: existingParticipant.role === PrismaParticipantRole.HOST ? PrismaParticipantRole.HOST : PrismaParticipantRole.PLAYER,
+              status: PrismaParticipantStatus.JOINED,
+              joinedAt: new Date(),
+              leftAt: null,
+              connectionStatus: PrismaConnectionStatus.OFFLINE,
+            },
+            include: {
+              user: true,
+              sessionCharacter: {
+                select: {
+                  id: true,
+                  characterId: true,
+                },
               },
             },
-          },
-        })
-      : await this.prisma.sessionParticipant.create({
-          data: {
-            sessionId: session.id,
-            userId,
-            role: PrismaParticipantRole.PLAYER,
-            status: PrismaParticipantStatus.JOINED,
-            connectionStatus: PrismaConnectionStatus.ONLINE,
-          },
-          include: {
-            user: true,
-            sessionCharacter: {
-              select: {
-                id: true,
-                characterId: true,
+          })
+        : await tx.sessionParticipant.create({
+            data: {
+              sessionId: session.id,
+              userId,
+              role: PrismaParticipantRole.PLAYER,
+              status: PrismaParticipantStatus.JOINED,
+              connectionStatus: PrismaConnectionStatus.OFFLINE,
+            },
+            include: {
+              user: true,
+              sessionCharacter: {
+                select: {
+                  id: true,
+                  characterId: true,
+                },
               },
             },
+          });
+
+      if (currentSession.currentPlayId) {
+        await tx.sessionPlayAttendance.upsert({
+          where: {
+            playId_participantId: {
+              playId: currentSession.currentPlayId,
+              participantId: joinedParticipant.id,
+            },
           },
+          create: {
+            playId: currentSession.currentPlayId,
+            participantId: joinedParticipant.id,
+            attendance: PrismaSessionAttendanceStatus.TENTATIVE,
+          },
+          update: {},
         });
+      }
+      return joinedParticipant;
+    });
 
     this.realtimeEvents.emitParticipantUpdated(session.id, mapParticipant(participant));
     const snapshot = await this.buildSnapshot(session.id);
@@ -3111,6 +3567,54 @@ export class SessionsService {
 
   private async deleteSessionScenarioLinks(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
     return this.sessionScenarioLink.deleteLinks(tx, sessionId);
+  }
+
+  private async disbandSession(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
+    const disbandedAt = new Date();
+
+    await tx.sessionCharacter.deleteMany({ where: { sessionId } });
+    await this.deleteSessionScenarioLinks(tx, sessionId);
+    await tx.userActivePlay.deleteMany({ where: { sessionId } });
+    await tx.sessionPlay.updateMany({
+      where: {
+        sessionId,
+        status: {
+          in: [
+            PrismaSessionPlayStatus.SCHEDULED,
+            PrismaSessionPlayStatus.LOBBY_OPEN,
+            PrismaSessionPlayStatus.PLAYING,
+          ],
+        },
+      },
+      data: {
+        status: PrismaSessionPlayStatus.CANCELLED,
+        endedAt: disbandedAt,
+        stateVersion: { increment: 1 },
+      },
+    });
+    await tx.sessionParticipant.updateMany({
+      where: {
+        sessionId,
+        status: PrismaParticipantStatus.JOINED,
+      },
+      data: {
+        status: PrismaParticipantStatus.LEFT,
+        leftAt: disbandedAt,
+        connectionStatus: PrismaConnectionStatus.OFFLINE,
+        isReady: false,
+        readyAt: null,
+      },
+    });
+    await tx.session.update({
+      where: { id: sessionId },
+      data: {
+        status: PrismaSessionStatus.DISBANDED,
+        activityStatus: PrismaSessionActivityStatus.DISBANDED,
+        recruitmentStatus: PrismaRecruitmentStatus.CLOSED,
+        currentPlayId: null,
+        nextSessionAt: null,
+      },
+    });
   }
 
   private getActiveSessionScenario<T extends { status: PrismaSessionScenarioStatus }>(sessionScenarios: T[]): T | null {

@@ -1,6 +1,6 @@
 import {
   ParticipantStatus as PrismaParticipantStatus,
-  SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
 } from "@prisma/client";
 import { ConflictException } from "@nestjs/common";
 import { SessionUpdatePolicyService } from "./session-update-policy.service";
@@ -18,14 +18,14 @@ describe("SessionUpdatePolicyService", () => {
     jest.clearAllMocks();
   });
 
-  it("accepts recruiting session updates with valid participant limits and captain", async () => {
+  it("accepts dormant session updates with valid participant limits and captain", async () => {
     prisma.sessionParticipant.count.mockResolvedValue(2);
     prisma.sessionParticipant.findFirst.mockResolvedValue({ id: "participant-1" });
 
     await expect(
       service.ensureCanUpdate({
         sessionId: "session-1",
-        sessionStatus: PrismaSessionStatus.RECRUITING,
+        activityStatus: PrismaSessionActivityStatus.DORMANT,
         nextMaxParticipants: 3,
         captainUserId: "user-1",
       }),
@@ -47,11 +47,11 @@ describe("SessionUpdatePolicyService", () => {
     });
   });
 
-  it("rejects non-recruiting session updates before querying participants", async () => {
+  it("rejects playing session updates before querying participants", async () => {
     await expect(
       service.ensureCanUpdate({
         sessionId: "session-1",
-        sessionStatus: PrismaSessionStatus.PLAYING,
+        activityStatus: PrismaSessionActivityStatus.PLAYING,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
@@ -65,10 +65,10 @@ describe("SessionUpdatePolicyService", () => {
     await expect(
       service.ensureCanUpdate({
         sessionId: "session-1",
-        sessionStatus: PrismaSessionStatus.RECRUITING,
+        activityStatus: PrismaSessionActivityStatus.LOBBY_OPEN,
         nextMaxParticipants: 3,
       }),
-    ).rejects.toThrow("maxParticipants cannot be smaller than the participant count.");
+    ).rejects.toThrow("총 인원은 현재 참가 인원보다 작게 설정할 수 없습니다.");
   });
 
   it("rejects captainUserId that is not a joined participant", async () => {
@@ -77,17 +77,17 @@ describe("SessionUpdatePolicyService", () => {
     await expect(
       service.ensureCanUpdate({
         sessionId: "session-1",
-        sessionStatus: PrismaSessionStatus.RECRUITING,
+        activityStatus: PrismaSessionActivityStatus.DORMANT,
         captainUserId: "user-1",
       }),
-    ).rejects.toThrow("captainUserId must be a JOINED participant of the session.");
+    ).rejects.toThrow("반장은 현재 세션 구성원 중에서 선택해주세요.");
   });
 
   it("allows clearing captain without captain membership lookup", async () => {
     await expect(
       service.ensureCanUpdate({
         sessionId: "session-1",
-        sessionStatus: PrismaSessionStatus.RECRUITING,
+        activityStatus: PrismaSessionActivityStatus.LOBBY_OPEN,
         captainUserId: null,
       }),
     ).resolves.toBeUndefined();

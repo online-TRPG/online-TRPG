@@ -4,7 +4,6 @@ import {
   ParticipantRole as PrismaParticipantRole,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
-import { CampaignArchiveRuntimeService } from "./campaign-archive-runtime.service";
 
 type SessionStartParticipant = {
   userId: string;
@@ -26,8 +25,6 @@ type SessionStartScenario = {
 
 @Injectable()
 export class SessionStartPolicyService {
-  constructor(private readonly campaignArchiveRuntime: CampaignArchiveRuntimeService) {}
-
   ensureCanStart(params: {
     session: {
       status: PrismaSessionStatus;
@@ -39,47 +36,10 @@ export class SessionStartPolicyService {
     scenario: SessionStartScenario;
   }): void {
     if (params.session.status !== PrismaSessionStatus.RECRUITING) {
-      throw new ConflictException("Only recruiting sessions can be started.");
+      throw new ConflictException("입장 가능한 대기실에서만 플레이를 시작할 수 있습니다.");
     }
 
-    if (!params.participants.length) {
-      throw new ConflictException("At least one participant is required to start the session.");
-    }
-
-    const playerParticipants = params.participants.filter((participant) => participant.role !== PrismaParticipantRole.GM);
-    if (params.session.gmMode === PrismaGmMode.HUMAN) {
-      const gmUserId = params.session.gmUserId ?? params.session.hostUserId;
-      const gmParticipant = params.participants.find(
-        (participant) => participant.userId === gmUserId && participant.role === PrismaParticipantRole.GM,
-      );
-      if (!gmParticipant) {
-        throw new ConflictException("A HUMAN GM session requires a joined GM participant.");
-      }
-    }
-
-    if (!playerParticipants.length) {
-      throw new ConflictException("At least one player is required to start the session.");
-    }
-
-    const participantWithoutCharacter = playerParticipants.find((participant) => !participant.sessionCharacter);
-    if (participantWithoutCharacter) {
-      throw new ConflictException("All players must select a character before the session starts.");
-    }
-
-    for (const participant of playerParticipants) {
-      const character = participant.sessionCharacter?.character;
-      if (character) {
-        this.campaignArchiveRuntime.ensureCharacterMatchesScenarioLevel({
-          characterName: character.name,
-          characterLevel: character.level,
-          scenario: params.scenario,
-        });
-      }
-    }
-
-    const participantNotReady = playerParticipants.find((participant) => !participant.isReady);
-    if (participantNotReady) {
-      throw new ConflictException("All players must be ready before the session starts.");
-    }
+    // 준비 여부, 접속 여부, 캐릭터 선택과 인원은 세션 관리자에게 보여 줄 정보이지 시작 차단 조건이 아니다.
+    // 실제 TRPG처럼 최종 시작 판단은 세션 관리자에게 둔다.
   }
 }

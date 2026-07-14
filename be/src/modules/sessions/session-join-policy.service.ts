@@ -2,7 +2,9 @@ import { ConflictException, Injectable, UnprocessableEntityException } from "@ne
 import {
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
+  Prisma,
   SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
 } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
@@ -20,13 +22,19 @@ export class SessionJoinPolicyService {
     sessionId: string;
     userId: string;
     sessionStatus: PrismaSessionStatus;
+    activityStatus?: PrismaSessionActivityStatus;
     maxParticipants: number;
-  }): Promise<JoinableExistingParticipant | null> {
-    if (params.sessionStatus !== PrismaSessionStatus.RECRUITING) {
-      throw new UnprocessableEntityException("Only recruiting sessions can be joined.");
+  }, db: Pick<Prisma.TransactionClient, "sessionParticipant"> = this.prisma): Promise<JoinableExistingParticipant | null> {
+    if (
+      params.activityStatus
+        ? params.activityStatus !== PrismaSessionActivityStatus.DORMANT &&
+          params.activityStatus !== PrismaSessionActivityStatus.LOBBY_OPEN
+        : params.sessionStatus !== PrismaSessionStatus.RECRUITING
+    ) {
+      throw new UnprocessableEntityException("현재는 새 구성원이 참가할 수 없는 세션입니다.");
     }
 
-    const existingParticipant = await this.prisma.sessionParticipant.findUnique({
+    const existingParticipant = await db.sessionParticipant.findUnique({
       where: {
         sessionId_userId: {
           sessionId: params.sessionId,
@@ -41,10 +49,13 @@ export class SessionJoinPolicyService {
     });
 
     if (existingParticipant?.status === PrismaParticipantStatus.JOINED) {
-      throw new ConflictException("You already joined this session.");
+      throw new ConflictException("이미 참가한 세션입니다.");
+    }
+    if (existingParticipant?.status === PrismaParticipantStatus.KICKED) {
+      throw new ConflictException("세션 관리자가 다시 참가를 허용하기 전에는 이 세션에 참가할 수 없습니다.");
     }
 
-    const participantCount = await this.prisma.sessionParticipant.count({
+    const participantCount = await db.sessionParticipant.count({
       where: {
         sessionId: params.sessionId,
         status: PrismaParticipantStatus.JOINED,
@@ -52,7 +63,7 @@ export class SessionJoinPolicyService {
     });
 
     if (participantCount >= params.maxParticipants) {
-      throw new UnprocessableEntityException("This session is already full.");
+      throw new UnprocessableEntityException("세션 정원이 모두 찼습니다.");
     }
 
     return existingParticipant;

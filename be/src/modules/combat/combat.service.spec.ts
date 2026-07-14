@@ -389,6 +389,7 @@ describe("CombatService lifecycle", () => {
     const { service, prisma, sessionsService } = createService();
     const participant = createParticipant();
     const tx = {
+      $executeRaw: jest.fn(),
       combat: {
         create: jest.fn().mockResolvedValue({ id: "combat-1" }),
         update: jest.fn(),

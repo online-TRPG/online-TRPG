@@ -18,6 +18,7 @@ describe("RealtimeGateway VTT delta capability", () => {
     };
     const sessionsService = {
       ensureMembership: jest.fn().mockResolvedValue(undefined),
+      ensureActivePlayAccess: jest.fn().mockResolvedValue(undefined),
       updateParticipantConnectionStatus: jest.fn().mockResolvedValue(undefined),
       buildSnapshot: jest.fn().mockResolvedValue({ session: { id: "session-1" } }),
     };

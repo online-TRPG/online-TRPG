@@ -3620,7 +3620,7 @@ export class CombatService {
   }
 
   private getGmRuntimeUserId(session: { hostUserId: string; gmMode?: PrismaGmMode; gmUserId?: string | null }): string {
-    return session.gmMode === PrismaGmMode.HUMAN ? (session.gmUserId ?? session.hostUserId) : session.hostUserId;
+    return session.hostUserId;
   }
 
   private async lockSessionRuntime(tx: Pick<Prisma.TransactionClient, "$executeRaw">, sessionId: string): Promise<void> {

@@ -3,7 +3,7 @@ import {
   ConnectionStatus as PrismaConnectionStatus,
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
-  SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
   UserRole as PrismaUserRole,
 } from "@prisma/client";
 import { ConnectionStatus } from "@trpg/shared-types";
@@ -11,10 +11,17 @@ import { SessionParticipantStatusService } from "./session-participant-status.se
 
 describe("SessionParticipantStatusService", () => {
   const prisma = {
+    $transaction: jest.fn(),
     sessionParticipant: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+    },
+    sessionPlayAttendance: {
+      upsert: jest.fn(),
+    },
+    userActivePlay: {
+      findUnique: jest.fn(),
     },
   };
   const realtimeEvents = {
@@ -31,6 +38,13 @@ describe("SessionParticipantStatusService", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma),
+    );
+    prisma.userActivePlay.findUnique.mockResolvedValue({
+      sessionId: "session-1",
+      playId: "play-1",
+    });
   });
 
   it("lists joined participants ordered by join time", async () => {
@@ -74,6 +88,12 @@ describe("SessionParticipantStatusService", () => {
           select: {
             id: true,
             characterId: true,
+            character: {
+              select: {
+                name: true,
+                level: true,
+              },
+            },
           },
         },
       },
@@ -252,7 +272,8 @@ describe("SessionParticipantStatusService", () => {
     const result = await service.updateReadyState({
       sessionId: "session-1",
       userId: "user-1",
-      sessionStatus: PrismaSessionStatus.RECRUITING,
+      activityStatus: PrismaSessionActivityStatus.LOBBY_OPEN,
+      currentPlayId: "play-1",
       isReady: true,
       getScenarioForReadyValidation: jest.fn(async () => ({
         scenario: {
@@ -320,7 +341,8 @@ describe("SessionParticipantStatusService", () => {
     await service.updateReadyState({
       sessionId: "session-1",
       userId: "gm-user",
-      sessionStatus: PrismaSessionStatus.RECRUITING,
+      activityStatus: PrismaSessionActivityStatus.LOBBY_OPEN,
+      currentPlayId: "play-1",
       isReady: false,
       getScenarioForReadyValidation: jest.fn(),
     });
