@@ -1,6 +1,6 @@
 # MVP ERD - 세션 / 시나리오 런타임 서비스 모델
 
-수정일: 2026년 7월 10일
+수정일: 2026년 7월 12일
 
 
 ## 문서 목적
@@ -21,7 +21,9 @@
 - `Session`은 사람들의 모임이고 `Scenario`는 플레이 콘텐츠다.
 - 세션은 `SessionScenario`를 통해 시나리오를 플레이한다.
 - 원본 장면은 `ScenarioNode`, 세션 진행 중 장면은 `SessionScenarioNode`가 맡는다.
-- 세션 권한은 `hostUserId`, `gmUserId`, `captainUserId`를 분리한다.
+- 세션 관리 권한은 `hostUserId` 하나를 기준으로 하며 사람 GM 세션에서는 같은 사용자가 GM을 겸한다.
+- `Session`은 지속되는 모임과 진행 상태를, `SessionPlay`는 개별 플레이 약속과 실시간 개방 상태를 맡는다.
+- 여러 세션 소속과 사용자당 하나의 실시간 점유를 분리하며 `UserActivePlay.userId` unique를 서버 권위로 사용한다.
 - `GameState`는 현재 위치와 phase 같은 짧은 포인터를 맡고, 공개/방문/로그 이력은 별도 테이블이 맡는다.
 
 ## 상세 내용
@@ -48,13 +50,14 @@
 - 한 세션은 여러 시나리오를 순서대로 플레이할 수 있다.
 - 따라서 `Session`과 `Scenario`는 직접 1:1 또는 1:N으로 묶지 않고 `SessionScenario`로 연결한다.
 
-### 2.2 Host / Owner / GM
+### 2.2 Session Manager / GM
 
-- `hostUserId`는 세션을 만든 방장 / 주최자다.
-- `gmUserId`는 사람 GM 세션에서 GM 권한을 가진 사용자다.
+- `hostUserId`는 호환을 위해 유지하는 내부 이름이며 세션을 만든 관리자를 뜻한다.
+- 사람 GM 세션에서는 세션 관리자가 곧 GM이다. 별도 GM 지정과 GM 교체는 지원하지 않는다.
+- AI GM 세션에서는 세션 관리자가 일정·모집·설정을 담당하고 AI가 GM을 맡는다.
 - `captainUserId`는 파티 대표 또는 진행 보조 역할을 맡는 사용자다.
-- `gmMode = HUMAN`이면 사람 GM 전용 기능은 `gmUserId` 기준으로 노출한다.
-- `gmMode = AI`이면 GM 역할은 AI가 수행하고, host는 방 관리자이자 주최자 역할을 맡는다.
+- `gmMode = HUMAN`이면 사람 GM 전용 기능은 `hostUserId` 기준으로 노출한다.
+- `gmUserId`는 DB/API 호환 필드이며 `HUMAN`이면 `hostUserId`, `AI`이면 `null`만 허용한다.
 
 ### 2.3 Account 와 Profile
 
@@ -64,9 +67,9 @@
 
 ### 2.4 일정 정보
 
-- 다음 일정은 작은 편의 기능으로만 둔다.
-- 세션 생성 / 수정 시 `nextSessionAt`을 선택적으로 입력할 수 있다.
-- 필수 입력은 아니다.
+- 개별 플레이 약속은 `SessionPlay`에 시작 시각만 저장하며 종료 시각을 필수로 받지 않는다.
+- `Session.nextSessionAt`은 다음 유효 플레이를 빠르게 표시·정렬하기 위한 nullable projection이다.
+- 세션 소속, 플레이별 참석 응답, 실시간 대기실·플레이 점유는 서로 다른 상태로 관리한다.
 
 ### 2.5 캐릭터 이미지
 
@@ -138,23 +141,29 @@
 | hostUserId | string FK -> User.id | 세션 생성자이자 host |
 | inviteCode | string unique | 초대 코드 |
 | status | enum | `RECRUITING`, `PLAYING`, `PAUSED`, `COMPLETED`, `DISBANDED` |
+| activityStatus | enum | `DORMANT`, `LOBBY_OPEN`, `PLAYING`, `COMPLETED`, `DISBANDED` |
+| recruitmentStatus | enum | `OPEN`, `CLOSED` |
+| joinPolicy | enum | `INVITE_ONLY`, `APPROVAL_REQUIRED`, `OPEN_JOIN` |
 | visibility | enum | `PUBLIC`, `PRIVATE` |
 | maxParticipants | int | 최대 참가 인원 |
 | ruleSetId | string nullable | 룰셋 식별자 |
 | gmMode | enum | `HUMAN`, `AI` |
-| gmUserId | string nullable FK -> User.id | Human GM 세션의 사람 GM |
+| gmUserId | string nullable FK -> User.id | 호환 필드. `HUMAN`이면 `hostUserId`, `AI`이면 `null` |
 | captainUserId | string nullable FK -> User.id | 파티 대표 / 진행 보조 사용자 |
 | nextSessionAt | datetime nullable | 다음 예정 일정 |
+| currentPlayId | string nullable unique FK -> SessionPlay.id | 현재 열린 대기실 또는 진행 중 플레이 |
 | createdAt | datetime | 생성 시각 |
 | updatedAt | datetime | 수정 시각 |
 
 메모:
 
-- 현재 구현은 `hostUserId`, `gmUserId`, `captainUserId`를 분리한다.
-- API projection에서 `ownerUserId`는 세션 생성자인 `hostUserId`를 의미한다.
-- Human GM 세션에서는 `gmUserId`가 없으면 호환을 위해 `hostUserId`를 GM으로 간주할 수 있다.
-- AI GM 세션에서는 사람 GM 전용 권한을 `hostUserId`에 자동 부여하지 않는다.
+- 세션 관리 권한은 `hostUserId`를 단일 기준으로 사용한다.
+- API projection에서 `ownerUserId`는 세션 관리자인 `hostUserId`를 의미한다.
+- Human GM 세션에서는 `hostUserId`가 GM 권한도 가진다.
+- AI GM 세션에서는 `hostUserId`가 관리 권한만 가지며 사람 GM 전용 권한은 받지 않는다.
+- `gmUserId`는 별도 권한 원천으로 읽지 않는다.
 - 현재 활성 시나리오는 `SessionScenario.status = ACTIVE`로 판별한다.
+- 기존 `status`는 호환용 projection이며 화면 접근과 방 설정 권한은 `activityStatus`를 기준으로 판단한다.
 
 ### 3.5 Scenario
 
@@ -432,13 +441,13 @@ erDiagram
 - 그래서 `Session`은 파티 / 방, `Scenario`는 콘텐츠로 분리했다.
 - 한 세션에서 여러 시나리오를 순서대로 플레이할 수 있도록 `SessionScenario`를 도입했다.
 
-### 5.2 왜 Host / GM / Captain 을 분리했는가
+### 5.2 왜 세션 관리자와 GM 모드를 결합하는가
 
-- AI GM 세션의 방장은 방 관리자이지 사람 GM이 아니다.
-- Human GM 세션의 GM 전용 패널과 운영 API는 방장 권한과 별도로 보호되어야 한다.
-- 따라서 `hostUserId`는 세션 주최자, `gmUserId`는 사람 GM, `captainUserId`는 파티 대표로 분리한다.
-- `gmMode = HUMAN`이면 사람 GM 권한은 `gmUserId` 기준으로 판단한다.
-- `gmMode = AI`이면 AI가 GM 역할을 수행하고, host는 방 관리 담당으로 남는다.
+- 사람 GM 세션을 만들려면 시나리오 선택과 접근 권한이 필요하므로 생성자가 GM을 맡는 흐름이 자연스럽다.
+- Human GM 세션에서는 `hostUserId` 사용자가 세션 관리자와 GM 역할을 함께 맡는다.
+- AI GM 세션에서는 같은 사용자가 관리자로 남고 AI가 GM 역할을 수행한다.
+- GM 모드 변경은 다른 사용자에게 권한을 넘기지 않고 현재 관리자의 참가자 역할만 `HOST ↔ GM`으로 바꾼다.
+- `captainUserId`는 파티 대표 역할이 필요할 때만 별도로 유지한다.
 
 ### 5.3 왜 User 와 UserProfile 을 분리했는가
 
@@ -451,7 +460,7 @@ erDiagram
 
 - 다음 일정은 TRPG 운영상 자주 바뀌고, 즉시 확정되지 않는 경우가 많다.
 - 사용자가 게임 종료 시 무조건 다음 일정을 입력해야 하는 UX는 부담이 크다.
-- 따라서 작은 편의 기능으로만 두고, `Session.nextSessionAt`을 nullable 필드로 둔다.
+- 일정 원본과 참석 응답은 `SessionPlay`와 `SessionPlayAttendance`에 두고, `Session.nextSessionAt`은 nullable 조회 projection으로만 둔다.
 
 ### 5.5 왜 Character 이미지 테이블을 따로 두지 않았는가
 
@@ -478,10 +487,12 @@ erDiagram
 1. `Session`은 `Scenario`를 직접 참조하지 않고 `SessionScenario`를 통해 플레이 중인 시나리오를 연결한다.
 2. 현재 노드와 phase는 `GameState`가 들고, 공개/방문/로그 이력은 `SessionReveal`, `SessionNodeVisit`, `TurnLog`가 맡는다.
 3. 원본 시나리오 노드는 `ScenarioNode`, 세션 진행 중 복제된 노드는 `SessionScenarioNode`가 맡는다.
-4. 세션 권한은 `hostUserId`, `gmUserId`, `captainUserId`를 분리한다.
+4. 세션 관리 권한은 `hostUserId`를 단일 기준으로 사용하며 `gmUserId`는 호환 필드로만 유지한다.
 5. `UserProfile`은 공개 프로필 정보를 맡고, `User`는 인증/계정 정보를 맡는다.
 6. 캐릭터 이미지는 `Character` 컬럼으로 관리한다.
 7. 시나리오 이미지 자산은 `ScenarioAsset`이 관리한다.
+8. 플레이 일정과 활동 상태는 `SessionPlay`와 `Session.activityStatus`가 관리하고, `Session.status`는 호환 projection으로 유지한다.
+9. 사용자는 여러 세션에 소속될 수 있지만 `UserActivePlay.userId` unique로 실시간 점유는 하나만 허용한다.
 
 ## 7. 후속 작업 추천 순서
 
@@ -504,7 +515,7 @@ erDiagram
 
 ### 8.1 Session
 
-역할: 사람들의 모임, 초대 코드, 모집/진행 상태, GM 모드를 담는 세션 방이다.
+역할: 사람들의 지속되는 모임, 초대 코드, 모집 상태, 활동 상태, GM 모드를 담는 세션 방이다.
 
 | 컬럼 | 역할 |
 | --- | --- |
@@ -512,21 +523,25 @@ erDiagram
 | publicId | URL/공개 표시에 쓰는 세션 공개 ID |
 | title | 세션 제목 |
 | description | 세션 설명 |
-| hostUserId | 세션 생성자이자 host |
-| gmUserId | Human GM 세션의 사람 GM |
+| hostUserId | 세션 생성자이자 세션 관리자 |
+| gmUserId | 호환 필드. `HUMAN`이면 `hostUserId`, `AI`이면 `null` |
 | inviteCode | 초대 입장 코드 |
-| status | 모집/진행/중단/완료 상태 |
+| status | 기존 API 호환용 상태 projection |
+| activityStatus | 대기 중/입장 가능/진행 중/완료/해산 상태 |
+| recruitmentStatus | 신규 구성원 모집 여부 |
+| joinPolicy | 초대/승인/바로 참가 정책 |
 | visibility | 공개/비공개 탐색 가능 여부 |
 | maxParticipants | 최대 참가자 수 |
 | ruleSetId | 세션에 적용할 룰셋 식별자 |
 | gmMode | AI GM 또는 Human GM 모드 |
 | captainUserId | 파티 대표 / 진행 보조 사용자 |
-| nextSessionAt | 다음 예정 일정 |
+| nextSessionAt | 다음 유효 `SessionPlay.scheduledStartAt` projection |
+| currentPlayId | 현재 열린 대기실 또는 진행 중 플레이 |
 | createdAt / updatedAt | 생성/수정 시각 |
 
 필요 이유: 세션은 시나리오 자체가 아니라 플레이 모임의 컨테이너다. 같은 세션이 여러 `SessionScenario`를 순서대로 플레이할 수 있다.
 
-권한 메모: Human GM 권한은 `gmMode`와 `gmUserId`를 기준으로 판단한다. AI GM 세션의 `hostUserId`에는 사람 GM 전용 권한을 자동 부여하지 않는다.
+권한 메모: Human GM 권한은 `gmMode = HUMAN`과 `hostUserId`를 기준으로 판단한다. AI GM 세션 관리자는 사람 GM 전용 권한을 받지 않는다.
 
 ### 8.2 SessionParticipant
 
@@ -540,11 +555,21 @@ erDiagram
 | role | HOST / PLAYER / SPECTATOR |
 | status | JOINED / LEFT / KICKED |
 | connectionStatus | 온라인/오프라인 표시 |
-| isReady | 모집 단계 READY 상태 |
-| readyAt | READY 시각 |
+| isReady | 현재 플레이 준비 상태의 호환 projection |
+| readyAt | 현재 플레이 준비 완료 시각의 호환 projection |
 | joinedAt / leftAt | 참가/이탈 시각 |
 
-필요 이유: 계정과 세션은 다대다 관계이고, 역할/접속/READY는 세션마다 달라진다.
+필요 이유: 계정과 세션은 다대다 관계이고 역할과 소속 상태는 세션마다 달라진다. 플레이별 참석·준비 원본은 `SessionPlayAttendance`가 맡는다.
+
+### 플레이 일정과 실시간 점유 보조 모델
+
+| 모델 | 핵심 컬럼/제약 | 역할 |
+| --- | --- | --- |
+| `SessionPlay` | `(sessionId, sequence)` unique, `SCHEDULED / LOBBY_OPEN / PLAYING / FINISHED / CANCELLED`, `scheduledStartAt`, `scheduleVersion`, `stateVersion` | 종료 시간을 강제하지 않는 개별 플레이 약속, 개방, 진행, 종료 이력 |
+| `SessionPlayAttendance` | `(playId, participantId)` PK, `ATTENDING / ABSENT / TENTATIVE`, `isReady`, `readyAt`, `enteredLobbyAt` | 플레이별 참석 응답과 대기실 준비 상태 |
+| `SessionApplication` | `(sessionId, applicantUserId)` unique, 신청 상태와 `CURRENT_PLAY / NEXT_PLAY` | 공개 모집 신청과 세션 관리자 승인 결과 |
+| `UserActivePlay` | `userId` PK, `playId`, `sessionId`, heartbeat | 모든 탭·기기를 합친 사용자당 하나의 실시간 점유 |
+| `SessionScheduleProximityAcknowledgement` | `(userId, playId, comparedPlayId)` PK와 양쪽 schedule version | 시작 시각이 6시간 이하로 가까운 일정을 사용자가 확인한 기록 |
 
 ### 8.3 Scenario
 
@@ -899,7 +924,7 @@ idempotencyKey는 일반 턴에는 null이다. 시나리오 중재 로그는 mod
 ## 관련 원칙
 
 - [../rules/ARCHITECTURE_RULES.md](../rules/ARCHITECTURE_RULES.md): 세션/시나리오 분리, 상태 포인터와 이력 분리 원칙
-- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): 방장, 사람 GM, AI GM 권한 분리 원칙
+- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): 세션 관리자, 사람 GM, AI GM 권한 원칙
 - [../rules/CONTENT_LICENSE_RULES.md](../rules/CONTENT_LICENSE_RULES.md): 시나리오 원본과 콘텐츠 라이선스 원칙
 
 ## 관련 문서

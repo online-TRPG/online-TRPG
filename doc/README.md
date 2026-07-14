@@ -56,7 +56,7 @@
 | --- | --- |
 | `rules/README.md` | rules 폴더의 목적과 문서 목록 |
 | `rules/ARCHITECTURE_RULES.md` | 상태, 턴 처리, 서버 권위성, 동시성 원칙 |
-| `rules/PERMISSION_RULES.md` | 방장, 사람 GM, AI GM, 플레이어 권한 분리 원칙 |
+| `rules/PERMISSION_RULES.md` | 세션 관리자, 사람 GM, AI GM, 플레이어 권한 원칙 |
 | `rules/AI_RUNTIME_RULES.md` | AI 호출, 검증, fallback, 로깅 원칙 |
 | `rules/CONTENT_LICENSE_RULES.md` | SRD, 시나리오, 이미지, 룰 데이터 사용 원칙 |
 | `rules/DOCUMENTATION_RULES.md` | 문서 분류, 중복 관리, 완료 문서 보관 원칙 |
