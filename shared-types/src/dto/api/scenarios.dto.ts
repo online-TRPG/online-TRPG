@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
+  ArrayMaxSize,
   IsBase64,
   IsArray,
   IsBoolean,
@@ -654,6 +655,12 @@ export class ScenarioSummaryResponseDto {
   @ApiPropertyOptional({ nullable: true, minimum: 1 })
   estimatedMinutes?: number | null;
 
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  recommendedPlayersMin?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  recommendedPlayersMax?: number | null;
+
   @ApiPropertyOptional({ nullable: true })
   gmMode?: "AI" | "HUMAN" | "BOTH" | null;
 
@@ -964,6 +971,43 @@ export class CreateScenarioDto {
   @Max(20)
   recommendedEndLevel?: number | null;
 
+  @ApiPropertyOptional({ type: [String], maxItems: 10 })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  tags?: string[];
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 1440 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  estimatedMinutes?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  recommendedPlayersMin?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  recommendedPlayersMax?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, enum: ["AI", "HUMAN", "BOTH"] })
+  @IsOptional()
+  @IsIn(["AI", "HUMAN", "BOTH"])
+  gmMode?: "AI" | "HUMAN" | "BOTH" | null;
+
   @ApiPropertyOptional({ enum: ScenarioLicense, default: ScenarioLicense.ORIGINAL })
   @IsOptional()
   @IsEnum(ScenarioLicense)
@@ -1059,6 +1103,43 @@ export class UpdateScenarioDto {
   @Min(1)
   @Max(20)
   recommendedEndLevel?: number | null;
+
+  @ApiPropertyOptional({ type: [String], maxItems: 10 })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  tags?: string[];
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 1440 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  estimatedMinutes?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  recommendedPlayersMin?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  recommendedPlayersMax?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, enum: ["AI", "HUMAN", "BOTH"] })
+  @IsOptional()
+  @IsIn(["AI", "HUMAN", "BOTH"])
+  gmMode?: "AI" | "HUMAN" | "BOTH" | null;
 
   @ApiPropertyOptional({ enum: ScenarioLicense })
   @IsOptional()
@@ -1247,6 +1328,43 @@ export class PublishScenarioDto {
   @IsOptional()
   @IsBoolean()
   forkAllowed?: boolean;
+
+  @ApiPropertyOptional({ type: [String], maxItems: 10 })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  tags?: string[];
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 1440 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  estimatedMinutes?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  recommendedPlayersMin?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  recommendedPlayersMax?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, enum: ["AI", "HUMAN", "BOTH"] })
+  @IsOptional()
+  @IsIn(["AI", "HUMAN", "BOTH"])
+  gmMode?: "AI" | "HUMAN" | "BOTH" | null;
 }
 
 export class UpsertScenarioCollaboratorDto {

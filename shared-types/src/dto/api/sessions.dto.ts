@@ -26,6 +26,14 @@ import {
   ParticipantRole,
   ScenarioNodeType,
   SessionParticipantStatus,
+  SessionActivityStatus,
+  RecruitmentStatus,
+  SessionJoinPolicy,
+  SessionPlayStatus,
+  SessionAttendanceStatus,
+  SessionApplicationStatus,
+  SessionJoinTiming,
+  SessionListSort,
   SessionScenarioStatus,
   SessionStatus,
   SessionVisibility,
@@ -117,6 +125,22 @@ export class CreateSessionDto {
   @IsOptional()
   @IsDateString()
   nextSessionAt?: string;
+
+  @ApiPropertyOptional({ enum: RecruitmentStatus })
+  @IsOptional()
+  @IsEnum(RecruitmentStatus)
+  recruitmentStatus?: RecruitmentStatus;
+
+  @ApiPropertyOptional({ enum: SessionJoinPolicy })
+  @IsOptional()
+  @IsEnum(SessionJoinPolicy)
+  joinPolicy?: SessionJoinPolicy;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  openLobbyNow?: boolean;
 }
 
 export class UpdateSessionDto {
@@ -126,6 +150,12 @@ export class UpdateSessionDto {
   @IsNotEmpty()
   @MaxLength(100)
   title?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  scenarioId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -181,28 +211,61 @@ export class UpdateSessionDto {
   @IsOptional()
   @IsDateString()
   nextSessionAt?: string | null;
+
+  @ApiPropertyOptional({ enum: RecruitmentStatus })
+  @IsOptional()
+  @IsEnum(RecruitmentStatus)
+  recruitmentStatus?: RecruitmentStatus;
+
+  @ApiPropertyOptional({ enum: SessionJoinPolicy })
+  @IsOptional()
+  @IsEnum(SessionJoinPolicy)
+  joinPolicy?: SessionJoinPolicy;
 }
 
 export class SessionListQueryDto {
+  @ApiPropertyOptional({ maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  query?: string;
+
   @ApiPropertyOptional({ enum: SessionStatus })
   @IsOptional()
   @IsEnum(SessionStatus)
   status?: SessionStatus;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: SessionActivityStatus })
+  @IsOptional()
+  @IsEnum(SessionActivityStatus)
+  activityStatus?: SessionActivityStatus;
+
+  @ApiPropertyOptional({ enum: GmMode })
+  @IsOptional()
+  @IsEnum(GmMode)
+  gmMode?: GmMode;
+
+  @ApiPropertyOptional({ maxLength: 100 })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   scenarioId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ maxLength: 50 })
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   ruleSetId?: string;
 
   @ApiPropertyOptional({ enum: ParticipantRole })
   @IsOptional()
   @IsEnum(ParticipantRole)
   role?: ParticipantRole;
+
+  @ApiPropertyOptional({ enum: SessionListSort, default: SessionListSort.RECENT })
+  @IsOptional()
+  @IsEnum(SessionListSort)
+  sort?: SessionListSort;
 
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()
@@ -220,11 +283,45 @@ export class SessionListQueryDto {
   size?: number;
 }
 
+export class SessionScheduleVersionAcknowledgementDto {
+  @ApiProperty()
+  @IsString()
+  comparedPlayId!: string;
+
+  @ApiProperty({ minimum: 1 })
+  @IsInt()
+  @Min(1)
+  playScheduleVersion!: number;
+
+  @ApiProperty({ minimum: 1 })
+  @IsInt()
+  @Min(1)
+  comparedScheduleVersion!: number;
+}
+
 export class JoinSessionDto {
   @ApiProperty({ example: "ABC123" })
   @IsString()
   @IsNotEmpty()
   inviteCode!: string;
+
+  @ApiPropertyOptional({ type: () => [SessionScheduleVersionAcknowledgementDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SessionScheduleVersionAcknowledgementDto)
+  acknowledgedScheduleVersions?: SessionScheduleVersionAcknowledgementDto[];
+}
+
+export class JoinSessionByIdDto {
+  @ApiPropertyOptional({ type: () => [SessionScheduleVersionAcknowledgementDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SessionScheduleVersionAcknowledgementDto)
+  acknowledgedScheduleVersions?: SessionScheduleVersionAcknowledgementDto[];
 }
 
 export class SelectSessionCharacterDto {
@@ -239,13 +336,6 @@ export class UpdateParticipantReadyDto {
   @Type(() => Boolean)
   @IsBoolean()
   isReady!: boolean;
-}
-
-export class UpdateHumanGmDto {
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  gmUserId!: string;
 }
 
 export class GrantHumanGmInventoryItemDto {
@@ -781,6 +871,18 @@ export class SessionResponseDto {
   @IsEnum(SessionStatus)
   status!: SessionStatus;
 
+  @ApiProperty({ enum: SessionActivityStatus })
+  activityStatus!: SessionActivityStatus;
+
+  @ApiProperty({ enum: RecruitmentStatus })
+  recruitmentStatus!: RecruitmentStatus;
+
+  @ApiProperty({ enum: SessionJoinPolicy })
+  joinPolicy!: SessionJoinPolicy;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentPlayId!: string | null;
+
   @ApiProperty({ enum: SessionVisibility })
   @IsEnum(SessionVisibility)
   visibility!: SessionVisibility;
@@ -990,6 +1092,17 @@ export class PlayerScenarioViewDto {
 
   @ApiProperty({ type: [PlayerScenarioClueDto] })
   revealedClues!: PlayerScenarioClueDto[];
+}
+
+export class HumanGmRevealOptionDto {
+  @ApiProperty()
+  contentId!: string;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  preview!: string | null;
 }
 
 export class RevealSessionContentDto {
@@ -1499,6 +1612,217 @@ export class CharacterTransferResponseDto {
   resolvedAt!: string | null;
 }
 
+export class CreateSessionPlayDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  scheduledStartAt?: string;
+
+  @ApiPropertyOptional({ default: "Asia/Seoul", maxLength: 50 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  timeZone?: string;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  openLobbyNow?: boolean;
+}
+
+export class UpdateSessionPlayDto {
+  @ApiProperty()
+  @IsDateString()
+  scheduledStartAt!: string;
+
+  @ApiPropertyOptional({ default: "Asia/Seoul", maxLength: 50 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  timeZone?: string;
+
+  @ApiProperty({ minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedScheduleVersion!: number;
+}
+
+export class SessionPlayTransitionDto {
+  @ApiProperty({ minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedStateVersion!: number;
+}
+
+export class UpdateSessionPlayAttendanceDto {
+  @ApiProperty({ enum: SessionAttendanceStatus })
+  @IsEnum(SessionAttendanceStatus)
+  attendance!: SessionAttendanceStatus;
+
+  @ApiPropertyOptional({ type: () => [SessionScheduleVersionAcknowledgementDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SessionScheduleVersionAcknowledgementDto)
+  acknowledgedScheduleVersions?: SessionScheduleVersionAcknowledgementDto[];
+}
+
+export class AcquireActivePlayDto {
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  confirmSwitch?: boolean;
+}
+
+export class CreateSessionApplicationDto {
+  @ApiPropertyOptional({ maxLength: 300 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  note?: string;
+
+  @ApiPropertyOptional({ type: () => [SessionScheduleVersionAcknowledgementDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SessionScheduleVersionAcknowledgementDto)
+  acknowledgedScheduleVersions?: SessionScheduleVersionAcknowledgementDto[];
+}
+
+export class ResolveSessionApplicationDto {
+  @ApiProperty({ enum: [SessionApplicationStatus.APPROVED, SessionApplicationStatus.REJECTED] })
+  @IsIn([SessionApplicationStatus.APPROVED, SessionApplicationStatus.REJECTED])
+  status!: SessionApplicationStatus.APPROVED | SessionApplicationStatus.REJECTED;
+
+  @ApiPropertyOptional({ enum: SessionJoinTiming })
+  @IsOptional()
+  @IsEnum(SessionJoinTiming)
+  joinTiming?: SessionJoinTiming;
+}
+
+export class SessionScheduleProximityWarningDto {
+  @ApiProperty()
+  comparedPlayId!: string;
+
+  @ApiProperty()
+  sessionTitle!: string;
+
+  @ApiProperty()
+  scheduledStartAt!: string;
+
+  @ApiProperty()
+  differenceMinutes!: number;
+
+  @ApiProperty()
+  scheduleVersion!: number;
+
+  @ApiProperty()
+  targetScheduleVersion!: number;
+}
+
+export class SessionPlayAttendanceResponseDto {
+  @ApiProperty({ enum: SessionAttendanceStatus })
+  attendance!: SessionAttendanceStatus;
+
+  @ApiProperty()
+  isReady!: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  readyAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  enteredLobbyAt!: string | null;
+}
+
+export class SessionPlayResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
+  sequence!: number;
+
+  @ApiProperty({ enum: SessionPlayStatus })
+  status!: SessionPlayStatus;
+
+  @ApiPropertyOptional({ nullable: true })
+  scheduledStartAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  lobbyOpensAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  startedAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  endedAt!: string | null;
+
+  @ApiProperty()
+  timeZone!: string;
+
+  @ApiProperty()
+  scheduleVersion!: number;
+
+  @ApiProperty()
+  stateVersion!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  summary!: string | null;
+
+  @ApiPropertyOptional({ type: SessionPlayAttendanceResponseDto, nullable: true })
+  viewerAttendance!: SessionPlayAttendanceResponseDto | null;
+
+  @ApiPropertyOptional({ type: [SessionScheduleProximityWarningDto] })
+  proximityWarnings!: SessionScheduleProximityWarningDto[];
+}
+
+export class SessionApplicationResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty({ type: UserResponseDto })
+  applicant!: UserResponseDto;
+
+  @ApiProperty({ enum: SessionApplicationStatus })
+  status!: SessionApplicationStatus;
+
+  @ApiPropertyOptional({ nullable: true })
+  note!: string | null;
+
+  @ApiPropertyOptional({ enum: SessionJoinTiming, nullable: true })
+  joinTiming!: SessionJoinTiming | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  resolvedAt!: string | null;
+}
+
+export class ActivePlayResponseDto {
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
+  playId!: string;
+
+  @ApiProperty()
+  acquiredAt!: string;
+
+  @ApiProperty()
+  heartbeatAt!: string;
+}
+
 export class SessionListItemResponseDto {
   @ApiProperty({ type: SessionResponseDto })
   session!: SessionResponseDto;
@@ -1520,6 +1844,12 @@ export class SessionListItemResponseDto {
 
   @ApiPropertyOptional({ enum: ParticipantRole })
   role?: ParticipantRole;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentSceneTitle!: string | null;
+
+  @ApiProperty()
+  lastActivityAt!: string;
 }
 
 export class SessionDetailResponseDto extends SessionSnapshotDto {
@@ -1545,6 +1875,62 @@ export class SessionInviteResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   shareUrl!: string | null;
+}
+
+export class SessionInviteScenarioPreviewDto {
+  @ApiProperty()
+  title!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  description!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  thumbnailUrl!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  difficulty!: string | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  tags!: string[];
+
+  @ApiProperty({ minimum: 1, maximum: 20 })
+  startLevel!: number;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 20 })
+  recommendedEndLevel!: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1 })
+  estimatedMinutes!: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  recommendedPlayersMin!: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8 })
+  recommendedPlayersMax!: number | null;
+}
+
+export class SessionInvitePreviewResponseDto {
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty()
+  description!: string;
+
+  @ApiProperty({ enum: GmMode })
+  @IsEnum(GmMode)
+  gmMode!: GmMode;
+
+  @ApiProperty()
+  participantCount!: number;
+
+  @ApiProperty()
+  maxParticipants!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  nextSessionAt!: string | null;
+
+  @ApiProperty({ type: SessionInviteScenarioPreviewDto })
+  scenario!: SessionInviteScenarioPreviewDto;
 }
 
 export class HumanGmMessageDto {

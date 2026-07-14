@@ -177,6 +177,7 @@ model User {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @default(now()) @updatedAt
   profile              UserProfile?
+  productProgress      UserProductProgress?
   hostedSessions       Session[]            @relation("SessionHost")
   gmSessions           Session[]            @relation("SessionGm")
   participants         SessionParticipant[]
@@ -189,6 +190,70 @@ model User {
   uploadedCharacterAvatarAssets CharacterAvatarAsset[] @relation("CharacterAvatarAssetUploader")
   controlledCharacters SessionCharacter[]
   aiTraces             AiTrace[]
+  createdSessionPlays  SessionPlay[]        @relation("SessionPlayCreator")
+  sessionApplications  SessionApplication[] @relation("SessionApplicant")
+  resolvedApplications SessionApplication[] @relation("SessionApplicationResolver")
+  activePlay           UserActivePlay?
+  proximityAcknowledgements SessionScheduleProximityAcknowledgement[]
+  passwordResetTokens  PasswordResetToken[]
+}
+
+enum SessionActivityStatus {
+  DORMANT
+  LOBBY_OPEN
+  PLAYING
+  COMPLETED
+  DISBANDED
+}
+
+enum RecruitmentStatus {
+  OPEN
+  CLOSED
+}
+
+enum SessionJoinPolicy {
+  INVITE_ONLY
+  APPROVAL_REQUIRED
+  OPEN_JOIN
+}
+
+enum SessionPlayStatus {
+  SCHEDULED
+  LOBBY_OPEN
+  PLAYING
+  FINISHED
+  CANCELLED
+}
+
+enum SessionAttendanceStatus {
+  ATTENDING
+  ABSENT
+  TENTATIVE
+}
+
+enum SessionApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum SessionJoinTiming {
+  CURRENT_PLAY
+  NEXT_PLAY
+}
+
+model UserProductProgress {
+  userId               String   @id
+  onboardingVersion    Int      @default(1)
+  tutorialStartedAt    DateTime?
+  firstActionAt        DateTime?
+  completedAt          DateTime?
+  dismissedAt          DateTime?
+  dismissedCoachmarks  String[] @default([])
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserProfile {
@@ -213,12 +278,16 @@ model Session {
   gmUserId          String?
   inviteCode        String               @unique
   status            SessionStatus        @default(RECRUITING)
+  activityStatus    SessionActivityStatus @default(DORMANT)
+  recruitmentStatus RecruitmentStatus     @default(OPEN)
+  joinPolicy        SessionJoinPolicy     @default(OPEN_JOIN)
   visibility        SessionVisibility    @default(PUBLIC)
   maxParticipants   Int                  @default(4)
   ruleSetId         String?
   gmMode            GmMode               @default(AI)
   captainUserId     String?
   nextSessionAt     DateTime?
+  currentPlayId     String?               @unique
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   host              User                 @relation("SessionHost", fields: [hostUserId], references: [id])
@@ -231,8 +300,13 @@ model Session {
   turnLogs          TurnLog[]
   diceRollLogs      DiceRollLog[]
   combats           Combat[]
+  plays             SessionPlay[]         @relation("SessionPlays")
+  currentPlay       SessionPlay?          @relation("CurrentSessionPlay", fields: [currentPlayId], references: [id], onDelete: SetNull)
+  applications      SessionApplication[]
+  activeUsers       UserActivePlay[]
 
   @@index([visibility, status, createdAt])
+  @@index([visibility, recruitmentStatus, activityStatus, nextSessionAt])
   @@index([hostUserId, updatedAt])
 }
 
@@ -272,8 +346,114 @@ model SessionParticipant {
   session          Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessionCharacter SessionCharacter? @relation("ParticipantSessionCharacter")
+  playAttendances   SessionPlayAttendance[]
 
   @@unique([sessionId, userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, usedAt])
+}
+
+model SessionPlay {
+  id                String            @id @default(cuid())
+  sessionId         String
+  sequence          Int
+  status            SessionPlayStatus @default(SCHEDULED)
+  scheduledStartAt  DateTime?
+  lobbyOpensAt      DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  timeZone          String            @default("Asia/Seoul")
+  scheduleVersion   Int               @default(1)
+  stateVersion      Int               @default(1)
+  summary           String?
+  createdByUserId   String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  session           Session           @relation("SessionPlays", fields: [sessionId], references: [id], onDelete: Cascade)
+  currentForSession Session?           @relation("CurrentSessionPlay")
+  createdBy         User              @relation("SessionPlayCreator", fields: [createdByUserId], references: [id])
+  attendances       SessionPlayAttendance[]
+  activeUsers       UserActivePlay[]
+  proximitySourceAcknowledgements SessionScheduleProximityAcknowledgement[] @relation("ProximitySourcePlay")
+  proximityComparedAcknowledgements SessionScheduleProximityAcknowledgement[] @relation("ProximityComparedPlay")
+
+  @@unique([sessionId, sequence])
+  @@index([sessionId, status, scheduledStartAt])
+}
+
+model SessionPlayAttendance {
+  playId         String
+  participantId  String
+  attendance     SessionAttendanceStatus @default(TENTATIVE)
+  isReady        Boolean                 @default(false)
+  readyAt        DateTime?
+  enteredLobbyAt DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  play           SessionPlay             @relation(fields: [playId], references: [id], onDelete: Cascade)
+  participant    SessionParticipant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@id([playId, participantId])
+  @@index([participantId, attendance])
+}
+
+model SessionApplication {
+  id               String                   @id @default(cuid())
+  sessionId        String
+  applicantUserId  String
+  status           SessionApplicationStatus @default(PENDING)
+  note             String?
+  joinTiming       SessionJoinTiming?
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  session          Session                  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  applicant        User                     @relation("SessionApplicant", fields: [applicantUserId], references: [id], onDelete: Cascade)
+  resolvedBy       User?                    @relation("SessionApplicationResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, applicantUserId])
+  @@index([sessionId, status, createdAt])
+  @@index([applicantUserId, status])
+}
+
+model UserActivePlay {
+  userId      String   @id
+  playId      String
+  sessionId   String
+  acquiredAt  DateTime @default(now())
+  heartbeatAt DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  play        SessionPlay @relation(fields: [playId], references: [id], onDelete: Cascade)
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([playId])
+  @@index([sessionId])
+}
+
+model SessionScheduleProximityAcknowledgement {
+  userId                    String
+  playId                    String
+  comparedPlayId            String
+  playScheduleVersion       Int
+  comparedScheduleVersion   Int
+  acknowledgedAt            DateTime @default(now())
+  user                       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  play                       SessionPlay @relation("ProximitySourcePlay", fields: [playId], references: [id], onDelete: Cascade)
+  comparedPlay               SessionPlay @relation("ProximityComparedPlay", fields: [comparedPlayId], references: [id], onDelete: Cascade)
+
+  @@id([userId, playId, comparedPlayId])
 }
 
 model Race {
@@ -487,6 +667,9 @@ model ScenarioPublication {
   appealCount       Int      @default(0)
   gmMode             String?
   tags               String[] @default([])
+  estimatedMinutes   Int?
+  recommendedPlayersMin Int?
+  recommendedPlayersMax Int?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   scenario           Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)

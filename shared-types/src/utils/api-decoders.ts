@@ -20,6 +20,9 @@ import {
   SessionParticipantStatus,
   SessionCharacterStatus,
   SessionStatus,
+  SessionActivityStatus,
+  RecruitmentStatus,
+  SessionJoinPolicy,
   SessionVisibility,
   UserRole,
   CharacterAvatarType,
@@ -76,6 +79,7 @@ import type {
 import type {
   HumanGmAiAssistSuggestionDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmRevealOptionDto,
   HumanGmPrivateNoteDto,
   CampaignArchivePublicRevisionLineageDto,
   CampaignArchiveResponseDto,
@@ -547,6 +551,9 @@ export function decodeRuleCatalogReferenceArray(value: unknown): RuleCatalogRefe
 const authProviderValues: readonly AuthProvider[] = [AuthProvider.LOCAL, AuthProvider.KAKAO, AuthProvider.DISCORD, AuthProvider.GUEST];
 const userRoleValues: readonly UserRole[] = [UserRole.USER, UserRole.MODERATOR, UserRole.ADMIN];
 const sessionStatusValues: readonly SessionStatus[] = [SessionStatus.RECRUITING, SessionStatus.PLAYING, SessionStatus.PAUSED, SessionStatus.COMPLETED, SessionStatus.DISBANDED];
+const sessionActivityStatusValues = Object.values(SessionActivityStatus);
+const recruitmentStatusValues = Object.values(RecruitmentStatus);
+const sessionJoinPolicyValues = Object.values(SessionJoinPolicy);
 const sessionVisibilityValues: readonly SessionVisibility[] = [SessionVisibility.PUBLIC, SessionVisibility.PRIVATE];
 const sessionScenarioStatusValues: readonly SessionScenarioStatus[] = [SessionScenarioStatus.PLANNED, SessionScenarioStatus.ACTIVE, SessionScenarioStatus.COMPLETED, SessionScenarioStatus.ABANDONED];
 const gmModeValues: readonly GmMode[] = [GmMode.AI, GmMode.HUMAN];
@@ -675,7 +682,21 @@ export function decodeScenarioSummary(value: unknown): ScenarioSummaryResponseDt
   const publishedByDisplayName = readNullableString(record, "publishedByDisplayName", "scenario.publishedByDisplayName");
   const publishStatus = readOptionalStringEnum(record, "publishStatus", publishStatusValues, "scenario.publishStatus");
   const tags = readOptionalStringArray(record, "tags", "scenario.tags");
-  const estimatedMinutes = readNullableNonNegativeInteger(record, "estimatedMinutes", "scenario.estimatedMinutes");
+  const estimatedMinutes = readNullablePositiveInteger(record, "estimatedMinutes", "scenario.estimatedMinutes");
+  const recommendedPlayersMin = readNullableIntegerInRange(
+    record,
+    "recommendedPlayersMin",
+    1,
+    8,
+    "scenario.recommendedPlayersMin",
+  );
+  const recommendedPlayersMax = readNullableIntegerInRange(
+    record,
+    "recommendedPlayersMax",
+    1,
+    8,
+    "scenario.recommendedPlayersMax",
+  );
   const gmMode = readNullableStringEnum(record, "gmMode", scenarioGmModeValues, "scenario.gmMode");
   const contentWarnings = readOptionalStringArray(record, "contentWarnings", "scenario.contentWarnings");
   const forkCount = readOptionalNonNegativeInteger(record, "forkCount", "scenario.forkCount");
@@ -712,6 +733,8 @@ export function decodeScenarioSummary(value: unknown): ScenarioSummaryResponseDt
     ...(publishStatus ? { publishStatus } : {}),
     ...(tags ? { tags } : {}),
     estimatedMinutes,
+    recommendedPlayersMin,
+    recommendedPlayersMax,
     gmMode,
     ...(contentWarnings ? { contentWarnings } : {}),
     ...(forkCount !== undefined ? { forkCount } : {}),
@@ -994,11 +1017,14 @@ function decodeJsonCompatibleValue(value: unknown, label: string): JsonValue {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((entry, index) => decodeJsonCompatibleValue(entry, `${label}[${index}]`));
+    return value.map((entry, index) =>
+      entry === undefined ? null : decodeJsonCompatibleValue(entry, `${label}[${index}]`),
+    );
   }
   if (isRecord(value)) {
     const decoded: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(value)) {
+      if (entry === undefined) continue;
       decoded[key] = decodeJsonCompatibleValue(entry, `${label}.${key}`);
     }
     return decoded;
@@ -1010,6 +1036,7 @@ export function decodeJsonObject(value: unknown, label: string): Record<string, 
   const record = readRecord(value, label);
   const decoded: Record<string, JsonValue> = {};
   for (const [key, entry] of Object.entries(record)) {
+    if (entry === undefined) continue;
     decoded[key] = decodeJsonCompatibleValue(entry, `${label}.${key}`);
   }
   return decoded;
@@ -1121,6 +1148,19 @@ export function decodePlayerScenarioView(value: unknown): PlayerScenarioViewDto 
     visitedNodes: readArray(record, "visitedNodes", decodePlayerScenarioNode, "playerScenarioView.visitedNodes"),
     revealedClues: readArray(record, "revealedClues", decodePlayerScenarioClue, "playerScenarioView.revealedClues"),
   };
+}
+
+export function decodeHumanGmRevealOption(value: unknown): HumanGmRevealOptionDto {
+  const record = readRecord(value, "humanGmRevealOption");
+  return {
+    contentId: readString(record, "contentId", "humanGmRevealOption.contentId"),
+    title: readString(record, "title", "humanGmRevealOption.title"),
+    preview: readNullableString(record, "preview", "humanGmRevealOption.preview"),
+  };
+}
+
+export function decodeHumanGmRevealOptionArray(value: unknown): HumanGmRevealOptionDto[] {
+  return decodeArray(value, decodeHumanGmRevealOption, "humanGmRevealOptions");
 }
 
 export function decodeSessionRevealResponse(value: unknown): SessionRevealResponseDto {
@@ -2082,6 +2122,10 @@ export function decodeSessionResponse(value: unknown): SessionSnapshotDto["sessi
     gmUserId: readNullableString(record, "gmUserId", "session.gmUserId"),
     inviteCode: readString(record, "inviteCode", "session.inviteCode"),
     status: readStringEnum(record, "status", sessionStatusValues, "session.status"),
+    activityStatus: readStringEnum(record, "activityStatus", sessionActivityStatusValues, "session.activityStatus"),
+    recruitmentStatus: readStringEnum(record, "recruitmentStatus", recruitmentStatusValues, "session.recruitmentStatus"),
+    joinPolicy: readStringEnum(record, "joinPolicy", sessionJoinPolicyValues, "session.joinPolicy"),
+    currentPlayId: readNullableString(record, "currentPlayId", "session.currentPlayId"),
     visibility: readStringEnum(record, "visibility", sessionVisibilityValues, "session.visibility"),
     maxParticipants: readPositiveInteger(record, "maxParticipants", "session.maxParticipants"),
     maxPlayers: readPositiveInteger(record, "maxPlayers", "session.maxPlayers"),
@@ -2267,6 +2311,8 @@ export function decodeSessionListItem(value: unknown): SessionListItemResponseDt
     owner: decodeUserResponse(record.owner),
     participantCount: readNonNegativeInteger(record, "participantCount", "sessionListItem.participantCount"),
     availableSlots: readNonNegativeInteger(record, "availableSlots", "sessionListItem.availableSlots"),
+    currentSceneTitle: readNullableString(record, "currentSceneTitle", "sessionListItem.currentSceneTitle"),
+    lastActivityAt: readString(record, "lastActivityAt", "sessionListItem.lastActivityAt"),
     ...(decodedRole !== undefined ? { role: decodedRole } : {}),
   };
 }
