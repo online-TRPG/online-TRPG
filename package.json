@@ -28,6 +28,8 @@
     "benchmark:performance:vtt-spatial": "tsx scripts/performance/benchmark-vtt-spatial.ts",
     "verify:rule-data-sync": "node scripts/verify-rule-data-sync.mjs",
     "verify:spell-presentation": "node scripts/verify-spell-presentation.mjs",
+    "verify:user-facing-identifiers": "node scripts/verify-user-facing-identifiers.mjs",
+    "test:ux-e2e": "npm run test:e2e:a11y -w @trpg/fe",
     "test": "npm run --silent test:quiet -w @trpg/be",
     "test:log": "npm run --silent test:log -w @trpg/be",
     "test:e2e": "npm run test:e2e -w @trpg/be",
