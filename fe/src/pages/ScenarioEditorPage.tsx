@@ -13,6 +13,11 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import type { ReactNode } from 'react';
 import { BattleMapEditor } from '../components/battleMap/BattleMapEditor';
 import {
+  ScenarioAssetDeleteDialog,
+  ScenarioPublicationDialog,
+} from '../features/scenarioEditor/components/ScenarioEditorDialogs';
+import { useScenarioPublicationForm } from '../features/scenarioEditor/hooks/useScenarioPublicationForm';
+import {
   createScenario,
   deleteScenarioAsset as deleteScenarioAssetRequest,
   getScenario,
@@ -162,6 +167,11 @@ type ScenarioFormState = {
   difficulty: string;
   startLevel: number | null;
   recommendedEndLevel: number | null;
+  publicationTags: string;
+  estimatedMinutes: number | null;
+  recommendedPlayersMin: number | null;
+  recommendedPlayersMax: number | null;
+  publicGmMode: 'AI' | 'HUMAN' | 'BOTH' | null;
   license: ScenarioLicense;
   attribution: string;
   startNodeId: string;
@@ -195,10 +205,29 @@ const transitionConditionTypeOptions: Array<{ value: TransitionConditionType; la
   { value: 'ALWAYS', label: '항상 가능' },
   { value: 'CLUE_REVEALED', label: '단서 공개됨' },
   { value: 'COMBAT_RESOLVED', label: '전투 종료됨' },
-  { value: 'NODE_VISITED', label: '노드 방문함' },
-  { value: 'FLAG_SET', label: '상태 플래그' },
+  { value: 'NODE_VISITED', label: '장면을 방문함' },
   { value: 'GM_APPROVAL', label: 'GM 승인 필요' },
 ];
+const checkSkillOptions = [
+  { value: 'athletics', label: '운동' },
+  { value: 'acrobatics', label: '곡예' },
+  { value: 'sleight_of_hand', label: '손놀림' },
+  { value: 'stealth', label: '은신' },
+  { value: 'arcana', label: '비전' },
+  { value: 'history', label: '역사' },
+  { value: 'investigation', label: '수사' },
+  { value: 'nature', label: '자연' },
+  { value: 'religion', label: '종교' },
+  { value: 'animal_handling', label: '동물 다루기' },
+  { value: 'insight', label: '통찰' },
+  { value: 'medicine', label: '의학' },
+  { value: 'perception', label: '지각' },
+  { value: 'survival', label: '생존' },
+  { value: 'deception', label: '속임수' },
+  { value: 'intimidation', label: '위협' },
+  { value: 'performance', label: '공연' },
+  { value: 'persuasion', label: '설득' },
+] as const;
 const scenarioGuideNotes: ScenarioGuideNote[] = [
   {
     title: '핵심 흐름부터 고정',
@@ -206,14 +235,14 @@ const scenarioGuideNotes: ScenarioGuideNote[] = [
       '첫 장면, 주요 분기, 결말처럼 플레이어가 반드시 지나갈 큰 흐름을 먼저 만들고 세부 장면은 그 다음에 채우는 편이 안정적입니다.',
   },
   {
-    title: '노드마다 플레이어 행동 여지 명시',
+    title: '장면마다 플레이어 행동 여지 명시',
     body:
       '장면 본문에는 정보 전달만 적지 말고 조사, 대화, 이동, 전투처럼 플레이어가 무엇을 시도할 수 있는지도 함께 적어두면 진행이 매끄럽습니다.',
   },
   {
     title: '단서와 다음 장면 연결 점검',
     body:
-      '중요 단서는 최소 하나 이상의 다음 노드나 선택지로 이어지게 두고, 막히는 분기가 없는지 링크와 단서 목표 노드를 함께 확인하세요.',
+      '중요 단서는 최소 하나 이상의 다음 장면이나 선택지로 이어지게 두고, 막히는 분기가 없는지 장면 연결과 단서의 목적지를 함께 확인하세요.',
   },
 ];
 
@@ -380,6 +409,11 @@ function createEmptyForm(): ScenarioFormState {
     difficulty: 'easy',
     startLevel: 1,
     recommendedEndLevel: null,
+    publicationTags: '',
+    estimatedMinutes: null,
+    recommendedPlayersMin: null,
+    recommendedPlayersMax: null,
+    publicGmMode: 'BOTH',
     license: ScenarioLicense.ORIGINAL,
     attribution: '',
     startNodeId: startNode.id,
@@ -398,6 +432,11 @@ function valueAsScenarioLevel(value: unknown): number | null {
   }
 
   return value >= 1 && value <= 20 ? value : null;
+}
+
+function valueAsIntegerInRange(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null;
+  return value >= min && value <= max ? value : null;
 }
 
 function scenarioLevelFromInput(value: string): number | null {
@@ -465,6 +504,23 @@ function valueAsScenarioNodeType(value: unknown, fallback: ScenarioNodeType = Sc
     return ScenarioNodeType.COMBAT;
   }
   return fallback;
+}
+
+function scenarioNodeTypeLabel(value: ScenarioNodeType): string {
+  switch (value) {
+    case ScenarioNodeType.STORY:
+      return '이야기';
+    case ScenarioNodeType.EXPLORATION:
+      return '탐색';
+    case ScenarioNodeType.COMBAT:
+      return '전투';
+  }
+}
+
+function clueImportanceLabel(value: ClueForm['importance']): string {
+  if (value === 'core') return '핵심';
+  if (value === 'supporting') return '보조';
+  return '선택';
 }
 
 function valueAsRevealModeValue(value: unknown, fallback: RevealMode | null = 'PLAYER_ACTION'): RevealMode | null {
@@ -741,6 +797,14 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
     difficulty: scenario.difficulty ?? '',
     startLevel: valueAsScenarioLevel(scenario.startLevel),
     recommendedEndLevel: valueAsScenarioLevel(scenario.recommendedEndLevel),
+    publicationTags: scenario.tags?.join(', ') ?? '',
+    estimatedMinutes: valueAsIntegerInRange(scenario.estimatedMinutes, 1, 1440),
+    recommendedPlayersMin: valueAsIntegerInRange(scenario.recommendedPlayersMin, 1, 8),
+    recommendedPlayersMax: valueAsIntegerInRange(scenario.recommendedPlayersMax, 1, 8),
+    publicGmMode:
+      scenario.gmMode === 'AI' || scenario.gmMode === 'HUMAN' || scenario.gmMode === 'BOTH'
+        ? scenario.gmMode
+        : null,
     license: scenario.license,
     attribution: scenario.attribution ?? '',
     startNodeId,
@@ -801,7 +865,6 @@ function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
 }
 
 const dirtyScenarioNodeKeys = [
-  "id",
   "nodeType",
   "title",
   "sceneText",
@@ -812,6 +875,17 @@ const dirtyScenarioNodeKeys = [
   "transitions",
   "clues",
 ] as const satisfies ReadonlyArray<keyof ReturnType<typeof serializeNodes>[number]>;
+const dirtyScenarioNodeLabels: Record<(typeof dirtyScenarioNodeKeys)[number], string> = {
+  nodeType: '장면 유형',
+  title: '제목',
+  sceneText: '장면 내용',
+  imageUrl: '장면 이미지',
+  vttMap: '테이블톱 맵',
+  checkOptions: '판정 가이드',
+  nodeMeta: 'GM 정보',
+  transitions: '다음 장면 연결',
+  clues: '단서',
+};
 
 function serializeTransitionConditionRule(rule: TransitionConditionRuleForm) {
   const requirements = rule.requirements.map((requirement) => ({
@@ -895,6 +969,15 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
     difficulty: form.difficulty || null,
     startLevel: valueAsScenarioLevel(form.startLevel) ?? 1,
     recommendedEndLevel: valueAsScenarioLevel(form.recommendedEndLevel),
+    tags: form.publicationTags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 10),
+    estimatedMinutes: form.estimatedMinutes,
+    recommendedPlayersMin: form.recommendedPlayersMin,
+    recommendedPlayersMax: form.recommendedPlayersMax,
+    gmMode: form.publicGmMode,
     license: form.license,
     attribution: form.attribution || null,
     startNodeId: startNode?.id ?? null,
@@ -919,7 +1002,7 @@ function getDirtyScenarioSections(
   current: CreateScenarioDto & UpdateScenarioDto,
   savedSnapshot: string | null,
 ): string[] {
-  if (!savedSnapshot) return ["새 draft"];
+  if (!savedSnapshot) return ["새 시나리오"];
   let saved: DirtyScenarioSnapshot;
   try {
     saved = parseJsonWithDecoder(savedSnapshot, decodeDirtyScenarioSnapshot, "scenario draft snapshot");
@@ -935,6 +1018,11 @@ function getDirtyScenarioSections(
     "difficulty",
     "startLevel",
     "recommendedEndLevel",
+    "tags",
+    "estimatedMinutes",
+    "recommendedPlayersMin",
+    "recommendedPlayersMax",
+    "gmMode",
     "license",
     "attribution",
     "startNodeId",
@@ -948,10 +1036,11 @@ function getDirtyScenarioSections(
 
   const savedNodes = new Map((saved.nodes ?? []).map((node) => [node.id ?? "", node]));
   for (const node of current.nodes ?? []) {
-    const nodeId = node.id ?? "새 노드";
+    const nodeId = node.id ?? "";
+    const sceneTitle = typeof node.title === 'string' && node.title.trim() ? node.title : '제목 없는 장면';
     const previous = savedNodes.get(nodeId);
     if (!previous) {
-      sections.push(`${nodeId}: 추가`);
+      sections.push(`${sceneTitle}: 추가`);
       continue;
     }
     const changed = dirtyScenarioNodeKeys.filter(
@@ -959,11 +1048,14 @@ function getDirtyScenarioSections(
         JSON.stringify(node[key]) !==
         JSON.stringify(previous[key]),
     );
-    if (changed.length) sections.push(`${nodeId}: ${changed.join(", ")}`);
+    if (changed.length) sections.push(`${sceneTitle}: ${changed.map((key) => dirtyScenarioNodeLabels[key]).join(", ")}`);
     savedNodes.delete(nodeId);
   }
-  for (const removedNodeId of savedNodes.keys()) {
-    sections.push(`${removedNodeId}: 삭제`);
+  for (const removedNode of savedNodes.values()) {
+    const sceneTitle = typeof removedNode.title === 'string' && removedNode.title.trim()
+      ? removedNode.title
+      : '제목 없는 장면';
+    sections.push(`${sceneTitle}: 삭제`);
   }
   return sections;
 }
@@ -979,6 +1071,11 @@ function decodeDirtyScenarioSnapshot(value: unknown): DirtyScenarioSnapshot {
     difficulty: readOptionalDirtyValue(value, "difficulty"),
     startLevel: readOptionalDirtyValue(value, "startLevel"),
     recommendedEndLevel: readOptionalDirtyValue(value, "recommendedEndLevel"),
+    tags: readOptionalDirtyValue(value, "tags"),
+    estimatedMinutes: readOptionalDirtyValue(value, "estimatedMinutes"),
+    recommendedPlayersMin: readOptionalDirtyValue(value, "recommendedPlayersMin"),
+    recommendedPlayersMax: readOptionalDirtyValue(value, "recommendedPlayersMax"),
+    gmMode: readOptionalDirtyValue(value, "gmMode"),
     license: readOptionalDirtyValue(value, "license"),
     attribution: readOptionalDirtyValue(value, "attribution"),
     startNodeId: readOptionalDirtyValue(value, "startNodeId"),
@@ -1078,23 +1175,25 @@ function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioD
     payload.recommendedEndLevel &&
     payload.recommendedEndLevel < payload.startLevel
   ) {
-    return 'Recommended end level must be greater than or equal to start level.';
+    return '권장 종료 레벨은 시작 레벨보다 낮을 수 없습니다.';
   }
 
   const invalidNode = payload.nodes?.find((node) => !node.title || !node.sceneText);
   if (invalidNode) {
-    return '자동 저장 대기: 모든 노드의 제목과 장면 내용을 입력해 주세요.';
+    return '자동 저장 대기: 모든 장면의 제목과 내용을 입력해주세요.';
   }
 
   return null;
 }
 
-function validateScenarioForm(form: ScenarioFormState): string[] {
-  const issues: string[] = [];
+type ScenarioValidationIssue = { message: string; nodeId?: string };
+
+function validateScenarioForm(form: ScenarioFormState): ScenarioValidationIssue[] {
+  const issues: ScenarioValidationIssue[] = [];
   const nodeIds = new Set(form.nodes.map((node) => node.id));
   const startNodeId = resolveScenarioStartNodeId(form.nodes, form.startNodeId);
   if (!startNodeId || !nodeIds.has(startNodeId)) {
-    issues.push('시작 노드가 올바르게 지정되지 않았습니다.');
+    issues.push({ message: '시작 장면을 지정해주세요.' });
   }
 
   const reachable = new Set<string>();
@@ -1111,24 +1210,24 @@ function validateScenarioForm(form: ScenarioFormState): string[] {
   }
 
   form.nodes.forEach((node) => {
-    if (!reachable.has(node.id)) issues.push(`도달할 수 없는 노드: ${node.title || node.id}`);
+    if (!reachable.has(node.id)) issues.push({ message: `도달할 수 없는 장면: ${node.title || '제목 없는 장면'}`, nodeId: node.id });
     if (!node.isEndingNode && node.links.every((link) => !link.nextNodeId)) {
-      issues.push(`종료 표시나 다음 연결이 없는 노드: ${node.title || node.id}`);
+      issues.push({ message: `종료 표시나 다음 연결이 없는 장면: ${node.title || '제목 없는 장면'}`, nodeId: node.id });
     }
     node.links.forEach((link) => {
       if (link.nextNodeId && !nodeIds.has(link.nextNodeId)) {
-        issues.push(`${node.title || node.id}의 연결 대상이 존재하지 않습니다: ${link.nextNodeId}`);
+        issues.push({ message: `${node.title || '제목 없는 장면'}의 연결 대상이 존재하지 않습니다.`, nodeId: node.id });
       }
     });
     if (
       node.nodeType === ScenarioNodeType.COMBAT &&
       !(node.vttMap?.tokens ?? []).some((token) => token.monster || token.isHostile)
     ) {
-      issues.push(`전투 노드에 적 몬스터가 없습니다: ${node.title || node.id}`);
+      issues.push({ message: `전투 장면에 적 몬스터가 없습니다: ${node.title || '제목 없는 장면'}`, nodeId: node.id });
     }
   });
 
-  return Array.from(new Set(issues));
+  return [...new Map(issues.map((issue) => [`${issue.nodeId ?? ''}:${issue.message}`, issue])).values()];
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -1373,6 +1472,7 @@ export function ScenarioEditorPage({
   const [tokenAssetsError, setTokenAssetsError] = useState<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState('자동 저장 준비 중');
   const [publishStatus, setPublishStatus] = useState<string | null>(null);
+  const publicationForm = useScenarioPublicationForm();
   const autoSaveBusyRef = useRef(false);
   const autoStartPublishRef = useRef(false);
   const lastSavedSnapshotRef = useRef<string | null>(null);
@@ -2020,7 +2120,7 @@ export function ScenarioEditorPage({
         payload.recommendedEndLevel < payload.startLevel
       ) {
         setScenarioInfoOpen(true);
-        setError('Recommended end level must be greater than or equal to start level.');
+        setError('권장 종료 레벨은 시작 레벨보다 낮을 수 없습니다.');
         return;
       }
 
@@ -2029,7 +2129,7 @@ export function ScenarioEditorPage({
       if (invalidNode) {
         setSelectedNodeId(invalidNode.id);
         setEditorMode('detail');
-        setError('모든 노드의 제목과 장면 내용을 입력해주세요.');
+        setError('모든 장면의 제목과 내용을 입력해주세요.');
         return;
       }
 
@@ -2057,7 +2157,7 @@ export function ScenarioEditorPage({
     }
   }
 
-  async function handlePublishScenario() {
+  function handlePublishScenario() {
     setError(null);
     setPublishStatus(null);
 
@@ -2065,7 +2165,29 @@ export function ScenarioEditorPage({
       setPublishStatus('검증 오류를 먼저 해결해야 발행할 수 있습니다.');
       return;
     }
+    if (
+      form.recommendedPlayersMin !== null &&
+      form.recommendedPlayersMax !== null &&
+      form.recommendedPlayersMin > form.recommendedPlayersMax
+    ) {
+      setPublishStatus('권장 최소 인원은 권장 최대 인원보다 클 수 없습니다.');
+      return;
+    }
 
+    publicationForm.open(form.license === 'original' ? '직접 창작' : form.attribution);
+  }
+
+  async function submitPublishScenario(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const isSharedPublication = publicationForm.visibility === 'public' || publicationForm.visibility === 'link';
+    if (isSharedPublication && !publicationForm.rightsConfirmed) {
+      setPublishStatus('권리 확인을 완료해야 공개/링크 발행할 수 있습니다.');
+      return;
+    }
+    if (isSharedPublication && form.license !== 'original' && !publicationForm.rightsBasis.trim()) {
+      setPublishStatus('외부 라이선스 또는 허가 기반 공개 시나리오는 출처/권리 근거가 필요합니다.');
+      return;
+    }
     try {
       setBusy(true);
       const payload = buildScenarioPayload(form);
@@ -2082,62 +2204,30 @@ export function ScenarioEditorPage({
       setDraftScenarioId(savedScenario.id);
       lastSavedSnapshotRef.current = JSON.stringify(payload);
       onUnsavedChangesChange?.(false);
-      const changelog =
-        window.prompt('이번 revision의 변경 내역을 입력하세요. 비워도 발행할 수 있습니다.') ??
-        '';
-      const visibilityInput =
-        window.prompt('발행 범위를 입력하세요: public, link, private', 'public') ?? 'public';
-      const visibility =
-        visibilityInput === 'link' || visibilityInput === 'private'
-          ? visibilityInput
-          : 'public';
-      const isSharedPublication = visibility === 'public' || visibility === 'link';
-      let rightsConfirmed = false;
-      let rightsBasis: string | null = null;
-      let forkAllowed = false;
-      if (isSharedPublication) {
-        rightsConfirmed = window.confirm(
-          [
-            '이 시나리오를 공개/링크 발행하려면 아래 내용을 확인해야 합니다.',
-            '',
-            '1. 직접 창작했거나 공개·재배포 권한이 있습니다.',
-            '2. 공식/유료 시나리오, 타인의 이미지·지도·텍스트를 무단 포함하지 않았습니다.',
-            '3. 저작권 신고가 접수되면 비공개 처리되거나 삭제될 수 있습니다.',
-            '',
-            '위 내용을 확인하고 발행할까요?',
-          ].join('\n'),
-        );
-        if (!rightsConfirmed) {
-          setPublishStatus('권리 확인을 완료해야 공개/링크 발행할 수 있습니다.');
-          return;
-        }
-        rightsBasis =
-          window.prompt(
-            '공개 가능 근거/출처를 입력하세요. 예: 직접 창작, CC BY 4.0 출처 URL, 사용 허가 내역',
-            form.license === 'original' ? '직접 창작' : form.attribution,
-          ) ?? '';
-        if (form.license !== 'original' && !rightsBasis.trim()) {
-          setPublishStatus('외부 라이선스 또는 허가 기반 공개 시나리오는 출처/권리 근거가 필요합니다.');
-          return;
-        }
-        forkAllowed = window.confirm(
-          '다른 사용자가 이 공개 revision을 fork해서 독립 draft로 복제하는 것을 허용할까요?\n\n저작권/라이선스상 2차 복제 권한이 확실할 때만 허용하세요.',
-        );
-      }
       const published = await publishScenario(
         user,
         savedScenario.id,
         {
-          changelog: changelog.trim() || null,
-          visibility,
-          rightsConfirmed,
-          rightsBasis: rightsBasis?.trim() || null,
-          forkAllowed,
+          changelog: publicationForm.changelog.trim() || null,
+          visibility: publicationForm.visibility,
+          rightsConfirmed: isSharedPublication ? publicationForm.rightsConfirmed : false,
+          rightsBasis: isSharedPublication ? publicationForm.rightsBasis.trim() || null : null,
+          forkAllowed: isSharedPublication ? publicationForm.forkAllowed : false,
+          tags: form.publicationTags
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+            .slice(0, 10),
+          estimatedMinutes: form.estimatedMinutes,
+          recommendedPlayersMin: form.recommendedPlayersMin,
+          recommendedPlayersMax: form.recommendedPlayersMax,
+          gmMode: form.publicGmMode,
         },
         accessToken,
       );
-      setPublishStatus(`발행 완료: ${published.title} (${published.publishStatus ?? visibility})`);
+      setPublishStatus(`발행 완료: ${published.title}`);
       setAutoSaveStatus('저장 및 발행됨');
+      publicationForm.close();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '시나리오 발행에 실패했습니다.');
     } finally {
@@ -2169,7 +2259,7 @@ export function ScenarioEditorPage({
     <main className="session-page">
       <section className="session-page-header">
         <div>
-          <span className="eyebrow">{isEditMode ? 'Edit scenario' : 'Create scenario'}</span>
+          <span className="eyebrow">시나리오 편집기</span>
           <h1>{isEditMode ? '시나리오 수정' : '새 커스텀 시나리오'}</h1>
           <p>각 장면에서 이어질 장면을 연결하고, 마스터가 사용할 단서와 공개 자료를 계획합니다.</p>
         </div>
@@ -2194,7 +2284,7 @@ export function ScenarioEditorPage({
             title={
               validationIssues.length
                 ? '검증 오류를 해결한 뒤 발행할 수 있습니다.'
-                : '현재 draft를 공개 revision으로 발행합니다.'
+                : '현재 편집본을 새 공개 버전으로 발행합니다.'
             }
             onClick={() => void handlePublishScenario()}
           >
@@ -2211,7 +2301,7 @@ export function ScenarioEditorPage({
               className="scenario-autosave-status"
               title={dirtySections.join("\n")}
             >
-              변경 section {dirtySections.length}개
+              변경된 항목 {dirtySections.length}개
             </span>
           ) : null}
         </div>
@@ -2222,14 +2312,14 @@ export function ScenarioEditorPage({
           {/* 시나리오 기본 정보 입력 패널입니다. 제목, 설명, 룰셋, 난이도, 라이선스를 관리합니다. */}
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Scenario</span>
+              <span className="eyebrow">시나리오 정보</span>
               <h2>기본 정보</h2>
             </div>
           </div>
 
           <div className="scenario-info-grid">
             <div>
-              <label htmlFor="scenario-title">Title</label>
+              <label htmlFor="scenario-title">시나리오 제목</label>
               <input
                 id="scenario-title"
                 value={form.title}
@@ -2239,15 +2329,17 @@ export function ScenarioEditorPage({
               />
             </div>
             <div>
-              <label htmlFor="scenario-ruleset">Rule set</label>
-              <input
+              <label htmlFor="scenario-ruleset">사용 규칙</label>
+              <select
                 id="scenario-ruleset"
                 value={form.ruleSetId}
                 onChange={(event) => updateField('ruleSetId', event.target.value)}
-              />
+              >
+                <option value="dnd5e">D&amp;D 5e</option>
+              </select>
             </div>
             <div>
-              <label htmlFor="scenario-difficulty">Difficulty</label>
+              <label htmlFor="scenario-difficulty">난이도 설명</label>
               <input
                 id="scenario-difficulty"
                 value={form.difficulty}
@@ -2255,7 +2347,7 @@ export function ScenarioEditorPage({
               />
             </div>
             <div>
-              <label htmlFor="scenario-start-level">Start level</label>
+              <label htmlFor="scenario-start-level">시작 레벨</label>
               <input
                 id="scenario-start-level"
                 type="number"
@@ -2270,7 +2362,7 @@ export function ScenarioEditorPage({
               />
             </div>
             <div>
-              <label htmlFor="scenario-recommended-end-level">Recommended end level</label>
+              <label htmlFor="scenario-recommended-end-level">권장 종료 레벨</label>
               <input
                 id="scenario-recommended-end-level"
                 type="number"
@@ -2284,7 +2376,7 @@ export function ScenarioEditorPage({
               />
             </div>
             <div>
-              <label htmlFor="scenario-license">License</label>
+              <label htmlFor="scenario-license">저작물 사용 조건</label>
               <select
                 id="scenario-license"
                 value={form.license}
@@ -2292,13 +2384,89 @@ export function ScenarioEditorPage({
                   updateField('license', valueAsScenarioLicense(event.target.value, form.license))
                 }
               >
-                <option value="original">Original</option>
+                <option value="original">직접 창작</option>
                 <option value="cc-by-4.0">CC BY 4.0</option>
-                <option value="other-free">Other free</option>
+                <option value="other-free">기타 자유 라이선스</option>
               </select>
             </div>
             <div>
-              <label htmlFor="scenario-start-node">Entry node</label>
+              <label htmlFor="scenario-estimated-minutes">예상 플레이 시간 (분)</label>
+              <input
+                id="scenario-estimated-minutes"
+                type="number"
+                min={1}
+                max={1440}
+                value={form.estimatedMinutes ?? ''}
+                onChange={(event) =>
+                  updateField(
+                    'estimatedMinutes',
+                    valueAsIntegerInRange(Number(event.target.value), 1, 1440),
+                  )
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="scenario-public-gm-mode">지원 GM</label>
+              <select
+                id="scenario-public-gm-mode"
+                value={form.publicGmMode ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  updateField(
+                    'publicGmMode',
+                    value === 'AI' || value === 'HUMAN' || value === 'BOTH' ? value : null,
+                  );
+                }}
+              >
+                <option value="">미정</option>
+                <option value="AI">AI GM</option>
+                <option value="HUMAN">사람 GM</option>
+                <option value="BOTH">AI GM·사람 GM 모두</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="scenario-recommended-players-min">권장 최소 인원</label>
+              <input
+                id="scenario-recommended-players-min"
+                type="number"
+                min={1}
+                max={8}
+                value={form.recommendedPlayersMin ?? ''}
+                onChange={(event) =>
+                  updateField(
+                    'recommendedPlayersMin',
+                    valueAsIntegerInRange(Number(event.target.value), 1, 8),
+                  )
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="scenario-recommended-players-max">권장 최대 인원</label>
+              <input
+                id="scenario-recommended-players-max"
+                type="number"
+                min={1}
+                max={8}
+                value={form.recommendedPlayersMax ?? ''}
+                onChange={(event) =>
+                  updateField(
+                    'recommendedPlayersMax',
+                    valueAsIntegerInRange(Number(event.target.value), 1, 8),
+                  )
+                }
+              />
+            </div>
+            <div className="scenario-info-wide">
+              <label htmlFor="scenario-publication-tags">테마 태그 (쉼표로 구분, 최대 10개)</label>
+              <input
+                id="scenario-publication-tags"
+                value={form.publicationTags}
+                onChange={(event) => updateField('publicationTags', event.target.value)}
+                maxLength={309}
+              />
+            </div>
+            <div>
+              <label htmlFor="scenario-start-node">시작 장면</label>
               <select
                 id="scenario-start-node"
                 value={effectiveStartNodeId}
@@ -2306,13 +2474,13 @@ export function ScenarioEditorPage({
               >
                 {orderedNodes.map((node) => (
                   <option key={node.id} value={node.id}>
-                    {node.title || node.id}
+                    {node.title || '제목 없는 장면'}
                   </option>
                 ))}
               </select>
             </div>
             <div className="scenario-info-wide">
-              <label htmlFor="scenario-description">Description</label>
+              <label htmlFor="scenario-description">시나리오 설명</label>
               <textarea
                 id="scenario-description"
                 value={form.description}
@@ -2321,7 +2489,7 @@ export function ScenarioEditorPage({
               />
             </div>
             <div className="scenario-info-wide">
-              <label htmlFor="scenario-attribution">Attribution</label>
+              <label htmlFor="scenario-attribution">출처·저작자 표시</label>
               <input
                 id="scenario-attribution"
                 value={form.attribution}
@@ -2335,7 +2503,7 @@ export function ScenarioEditorPage({
       <section className="session-form-card">
         <div className="section-heading">
           <div>
-            <span className="eyebrow">Validation</span>
+            <span className="eyebrow">공개 전 확인</span>
             <h2>시나리오 검증</h2>
           </div>
           <strong>{validationIssues.length ? `${validationIssues.length}개 확인 필요` : '통과'}</strong>
@@ -2344,11 +2512,25 @@ export function ScenarioEditorPage({
         {validationIssues.length ? (
           <ul>
             {validationIssues.map((issue) => (
-              <li key={issue}>{issue}</li>
+              <li key={`${issue.nodeId ?? 'scenario'}:${issue.message}`}>
+                {issue.nodeId ? (
+                  <button
+                    type="button"
+                    className="scenario-validation-link"
+                    onClick={() => {
+                      setSelectedNodeId(issue.nodeId!);
+                      setEditorMode('detail');
+                      window.requestAnimationFrame(() => document.getElementById('scenario-node-editor')?.scrollIntoView({ block: 'start' }));
+                    }}
+                  >
+                    {issue.message} · 수정하기
+                  </button>
+                ) : issue.message}
+              </li>
             ))}
           </ul>
         ) : (
-          <p className="helper-copy">시작 노드, 연결, 전투 배치를 확인했습니다.</p>
+          <p className="helper-copy">시작 장면, 장면 연결, 전투 배치를 확인했습니다.</p>
         )}
       </section>
 
@@ -2358,7 +2540,7 @@ export function ScenarioEditorPage({
           <aside className="session-form-card scenario-editor-sidebar">
             <div className="scenario-editor-sidebar-header">
               <button type="button" className="primary small" onClick={addNode}>
-                노드 추가
+                장면 추가
               </button>
               <button
                 type="button"
@@ -2381,7 +2563,7 @@ export function ScenarioEditorPage({
                   <strong>{node.title || '제목 없음'}</strong>
                   <span>
                     {node.id === effectiveStartNodeId ? '진입 · ' : ''}
-                    {node.nodeType} · {node.links.length}개 연결
+                    {scenarioNodeTypeLabel(node.nodeType)} · {node.links.length}개 연결
                   </span>
                 </button>
               ))}
@@ -2394,7 +2576,7 @@ export function ScenarioEditorPage({
               <>
                 <div className="scenario-graph-toolbar">
                   <div>
-                    <span className="eyebrow">Node graph</span>
+                    <span className="eyebrow">장면 흐름</span>
                     <h2>시나리오 흐름</h2>
                   </div>
                 </div>
@@ -2442,6 +2624,23 @@ export function ScenarioEditorPage({
       </form>
 
       {error ? <p className="panel-error">{error}</p> : null}
+      <ScenarioPublicationDialog
+        open={publicationForm.isOpen}
+        busy={busy}
+        status={publishStatus}
+        visibility={publicationForm.visibility}
+        changelog={publicationForm.changelog}
+        rightsBasis={publicationForm.rightsBasis}
+        rightsConfirmed={publicationForm.rightsConfirmed}
+        forkAllowed={publicationForm.forkAllowed}
+        onVisibilityChange={publicationForm.setVisibility}
+        onChangelogChange={publicationForm.setChangelog}
+        onRightsBasisChange={publicationForm.setRightsBasis}
+        onRightsConfirmedChange={publicationForm.setRightsConfirmed}
+        onForkAllowedChange={publicationForm.setForkAllowed}
+        onClose={publicationForm.close}
+        onSubmit={submitPublishScenario}
+      />
       {isGuideOpen ? (
         <div className="modal-backdrop" onClick={() => setGuideOpen(false)}>
           <section
@@ -2461,7 +2660,7 @@ export function ScenarioEditorPage({
               </button>
             </div>
             <p className="scenario-guide-summary">
-              작성 가이드는 필요할 때만 열어서 확인하고, 편집 화면은 노드 작성과 저장에 집중할 수
+              작성 가이드는 필요할 때만 열어서 확인하고, 편집 화면은 장면 작성과 저장에 집중할 수
               있게 유지합니다.
             </p>
             <div className="profile-notes">
@@ -2546,6 +2745,7 @@ function NodeDetailEditor({
   const [mapUploadBusy, setMapUploadBusy] = useState(false);
   const [deletingSceneAssetId, setDeletingSceneAssetId] = useState<string | null>(null);
   const [deletingMapAssetId, setDeletingMapAssetId] = useState<string | null>(null);
+  const [pendingAssetDelete, setPendingAssetDelete] = useState<{ kind: 'scene' | 'map'; asset: ScenarioAsset } | null>(null);
   const sceneImageInputRef = useRef<HTMLInputElement | null>(null);
   const sceneAssetInputRef = useRef<HTMLInputElement | null>(null);
   const mapAssetInputRef = useRef<HTMLInputElement | null>(null);
@@ -2630,7 +2830,7 @@ function NodeDetailEditor({
 
   function placeNpcOnMap(npcId: string) {
     if (!node.vttMap) {
-      setError('토큰은 이 노드에 기본 맵을 만든 뒤 배치할 수 있습니다.');
+      setError('토큰은 이 장면에 기본 맵을 만든 뒤 배치할 수 있습니다.');
       return;
     }
 
@@ -2715,48 +2915,45 @@ function NodeDetailEditor({
     }
   }
 
-  async function handleDeleteSceneAsset(asset: ScenarioAsset) {
-    const confirmed = window.confirm(
-      `라이브러리에서 "${asset.fileName}" 장면 이미지를 삭제할까요?\n현재 시나리오에서 이 이미지를 사용 중인 장면 연결도 함께 제거됩니다.`,
-    );
-    if (!confirmed) return;
-
-    setDeletingSceneAssetId(asset.id);
-    setError(null);
-
-    try {
-      await deleteSceneAsset(asset);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '장면 이미지를 삭제하지 못했습니다.');
-    } finally {
-      setDeletingSceneAssetId(null);
-    }
+  function handleDeleteSceneAsset(asset: ScenarioAsset) {
+    setPendingAssetDelete({ kind: 'scene', asset });
   }
 
-  async function handleDeleteMapAsset(asset: ScenarioAsset) {
-    const confirmed = window.confirm(
-      `라이브러리에서 "${asset.fileName}" 맵 이미지를 삭제할까요?\n현재 시나리오에서 이 이미지를 사용 중인 맵 연결도 함께 제거됩니다.`,
-    );
-    if (!confirmed) return;
+  function handleDeleteMapAsset(asset: ScenarioAsset) {
+    setPendingAssetDelete({ kind: 'map', asset });
+  }
 
-    setDeletingMapAssetId(asset.id);
+  async function confirmAssetDelete() {
+    if (!pendingAssetDelete) return;
+    const { kind, asset } = pendingAssetDelete;
+    if (kind === 'scene') setDeletingSceneAssetId(asset.id);
+    else setDeletingMapAssetId(asset.id);
     setError(null);
-
     try {
-      await deleteMapAsset(asset);
+      if (kind === 'scene') await deleteSceneAsset(asset);
+      else await deleteMapAsset(asset);
+      setPendingAssetDelete(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '맵 이미지를 삭제하지 못했습니다.');
+      setError(caught instanceof Error ? caught.message : '자산을 삭제하지 못했습니다.');
     } finally {
-      setDeletingMapAssetId(null);
+      if (kind === 'scene') setDeletingSceneAssetId(null);
+      else setDeletingMapAssetId(null);
     }
   }
 
   return (
-    <div className="scenario-play-editor">
+    <div id="scenario-node-editor" className="scenario-play-editor">
+      <ScenarioAssetDeleteDialog
+        open={Boolean(pendingAssetDelete)}
+        fileName={pendingAssetDelete?.asset.fileName ?? ''}
+        busy={Boolean(deletingSceneAssetId || deletingMapAssetId)}
+        onClose={() => setPendingAssetDelete(null)}
+        onConfirm={() => void confirmAssetDelete()}
+      />
       <section className="scenario-play-stage">
         <div className="scenario-node-header">
           <div>
-            <span className="eyebrow">Current scene preview</span>
+            <span className="eyebrow">현재 장면</span>
             <input
               className="scenario-node-title-input"
               value={node.title}
@@ -2791,7 +2988,7 @@ function NodeDetailEditor({
                   }))
                 }
               />
-              세션 종료 노드
+              이 장면에서 시나리오 종료
             </label>
           </div>
           <div className="scenario-node-edit-actions">
@@ -2808,7 +3005,7 @@ function NodeDetailEditor({
 
         <section className="scenario-node-image-panel">
           <div>
-            <span className="eyebrow">Scene image</span>
+            <span className="eyebrow">장면 이미지</span>
             <input
               ref={sceneImageInputRef}
               type="file"
@@ -2836,15 +3033,15 @@ function NodeDetailEditor({
             </button>
           </div>
           {node.imageUrl ? (
-            <img src={node.imageUrl} alt={`${node.title || '시나리오 노드'} visual`} />
+            <img src={node.imageUrl} alt={`${node.title || '시나리오 장면'} 이미지`} />
           ) : (
             <div className="scenario-node-image-empty">아직 연결된 이미지가 없습니다.</div>
           )}
           <div className="scenario-map-library scenario-node-asset-library">
             <div className="scenario-map-library-header">
               <div>
-                <span className="eyebrow">Scene library</span>
-                <strong>업로드한 장면 이미지를 이 노드와 다른 노드에 다시 적용할 수 있습니다.</strong>
+                <span className="eyebrow">장면 이미지 라이브러리</span>
+                <strong>업로드한 장면 이미지를 이 장면과 다른 장면에 다시 적용할 수 있습니다.</strong>
               </div>
               <div className="scenario-map-library-actions">
                 <input
@@ -2926,7 +3123,7 @@ function NodeDetailEditor({
             ) : (
               <div className="scenario-map-asset-empty">
                 업로드한 장면 이미지가 아직 없습니다. 반복해서 쓰는 배경이나 삽화를 올려두면
-                다른 노드에도 바로 재사용할 수 있습니다.
+                다른 장면에도 바로 재사용할 수 있습니다.
               </div>
             )}
           </div>
@@ -3032,7 +3229,7 @@ function NodeDetailEditor({
                 characters={[]}
                 isHost
                 onChange={updateNodeMap}
-                title="Default map"
+                title="기본 테이블톱 맵"
                 showPartyTools={false}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
@@ -3054,7 +3251,7 @@ function NodeDetailEditor({
             </>
           ) : (
             <div className="scenario-node-map-empty">
-              <span className="eyebrow">Default map</span>
+              <span className="eyebrow">기본 테이블톱 맵</span>
               <strong>이 장면에는 아직 기본 맵이 없습니다.</strong>
               <button type="button" className="ghost small" onClick={enableNodeMap}>
                 기본 맵 만들기
@@ -3064,7 +3261,7 @@ function NodeDetailEditor({
         </section>
 
         <label htmlFor="node-scene-text" className="eyebrow">
-          Scene text
+          장면 설명
         </label>
         <textarea
           id="node-scene-text"
@@ -3078,7 +3275,7 @@ function NodeDetailEditor({
         />
 
         <section className="scenario-node-panel">
-          <span className="eyebrow">GM private notes</span>
+          <span className="eyebrow">GM 전용 메모</span>
           <textarea
             value={node.gmNotes}
             onChange={(event) =>
@@ -3091,11 +3288,11 @@ function NodeDetailEditor({
 
         <div className="scenario-node-grid">
           <article className="scenario-node-panel">
-            <span className="eyebrow">Incoming</span>
+            <span className="eyebrow">이 장면으로 들어오는 연결</span>
             <NodeConnectionSummary incomingLinks={incomingLinks} compact />
           </article>
           <article className="scenario-node-panel">
-            <span className="eyebrow">Auto handouts</span>
+            <span className="eyebrow">장면 진입 시 공개할 단서</span>
             {node.clues.filter((clue) => clue.revealMode === 'AUTO_REVEAL').length ? (
               <ul className="scenario-node-list">
                 {node.clues
@@ -3103,7 +3300,7 @@ function NodeDetailEditor({
                   .map((clue) => (
                     <li key={clue.id}>
                       <strong>{clue.title || clue.text || '단서'}</strong>
-                      <span>{clue.importance}</span>
+                      <span>{clueImportanceLabel(clue.importance)}</span>
                     </li>
                   ))}
               </ul>
@@ -3266,7 +3463,7 @@ function NodeConnectionSummary({
           ))}
         </ul>
       ) : (
-        <p className="helper-copy">아직 이 노드로 들어오는 연결이 없습니다.</p>
+        <p className="helper-copy">아직 이 장면으로 들어오는 연결이 없습니다.</p>
       )}
     </section>
   );
@@ -3299,7 +3496,7 @@ function ScenarioNodeCollections({
   return (
     <div className="scenario-editor-collections">
       <NodeCollection
-        title="다음 노드 연결"
+        title="다음 장면 연결"
         actionLabel="연결 추가"
         onAdd={() =>
           updateNode(node.id, (current) => ({
@@ -3312,7 +3509,7 @@ function ScenarioNodeCollections({
           <article className="scenario-editor-item" key={link.id}>
             <div className="field-row-3">
               <div>
-                <label>Label</label>
+                <label>선택지 이름</label>
                 <input
                   value={link.label}
                   onChange={(event) =>
@@ -3326,7 +3523,7 @@ function ScenarioNodeCollections({
                 />
               </div>
               <div>
-                <label>Condition</label>
+                <label>플레이어에게 보일 조건 설명</label>
                 <input
                   value={link.condition}
                   onChange={(event) =>
@@ -3340,7 +3537,7 @@ function ScenarioNodeCollections({
                 />
               </div>
               <div>
-                <label>Next node</label>
+                <label>다음 장면</label>
                 <select
                   value={link.nextNodeId}
                   onChange={(event) =>
@@ -3357,13 +3554,13 @@ function ScenarioNodeCollections({
                     .filter((candidate) => candidate.id !== node.id)
                     .map((candidate) => (
                       <option key={candidate.id} value={candidate.id}>
-                        {candidate.title || candidate.id}
+                        {candidate.title || '제목 없는 장면'}
                       </option>
                     ))}
                 </select>
               </div>
             </div>
-            <label>GM note</label>
+            <label>GM 전용 연결 메모</label>
             <textarea
               value={link.note}
               onChange={(event) =>
@@ -3399,8 +3596,8 @@ function ScenarioNodeCollections({
                       }))
                     }
                   >
-                    <option value="ALL">AND</option>
-                    <option value="ANY">OR</option>
+                    <option value="ALL">모든 조건을 만족</option>
+                    <option value="ANY">하나 이상의 조건을 만족</option>
                   </select>
                 </div>
                 <div>
@@ -3465,6 +3662,9 @@ function ScenarioNodeCollections({
                         }))
                       }
                     >
+                      {requirement.type === 'FLAG_SET' ? (
+                        <option value="FLAG_SET">이전 버전의 사용자 상태 조건</option>
+                      ) : null}
                       {transitionConditionTypeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
@@ -3502,7 +3702,7 @@ function ScenarioNodeCollections({
                         {nodes.flatMap((candidateNode) =>
                           candidateNode.clues.map((clue) => (
                             <option key={`${candidateNode.id}:${clue.id}`} value={clue.id}>
-                              {candidateNode.title || candidateNode.id} / {clue.title || clue.id}
+                              {candidateNode.title || '제목 없는 장면'} / {clue.title || '제목 없는 단서'}
                             </option>
                           ))
                         )}
@@ -3531,38 +3731,15 @@ function ScenarioNodeCollections({
                           }))
                         }
                       >
-                        <option value="">현재 노드</option>
+                        <option value="">현재 장면</option>
                         {nodes.map((candidateNode) => (
                           <option key={candidateNode.id} value={candidateNode.id}>
-                            {candidateNode.title || candidateNode.id}
+                            {candidateNode.title || '제목 없는 장면'}
                           </option>
                         ))}
                       </select>
                     ) : requirement.type === 'FLAG_SET' ? (
-                      <input
-                        value={requirement.flagKey}
-                        placeholder="flag key"
-                        onChange={(event) =>
-                          updateNode(node.id, (current) => ({
-                            ...current,
-                            links: current.links.map((item, itemIndex) =>
-                              itemIndex === index
-                                ? {
-                                    ...item,
-                                    conditionRule: {
-                                      ...item.conditionRule,
-                                      requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
-                                        entryIndex === requirementIndex
-                                          ? { ...entry, flagKey: event.target.value }
-                                          : entry
-                                      ),
-                                    },
-                                  }
-                                : item
-                            ),
-                          }))
-                        }
-                      />
+                      <p>이전 버전에서 저장된 조건입니다. 새로 만들 수는 없으며, 필요하면 사용자용 조건으로 바꾸어주세요.</p>
                     ) : (
                       <input value="-" disabled />
                     )}
@@ -3571,30 +3748,6 @@ function ScenarioNodeCollections({
                     <label>값 / 삭제</label>
                     {requirement.type === 'FLAG_SET' ? (
                       <>
-                        <input
-                          value={requirement.flagValue}
-                          placeholder="비워두면 존재 여부"
-                          onChange={(event) =>
-                            updateNode(node.id, (current) => ({
-                              ...current,
-                              links: current.links.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? {
-                                      ...item,
-                                      conditionRule: {
-                                        ...item.conditionRule,
-                                        requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
-                                          entryIndex === requirementIndex
-                                            ? { ...entry, flagValue: event.target.value }
-                                            : entry
-                                        ),
-                                      },
-                                    }
-                                  : item
-                              ),
-                            }))
-                          }
-                        />
                         <button
                           type="button"
                           className="ghost small"
@@ -3701,23 +3854,12 @@ function ScenarioNodeCollections({
                 />
               </div>
               <div>
-                <label>판정 유형</label>
-                <input
-                  value={guide.type}
-                  onChange={(event) =>
-                    updateNode(node.id, (current) => ({
-                      ...current,
-                      checkGuides: current.checkGuides.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, type: event.target.value } : item
-                      ),
-                    }))
-                  }
-                  placeholder="check"
-                />
+                <label>판정 방식</label>
+                <input value="기술 판정" disabled />
               </div>
               <div>
                 <label>기술/능력</label>
-                <input
+                <select
                   value={guide.skill}
                   onChange={(event) =>
                     updateNode(node.id, (current) => ({
@@ -3727,8 +3869,13 @@ function ScenarioNodeCollections({
                       ),
                     }))
                   }
-                  placeholder="investigation"
-                />
+                >
+                  <option value="">기술 선택</option>
+                  {guide.skill && !checkSkillOptions.some((option) => option.value === guide.skill) ? (
+                    <option value={guide.skill}>이전 버전의 판정 기술</option>
+                  ) : null}
+                  {checkSkillOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
               </div>
             </div>
             <button
@@ -3761,7 +3908,7 @@ function ScenarioNodeCollections({
           <article className="scenario-editor-item" key={clue.id}>
             <div className="field-row">
               <div>
-                <label>Title</label>
+                <label>단서 제목</label>
                 <input
                   value={clue.title}
                   onChange={(event) =>
@@ -3775,7 +3922,7 @@ function ScenarioNodeCollections({
                 />
               </div>
               <div>
-                <label>Importance</label>
+                <label>중요도</label>
                 <select
                   value={clue.importance}
                   onChange={(event) =>
@@ -3796,7 +3943,7 @@ function ScenarioNodeCollections({
               </div>
             </div>
 
-            <label>Clue text</label>
+            <label>플레이어가 발견하는 내용</label>
             <textarea
               value={clue.text}
               onChange={(event) =>
@@ -3810,7 +3957,7 @@ function ScenarioNodeCollections({
               rows={3}
             />
 
-            <label>Revelation / conclusion</label>
+            <label>단서가 의미하는 결론</label>
             <textarea
               value={clue.revelation}
               onChange={(event) =>
@@ -3824,7 +3971,7 @@ function ScenarioNodeCollections({
               rows={2}
             />
 
-            <label>Reveal policy</label>
+            <label>단서 공개 시점</label>
             <select
               value={clue.revealMode}
               onChange={(event) =>
@@ -3838,15 +3985,15 @@ function ScenarioNodeCollections({
                 }))
               }
             >
-              <option value="AUTO_REVEAL">AUTO_REVEAL - 노드 진입 시 자동 공개</option>
-              <option value="PLAYER_ACTION">PLAYER_ACTION - 발견 행동 요청 시 공개</option>
-              <option value="CHECK_SUCCESS">CHECK_SUCCESS - 판정 성공 시 공개</option>
-              <option value="CHECK_PARTIAL">CHECK_PARTIAL - 실패해도 일부 공개</option>
-              <option value="POST_COMBAT">POST_COMBAT - 전투 종료 후 공개</option>
-              <option value="GM_APPROVAL">GM_APPROVAL - GM/백엔드 조건 승인</option>
+              <option value="AUTO_REVEAL">이 장면에 도착하면 자동으로 공개</option>
+              <option value="PLAYER_ACTION">플레이어가 발견 행동을 하면 공개</option>
+              <option value="CHECK_SUCCESS">판정에 성공하면 공개</option>
+              <option value="CHECK_PARTIAL">판정에 실패해도 일부 공개</option>
+              <option value="POST_COMBAT">전투가 끝나면 공개</option>
+              <option value="GM_APPROVAL">GM이 직접 공개</option>
             </select>
 
-            <label>Reveal source</label>
+            <label>단서를 얻는 곳·대상</label>
             <textarea
               value={clue.source}
               onChange={(event) =>
@@ -3857,13 +4004,13 @@ function ScenarioNodeCollections({
                   ),
                 }))
               }
-              placeholder="NPC, handout, object, rumor, environment"
+              placeholder="예: 여관 주인의 소문, 벽에 남은 흔적, 책상 위의 문서"
               rows={3}
             />
 
             <div className="field-row">
               <div>
-                <label>Points to node</label>
+                <label>이 단서가 안내하는 장면</label>
                 <select
                   value={clue.pointsToNodeId}
                   onChange={(event) =>
@@ -3880,14 +4027,14 @@ function ScenarioNodeCollections({
                     .filter((candidate) => candidate.id !== node.id)
                     .map((candidate) => (
                       <option key={candidate.id} value={candidate.id}>
-                        {candidate.title || candidate.id}
+                        {candidate.title || '제목 없는 장면'}
                       </option>
                     ))}
                 </select>
               </div>
             </div>
 
-            <label>Player handout text</label>
+            <label>플레이어에게 보여줄 자료</label>
             <textarea
               value={clue.handoutText}
               onChange={(event) =>
@@ -3901,7 +4048,7 @@ function ScenarioNodeCollections({
               rows={3}
             />
 
-            <label>GM notes</label>
+            <label>GM 전용 단서 메모</label>
             <textarea
               value={clue.gmNotes}
               onChange={(event) =>
@@ -3944,48 +4091,48 @@ function ScenarioNodeCollections({
             <article className="scenario-editor-item" key={npc.id}>
               <div className="field-row">
                 <div>
-                  <label>Name</label>
+                  <label>이름</label>
                   <input
                     value={npc.name}
                     onChange={(event) => updateNpcAt(index, { name: event.target.value })}
-                    placeholder="Innkeeper, guard captain, merchant"
+                    placeholder="예: 여관 주인, 경비대장, 상인"
                   />
                 </div>
                 <div>
-                  <label>Disposition</label>
+                  <label>태도</label>
                   <select
                     value={npc.disposition}
                     onChange={(event) =>
                       updateNpcAt(index, { disposition: valueAsNpcDisposition(event.target.value) })
                     }
                   >
-                    <option value="friendly">Friendly</option>
-                    <option value="neutral">Neutral</option>
-                    <option value="hostile">Hostile</option>
+                    <option value="friendly">우호적</option>
+                    <option value="neutral">중립적</option>
+                    <option value="hostile">적대적</option>
                   </select>
                 </div>
               </div>
 
-              <label>Short summary</label>
+              <label>짧은 소개</label>
               <input
                 value={npc.shortDescription}
                 onChange={(event) => updateNpcAt(index, { shortDescription: event.target.value })}
-                placeholder="Gruff but helpful stable owner"
+                placeholder="예: 무뚝뚝하지만 도움을 주는 마구간 주인"
               />
 
-              <label>Description</label>
+              <label>상세 설명</label>
               <textarea
                 value={npc.description}
                 onChange={(event) => updateNpcAt(index, { description: event.target.value })}
                 rows={3}
-                placeholder="What players can notice or learn about this NPC"
+                placeholder="플레이어가 이 NPC를 보고 알 수 있는 내용"
               />
 
-              <label>Token image URL</label>
+              <label>토큰 이미지 주소 (선택)</label>
               <input
                 value={npc.imageUrl}
                 onChange={(event) => updateNpcAt(index, { imageUrl: event.target.value })}
-                placeholder="Optional token portrait URL"
+                placeholder="NPC 초상화 이미지 주소"
               />
 
               <div className="vtt-check-row">
@@ -3995,7 +4142,7 @@ function ScenarioNodeCollections({
                     checked={npc.isVisible}
                     onChange={(event) => updateNpcAt(index, { isVisible: event.target.checked })}
                   />
-                  Visible to players
+                  플레이어에게 공개
                 </label>
               </div>
 
@@ -4016,7 +4163,7 @@ function ScenarioNodeCollections({
                       }))
                     }
                   />
-                  이 노드에 등장
+                  이 장면에 등장
                 </label>
               </div>
 
@@ -4084,6 +4231,11 @@ type DirtyScenarioSnapshot = {
   difficulty?: unknown;
   startLevel?: unknown;
   recommendedEndLevel?: unknown;
+  tags?: unknown;
+  estimatedMinutes?: unknown;
+  recommendedPlayersMin?: unknown;
+  recommendedPlayersMax?: unknown;
+  gmMode?: unknown;
   license?: unknown;
   attribution?: unknown;
   startNodeId?: unknown;

@@ -11,6 +11,7 @@ import {
   type CanonicalClassFeatureEntry,
 } from '../../../services/staticSrd';
 import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
+import { getSessionCharacterStatusLabel } from '../../../presentation/sessionLabels';
 import './StoryNodeSurface.css';
 
 interface CharacterDetailModalProps {
@@ -215,7 +216,7 @@ export function CharacterDetailModal({
               </div>
               <div>
                 <dt>세션 상태</dt>
-                <dd>{character.status}</dd>
+                <dd>{getSessionCharacterStatusLabel(character.status)}</dd>
               </div>
               <div>
                 <dt>상태 이상</dt>

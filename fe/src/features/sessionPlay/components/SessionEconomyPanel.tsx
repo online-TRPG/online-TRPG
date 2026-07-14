@@ -65,6 +65,15 @@ const actionLabels: Record<ApplySessionEconomyActionDto["actionType"], string> =
   recover_charges: "충전 회복",
 };
 
+const craftingStatusLabels: Record<string, string> = {
+  in_progress: "진행 중",
+  completed: "완료",
+};
+
+function getCraftingStatusLabel(value: string): string {
+  return craftingStatusLabels[value] ?? "알 수 없음";
+}
+
 function toEconomyActionType(value: string): ApplySessionEconomyActionDto["actionType"] | null {
   switch (value) {
     case "purchase":
@@ -203,7 +212,7 @@ export function SessionEconomyPanel({
         <div className="session-economy-body">
           <header>
             <strong>캠페인 경제</strong>
-            <span>서버 권위 상태 · 모든 변경 감사 로그 기록</span>
+            <span>공동 자금과 아이템, 제작 진행 상황을 관리합니다.</span>
           </header>
 
           <section className="session-economy-summary">
@@ -226,7 +235,7 @@ export function SessionEconomyPanel({
                     {formatInternalIdAsReadableName(item.itemDefinitionId, "아이템")} ×{item.quantity}
                     {item.identified === false ? " · 미감정" : ""}
                     {item.damaged ? " · 손상" : ""}
-                    {item.chargesRemaining != null ? ` · ${item.chargesRemaining} charge` : ""}
+                    {item.chargesRemaining != null ? ` · 충전 ${item.chargesRemaining}회` : ""}
                   </span>
                 ))
               ) : (
@@ -236,9 +245,9 @@ export function SessionEconomyPanel({
             <div>
               <b>상점</b>
               {shops.length
-                ? shops.map((shop) => (
+                ? shops.map((shop, index) => (
                     <span key={shop.shopId}>
-                      {formatInternalIdAsReadableName(shop.shopId, "상점")}: 재고 {shop.inventory.length}종
+                      상점 {index + 1}: 재고 {shop.inventory.length}종
                     </span>
                   ))
                 : <span>등록된 상점 없음</span>}
@@ -246,9 +255,9 @@ export function SessionEconomyPanel({
             <div>
               <b>제작</b>
               {craftingEntries.length
-                ? craftingEntries.map((entry) => (
+                ? craftingEntries.map((entry, index) => (
                     <span key={entry.craftingId}>
-                      {formatInternalIdAsReadableName(entry.craftingId, "제작")}: {entry.completedHours}/{entry.requiredHours}h · {entry.status}
+                      제작 {index + 1}: {entry.completedHours}/{entry.requiredHours}시간 · {getCraftingStatusLabel(entry.status)}
                     </span>
                   ))
                 : <span>진행 중인 제작 없음</span>}
@@ -299,9 +308,9 @@ export function SessionEconomyPanel({
               }}
             >
               <option value="">상점 선택</option>
-              {shops.map((shop) => (
+              {shops.map((shop, index) => (
                 <option value={shop.shopId} key={shop.shopId}>
-                  {formatInternalIdAsReadableName(shop.shopId, "상점")}
+                  상점 {index + 1}
                 </option>
               ))}
             </select>
@@ -380,9 +389,9 @@ export function SessionEconomyPanel({
                 }}
               >
                 <option value="">제작 선택</option>
-                {craftingEntries.map((entry) => (
+                {craftingEntries.map((entry, index) => (
                   <option value={entry.craftingId} key={entry.craftingId}>
-                    {formatInternalIdAsReadableName(entry.craftingId, "제작")}
+                    제작 {index + 1}
                   </option>
                 ))}
               </select>

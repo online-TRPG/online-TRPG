@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { isJoinedParticipantStatus } from '@trpg/shared-types/frontend';
 import type { Character, Participant } from '../../../types/session';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import {
@@ -11,7 +10,6 @@ import { buildProfileColorStyle } from '../utils/playPagePresentation';
 type UseParticipantCardPresentationParams = {
   isHumanGmSession: boolean;
   isRecruiting: boolean;
-  isHost: boolean;
   gmUserId: string | null;
   currentUserId: string;
   getParticipantBadge: (userId: string) => string | null;
@@ -35,7 +33,6 @@ export function getEmptyParticipantSlotPresentation(index: number, isRecruiting:
 export function useParticipantCardPresentation({
   isHumanGmSession,
   isRecruiting,
-  isHost,
   gmUserId,
   currentUserId,
   getParticipantBadge,
@@ -48,12 +45,6 @@ export function useParticipantCardPresentation({
       const badgeLabel = getParticipantBadge(participant.userId);
       const isParticipantGm =
         isHumanGmSession && participant.userId === gmUserId;
-      const canAssignHumanGm =
-        isHumanGmSession &&
-        isRecruiting &&
-        isHost &&
-        !isParticipantGm &&
-        isJoinedParticipantStatus(participant.status);
       const stateLabel = isParticipantGm
         ? 'GM'
         : participant.isReady
@@ -79,8 +70,6 @@ export function useParticipantCardPresentation({
           isRecruiting ? ' recruiting-party-slot occupied' : ''
         }`,
         badgeLabel,
-        canAssignHumanGm,
-        assignHumanGmLabel: 'GM 지정',
         stateLabel,
         participantStateClassName: `participant-state${participant.isReady ? ' ready' : ''}`,
         recruitingStatusLabel,
@@ -100,7 +89,6 @@ export function useParticipantCardPresentation({
       getParticipantLinkedCharacter,
       getParticipantProfileColor,
       gmUserId,
-      isHost,
       isHumanGmSession,
       isRecruiting,
     ],

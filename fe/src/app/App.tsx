@@ -3,24 +3,37 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { NavigateOptions, To } from 'react-router-dom';
 import logoImage from '../assets/images/Logo.webp';
 import { Icon } from '../components/Icon';
+import { ProductTutorialGuide } from '../components/ProductTutorialGuide';
 import { useAuth } from '../hooks/useAuth';
 import { useLogs } from '../hooks/useLogs';
+import { useProductProgress } from '../hooks/useProductProgress';
 import { useSession } from '../hooks/useSession';
 import type { ClassDefinitionResponseDto, RaceResponseDto } from '@trpg/shared-types';
-import { decodeUserResponse, isRecord } from '@trpg/shared-types/frontend';
-import { getOAuthUrl } from '../services/authApi';
+import { decodeUserResponse, isRecord, SessionActivityStatus, SessionJoinPolicy } from '@trpg/shared-types/frontend';
+import { getOAuthUrl, reauthenticateOAuth } from '../services/authApi';
+import type { DeleteAccountCredential } from '../services/authApi';
 import { listClassDefinitions, listRaces } from '../services/catalogApi';
 import { listAvailableScenarios } from '../services/scenarioApi';
 import { getSessionDetail } from '../services/sessionApi';
+import type { CreateSessionInput } from '../services/sessionApi';
 import {
+  clearStoredAuthReturnTo,
   clearStoredOAuthProvider,
+  clearStoredOAuthIntent,
+  loadStoredAuthReturnTo,
   loadStoredOAuthProvider,
+  loadStoredOAuthIntent,
+  saveStoredDeleteReauthTicket,
+  saveStoredAuthReturnTo,
   saveStoredOAuthProvider,
+  saveStoredOAuthIntent,
 } from '../services/storage';
 import { AccountPage } from '../pages/AccountPage';
 import { CharacterPage } from '../pages/CharacterPage';
 import { LobbyPage } from '../pages/LobbyPage';
 import { LoginPage } from '../pages/LoginPage';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { configureProductEventContext } from '../services/productEvents';
 import { PlayPage } from '../pages/PlayPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
@@ -30,14 +43,14 @@ import { ScenarioPage } from '../pages/ScenarioPage';
 import { SessionCreatePage } from '../pages/SessionCreatePage';
 import { SessionDetailPage } from '../pages/SessionDetailPage';
 import { SessionDiscoverPage } from '../pages/SessionDiscoverPage';
+import { SessionInvitePreviewPage } from '../pages/SessionInvitePreviewPage';
 import type { Scenario, User } from '../types/session';
-import { buildGameroomPath, buildPublicProfilePath } from '../utils/routes';
+import { buildGameroomPath, buildPublicProfilePath, buildSessionPath } from '../utils/routes';
 
 type MainView =
   | 'main'
   | 'characters'
   | 'rulebook'
-  | 'settings'
   | 'profile'
   | 'publicProfile'
   | 'account'
@@ -47,6 +60,7 @@ type MainView =
   | 'sessionsDiscover'
   | 'sessionsNew'
   | 'sessionDetail'
+  | 'sessionInvite'
   | 'gameroom';
 
 const topNavItems: Array<{
@@ -55,9 +69,9 @@ const topNavItems: Array<{
     | 'gameroom'
     | 'publicProfile'
     | 'sessionDetail'
+    | 'sessionInvite'
     | 'scenariosNew'
     | 'scenarioEdit'
-    | 'settings'
     | 'profile'
     | 'account'
   >;
@@ -75,7 +89,6 @@ const pathByView: Record<MainView, string> = {
   main: '/',
   characters: '/characters',
   rulebook: '/rulebook',
-  settings: '/settings',
   profile: '/profile',
   publicProfile: '/profile',
   account: '/account',
@@ -85,24 +98,8 @@ const pathByView: Record<MainView, string> = {
   sessionsDiscover: '/sessions/discover',
   sessionsNew: '/sessions/new',
   sessionDetail: '/sessions',
+  sessionInvite: '/join',
   gameroom: '/gameroom',
-};
-
-const viewLabel: Partial<Record<MainView, string>> = {
-  main: '메인',
-  characters: '캐릭터',
-  rulebook: '룰북',
-  settings: '설정',
-  profile: '프로필',
-  publicProfile: '공개 프로필',
-  account: '계정',
-  scenarios: '시나리오',
-  scenariosNew: '시나리오 생성',
-  scenarioEdit: '시나리오 수정',
-  sessionsDiscover: '세션 탐색',
-  sessionsNew: '세션 생성',
-  sessionDetail: '세션 상세',
-  gameroom: '게임룸',
 };
 
 const UNSAVED_SCENARIO_MESSAGE =
@@ -184,6 +181,10 @@ function viewFromPathname(pathname: string): MainView | null {
     return 'sessionDetail';
   }
 
+  if (/^\/join\/[^/]+$/.test(pathname)) {
+    return 'sessionInvite';
+  }
+
   if (/^\/gameroom\/[^/]+\/[^/]+$/.test(pathname)) {
     return 'gameroom';
   }
@@ -199,8 +200,6 @@ function viewFromPathname(pathname: string): MainView | null {
       return 'characters';
     case '/rulebook':
       return 'rulebook';
-    case '/settings':
-      return 'settings';
     case '/profile':
     case '/users/me/profile':
       return 'profile';
@@ -232,12 +231,17 @@ export function App() {
     removeLog,
     clearSessionLogs
   );
+  const productProgress = useProductProgress(auth.user, auth.accessToken);
+  const recordingFirstActionRef = useRef(false);
+  const activePlayEntryAttemptRef = useRef<string | null>(null);
   const publicProfileMatch = /^\/users\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const publicProfileId = publicProfileMatch?.[1] ?? null;
   const sessionDetailMatch = /^\/sessions\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const sessionDetailId = sessionDetailMatch?.[1] ?? null;
   const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const gameroomId = gameroomMatch?.[1] ?? null;
+  const inviteMatch = /^\/join\/([^/]+)$/.exec(location.pathname);
+  const inviteCode = inviteMatch?.[1] ?? null;
   const previousPathnameRef = useRef<string | null>(null);
   const publicProfileState = readPublicProfileState(location.state);
   const sessionDiscoverState = readSessionDiscoverState(location.state);
@@ -247,6 +251,11 @@ export function App() {
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
   const scenarioEditAutoStartPublish = new URLSearchParams(location.search).get('publish') === '1';
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    configureProductEventContext(auth.user ? { user: auth.user, accessToken: auth.accessToken } : null);
+    return () => configureProductEventContext(null);
+  }, [auth.accessToken, auth.user]);
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [races, setRaces] = useState<RaceResponseDto[]>([]);
@@ -329,11 +338,29 @@ export function App() {
 
     const code = url.searchParams.get('code');
     const provider = loadStoredOAuthProvider();
+    const intent = loadStoredOAuthIntent();
 
     if (code && provider) {
       clearStoredOAuthProvider();
-      navigate('/', { replace: true });
-      void auth.handleOAuthCallback(provider, code);
+      clearStoredOAuthIntent();
+      const returnTo = loadStoredAuthReturnTo() ?? '/';
+      clearStoredAuthReturnTo();
+      if (intent === 'delete_reauth' && auth.user) {
+        const redirectUri = `${window.location.origin}/oauth/callback`;
+        void reauthenticateOAuth(auth.user, auth.accessToken, provider, code, redirectUri)
+          .then((result) => {
+            saveStoredDeleteReauthTicket({
+              provider,
+              ticket: result.ticket,
+              expiresAt: Date.now() + result.expiresIn * 1000,
+            });
+          })
+          .catch(() => undefined)
+          .finally(() => navigate('/account', { replace: true }));
+      } else {
+        navigate(returnTo, { replace: true });
+        void auth.handleOAuthCallback(provider, code);
+      }
     }
   }, [auth, navigate]);
 
@@ -363,7 +390,10 @@ export function App() {
   }, [isAccountMenuOpen]);
 
   useEffect(() => {
-    if (activeView !== 'gameroom') return;
+    if (activeView !== 'gameroom') {
+      activePlayEntryAttemptRef.current = null;
+      return;
+    }
     if (!auth.user) return;
     if (!session.snapshot) {
       if (gameroomId && pendingGameroomPublicId === gameroomId) {
@@ -372,6 +402,30 @@ export function App() {
       navigate('/sessions/discover', { replace: true });
       return;
     }
+
+    const snapshotSession = session.snapshot.session;
+    if (
+      !snapshotSession.currentPlayId ||
+      ![SessionActivityStatus.LOBBY_OPEN, SessionActivityStatus.PLAYING].includes(snapshotSession.activityStatus)
+    ) {
+      navigate(buildSessionPath(snapshotSession), { replace: true });
+      return;
+    }
+
+    if (
+      session.activePlay?.sessionId !== snapshotSession.id ||
+      session.activePlay.playId !== snapshotSession.currentPlayId
+    ) {
+      const attemptKey = `${snapshotSession.id}:${snapshotSession.currentPlayId}`;
+      if (activePlayEntryAttemptRef.current !== attemptKey) {
+        activePlayEntryAttemptRef.current = attemptKey;
+        void session.enterPlay(snapshotSession.id, snapshotSession.currentPlayId).then((entered) => {
+          if (!entered) navigate(buildSessionPath(snapshotSession), { replace: true });
+        });
+      }
+      return;
+    }
+    activePlayEntryAttemptRef.current = null;
 
     if (pendingGameroomPublicId && session.snapshot.session.publicId === pendingGameroomPublicId) {
       setPendingGameroomPublicId(null);
@@ -392,6 +446,7 @@ export function App() {
     location.pathname,
     navigate,
     pendingGameroomPublicId,
+    session.activePlay,
     session.snapshot,
   ]);
 
@@ -403,37 +458,115 @@ export function App() {
 
     try {
       saveStoredOAuthProvider(provider);
+      saveStoredOAuthIntent('login');
+      saveStoredAuthReturnTo(location.pathname);
       const { authUrl } = await getOAuthUrl(provider, redirectUri);
       window.location.href = authUrl;
     } catch {
       clearStoredOAuthProvider();
+      clearStoredOAuthIntent();
+      clearStoredAuthReturnTo();
     }
   }
 
-  async function handleCreateSession(
-    title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
-  ) {
-    const nextSnapshot = await session.createSession(title, options);
+  async function handleCreateSession(input: CreateSessionInput) {
+    const nextSnapshot = await session.createSession(input);
     if (nextSnapshot) {
-      setPendingGameroomPublicId(nextSnapshot.session.publicId);
-      navigate(buildGameroomPath(nextSnapshot.session));
+      if (
+        nextSnapshot.session.activityStatus === SessionActivityStatus.LOBBY_OPEN &&
+        nextSnapshot.session.currentPlayId &&
+        await session.enterPlay(nextSnapshot.session.id, nextSnapshot.session.currentPlayId)
+      ) {
+        setPendingGameroomPublicId(nextSnapshot.session.publicId);
+        navigate(buildGameroomPath(nextSnapshot.session));
+      } else {
+        navigate(buildSessionPath(nextSnapshot.session));
+      }
     }
   }
 
   async function handleJoinSession(inviteCode: string) {
     const nextSnapshot = await session.joinSession(inviteCode);
     if (nextSnapshot) {
-      setPendingGameroomPublicId(nextSnapshot.session.publicId);
-      navigate(buildGameroomPath(nextSnapshot.session));
+      if (
+        nextSnapshot.session.currentPlayId &&
+        [SessionActivityStatus.LOBBY_OPEN, SessionActivityStatus.PLAYING].includes(nextSnapshot.session.activityStatus) &&
+        await session.enterPlay(nextSnapshot.session.id, nextSnapshot.session.currentPlayId)
+      ) {
+        setPendingGameroomPublicId(nextSnapshot.session.publicId);
+        navigate(buildGameroomPath(nextSnapshot.session));
+      } else {
+        navigate(buildSessionPath(nextSnapshot.session));
+      }
+    }
+    return nextSnapshot;
+  }
+
+  async function handleOAuthDeleteReauth(provider: 'kakao' | 'discord') {
+    const redirectUri = `${window.location.origin}/oauth/callback`;
+    try {
+      saveStoredOAuthProvider(provider);
+      saveStoredOAuthIntent('delete_reauth');
+      saveStoredAuthReturnTo('/account');
+      const { authUrl } = await getOAuthUrl(provider, redirectUri);
+      window.location.href = authUrl;
+    } catch {
+      clearStoredOAuthProvider();
+      clearStoredOAuthIntent();
+      clearStoredAuthReturnTo();
+    }
+  }
+
+  async function recordTutorialFirstAction() {
+    if (
+      recordingFirstActionRef.current ||
+      !productProgress.progress?.tutorialStartedAt ||
+      productProgress.progress.completedAt ||
+      productProgress.progress.dismissedAt
+    ) {
+      return;
+    }
+    recordingFirstActionRef.current = true;
+    try {
+      if (!productProgress.progress.firstActionAt) {
+        await productProgress.record('record_first_action');
+      }
+      await productProgress.record('complete_tutorial');
+    } finally {
+      recordingFirstActionRef.current = false;
     }
   }
 
   async function handleJoinSessionById(sessionId: string) {
+    const knownMember = session.mySessionList.some((item) =>
+      item.sessionId === sessionId || item.sessionPublicId === sessionId,
+    ) || Boolean(
+      session.snapshot &&
+      (session.snapshot.session.id === sessionId || session.snapshot.session.publicId === sessionId),
+    );
+    if (!knownMember && auth.user) {
+      try {
+        const detail = await getSessionDetail(auth.user, sessionId, auth.accessToken);
+        if (detail.session.joinPolicy === SessionJoinPolicy.APPROVAL_REQUIRED) {
+          navigate(buildSessionPath(detail.session));
+          return null;
+        }
+      } catch {
+        // 상세 조회와 참가 API가 같은 세션 권한 규칙을 적용하므로 참가 요청에서 정확한 오류를 표시합니다.
+      }
+    }
     const nextSnapshot = await session.joinSessionById(sessionId);
     if (nextSnapshot) {
-      setPendingGameroomPublicId(nextSnapshot.session.publicId);
-      navigate(buildGameroomPath(nextSnapshot.session));
+      if (
+        nextSnapshot.session.currentPlayId &&
+        [SessionActivityStatus.LOBBY_OPEN, SessionActivityStatus.PLAYING].includes(nextSnapshot.session.activityStatus) &&
+        await session.enterPlay(nextSnapshot.session.id, nextSnapshot.session.currentPlayId)
+      ) {
+        setPendingGameroomPublicId(nextSnapshot.session.publicId);
+        navigate(buildGameroomPath(nextSnapshot.session));
+      } else {
+        navigate(buildSessionPath(nextSnapshot.session));
+      }
     }
     return nextSnapshot;
   }
@@ -453,14 +586,19 @@ export function App() {
     }
   }
 
-  function handleLogout() {
-    session.clearSnapshot();
+  async function exitPlayToHome() {
+    await session.exitPlayView();
+    navigate('/');
+  }
+
+  async function handleLogout() {
+    await session.exitPlayView();
     void auth.signOut();
     navigate('/');
   }
 
-  async function handleDeleteAccount(password: string) {
-    const deleted = await auth.deleteAccount(password);
+  async function handleDeleteAccount(credential: DeleteAccountCredential) {
+    const deleted = await auth.deleteAccount(credential);
     if (deleted) {
       session.clearSnapshot();
       navigate('/');
@@ -501,8 +639,7 @@ export function App() {
 
   const currentUser = auth.user;
   const isPlayView = activeView === 'gameroom';
-  const isAccountSurfaceActive =
-    activeView === 'profile' || activeView === 'account' || activeView === 'settings';
+  const isAccountSurfaceActive = activeView === 'profile' || activeView === 'account';
 
   return (
     <div className={isPlayView ? 'app-shell app-shell-session' : 'app-shell app-shell-topnav'}>
@@ -575,15 +712,6 @@ export function App() {
                       <Icon name="shield" />
                       <span>{'계정 관리'}</span>
                     </button>
-                    <button
-                      type="button"
-                      className="account-menu-item"
-                      onClick={() => guardedNavigate('/settings')}
-                      role="menuitem"
-                    >
-                      <Icon name="settings" />
-                      <span>{'설정'}</span>
-                    </button>
                   </div>
 
                   <div className="account-menu-divider" />
@@ -607,11 +735,9 @@ export function App() {
       <div className={isPlayView ? 'workspace workspace-session' : 'workspace workspace-topnav'}>
         {!isPlayView && activeView === 'main' ? (
           <LobbyPage
-            user={currentUser}
-            snapshot={session.snapshot}
-            sessionList={session.sessionList}
+            sessionListTotal={session.sessionListTotal}
+            mySessionListTotal={session.mySessionListTotal}
             mySessionList={session.mySessionList}
-            logs={logs}
             busy={busy}
             error={error}
             onOpenDiscover={() =>
@@ -625,10 +751,7 @@ export function App() {
               })
             }
             onOpenCreate={() => guardedNavigate('/sessions/new')}
-            onOpenPlay={() =>
-              session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
-            }
-            onLeaveCurrentSession={() => void exitSessionToDiscover()}
+            onContinueSession={(sessionId) => void handleJoinSessionById(sessionId)}
           />
         ) : null}
 
@@ -693,6 +816,7 @@ export function App() {
             onOpenProfile={() => guardedNavigate('/profile')}
             onConvertGuestAccount={auth.convertGuestAccount}
             onDeleteAccount={handleDeleteAccount}
+            onBeginOAuthDeleteReauth={(provider) => void handleOAuthDeleteReauth(provider)}
           />
         ) : null}
 
@@ -738,12 +862,11 @@ export function App() {
           />
         ) : null}
 
-          {!isPlayView && activeView === 'sessionsDiscover' ? (
-            <SessionDiscoverPage
-              user={currentUser}
-              accessToken={auth.accessToken}
-              snapshot={session.snapshot}
-            sessionList={session.sessionList}
+        {!isPlayView && activeView === 'sessionsDiscover' ? (
+          <SessionDiscoverPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            snapshot={session.snapshot}
             mySessionList={session.mySessionList}
             initialSection={sessionDiscoverState?.initialSection ?? 'public'}
             busy={busy}
@@ -756,10 +879,6 @@ export function App() {
               guardedNavigate(buildPublicProfilePath(host), {
                 state: { profilePreview: host },
               })
-            }
-            onOpenCreate={() => guardedNavigate('/sessions/new')}
-            onOpenPlay={() =>
-              session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
             }
           />
         ) : null}
@@ -778,11 +897,10 @@ export function App() {
             accessToken={auth.accessToken}
             sessionPublicId={sessionDetailId}
             snapshot={session.snapshot}
+            scenarios={scenarios}
+            knownMember={session.mySessionList.some((item) => item.sessionPublicId === sessionDetailId || item.sessionId === sessionDetailId)}
             busy={busy}
             onJoinSessionById={handleJoinSessionById}
-            onOpenPlay={() =>
-              session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
-            }
             onOpenHostProfile={(host) =>
               guardedNavigate(buildPublicProfilePath(host), {
                 state: { profilePreview: host },
@@ -791,45 +909,32 @@ export function App() {
           />
         ) : null}
 
-          {!isPlayView && activeView === 'sessionsNew' ? (
-            <SessionCreatePage
-              user={currentUser}
-              accessToken={auth.accessToken}
-              scenarios={scenarios}
-              mySessionList={session.mySessionList}
-              initialScenarioId={sessionCreateState?.initialScenarioId ?? null}
+        {!isPlayView && activeView === 'sessionInvite' && inviteCode ? (
+          <SessionInvitePreviewPage
+            inviteCode={inviteCode}
+            busy={busy}
+            joinError={error}
+            onJoin={handleJoinSession}
+            onCancel={() => guardedNavigate('/sessions/discover')}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === 'sessionsNew' ? (
+          <SessionCreatePage
+            scenarios={scenarios}
+            initialScenarioId={sessionCreateState?.initialScenarioId ?? null}
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}
           />
         ) : null}
 
-        {!isPlayView &&
-        activeView !== 'main' &&
-        activeView !== 'characters' &&
-        activeView !== 'rulebook' &&
-        activeView !== 'profile' &&
-        activeView !== 'publicProfile' &&
-        activeView !== 'scenarios' &&
-        activeView !== 'scenariosNew' &&
-        activeView !== 'scenarioEdit' &&
-        activeView !== 'sessionsDiscover' &&
-        activeView !== 'sessionsNew' &&
-        activeView !== 'sessionDetail' ? (
-          <section className="placeholder-view">
-            <span className="eyebrow">Coming soon</span>
-            <h1>{viewLabel[activeView] ?? '준비 중'}</h1>
-            <p>
-              {'해당 화면은 아직 준비 중입니다. 메인, 캐릭터, 세션 탐색, 세션 생성 화면을'}
-              {'우선적으로 다듬고 있습니다.'}
-            </p>
-          </section>
-        ) : null}
-
         {isPlayView ? (
           <PlayPage
             user={currentUser}
+            accessToken={auth.accessToken}
             snapshot={session.snapshot}
+            scenarios={scenarios}
             characters={session.myCharacters}
             races={races}
             classDefinitions={classDefinitions}
@@ -842,12 +947,20 @@ export function App() {
             onCreateCharacter={(payload) => session.createCharacter(payload)}
             onSelectCharacter={(characterId) => void session.selectCharacter(characterId)}
             onSetReady={(isReady) => void session.setReadyState(isReady)}
-            onSetHumanGm={(gmUserId) => void session.setHumanGm(gmUserId)}
             onStartSession={() => void session.startSession()}
+            onFinishCurrentPlay={() => {
+              void session.finishCurrentPlay().then((next) => {
+                if (next) navigate(buildSessionPath(next.session));
+              });
+            }}
+            onUpdateSession={session.updateSession}
             onLeaveSession={() => {
               void exitSessionToDiscover();
             }}
-            onBackToLobby={() => navigate('/sessions/discover')}
+            onBackToLobby={exitPlayToHome}
+            removedParticipants={session.removedParticipants}
+            onRemoveParticipant={session.removeParticipant}
+            onRestoreParticipant={session.restoreParticipant}
             onNavigateToCharacters={() => {
               if (!session.snapshot) {
                 navigate('/characters');
@@ -864,7 +977,11 @@ export function App() {
                 } satisfies CharacterPageState,
               });
             }}
-            onMainCommand={(payload) => session.sendMainCommand(payload)}
+            onMainCommand={async (payload) => {
+              const result = await session.sendMainCommand(payload);
+              if (result) await recordTutorialFirstAction();
+              return result;
+            }}
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onRequestRest={(restType, characterId, hitDiceToSpend) =>
               void session.requestRest(restType, characterId, hitDiceToSpend)
@@ -872,7 +989,10 @@ export function App() {
             onApproveRestRequest={(actionId) => session.approveRestRequest(actionId)}
             onRejectRestRequest={(actionId) => session.rejectRestRequest(actionId)}
             onCancelRestRequest={(actionId) => session.cancelRestRequest(actionId)}
-            onSendAction={(rawText) => void session.sendAction(rawText)}
+            onSendAction={async (rawText) => {
+              await session.sendAction(rawText);
+              await recordTutorialFirstAction();
+            }}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
             onCombatActionLog={(message, turnLogId) =>
@@ -888,6 +1008,36 @@ export function App() {
           />
         ) : null}
       </div>
+      <ProductTutorialGuide
+        activeView={activeView}
+        authMode={auth.authMode}
+        progress={productProgress.progress}
+        loading={productProgress.loading}
+        busy={busy}
+        onStart={() => {
+          void productProgress.record('start_tutorial')
+            .then(() => guardedNavigate('/characters'))
+            .catch(() => undefined);
+        }}
+        onDismiss={() => {
+          void productProgress.record('dismiss_tutorial').catch(() => undefined);
+        }}
+        onOpenCharacters={() => guardedNavigate('/characters')}
+        onOpenSessionCreate={() => guardedNavigate('/sessions/new')}
+        onDismissCoachmark={(coachmark) => {
+          void productProgress.record('dismiss_coachmark', coachmark).catch(() => undefined);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(session.confirmation)}
+        title={session.confirmation?.title ?? '확인'}
+        confirmLabel={session.confirmation?.confirmLabel ?? '확인'}
+        danger={session.confirmation?.danger}
+        onClose={() => session.resolveConfirmation(false)}
+        onConfirm={() => session.resolveConfirmation(true)}
+      >
+        <p style={{ whiteSpace: 'pre-line' }}>{session.confirmation?.message}</p>
+      </ConfirmDialog>
     </div>
   );
 }

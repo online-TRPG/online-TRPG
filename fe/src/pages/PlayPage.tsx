@@ -24,14 +24,20 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import {
+  GmMode,
+  SessionActivityStatus,
+  SessionVisibility,
   decodeCombatResponse,
   isAiGmMode,
   isEndedCombatStatus,
   isHumanGmMode,
 } from '@trpg/shared-types/frontend';
 import { parseCharacterStateDiff } from '@trpg/shared-types/browser-runtime';
+import { getSessionInvite } from '../services/sessionApi';
+import type { UpdateSessionInput } from '../services/sessionApi';
 import type { BattleMapSelection } from '../features/sessionPlay/components/SessionBattleMap';
 import { Icon } from '../components/Icon';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import tavernImage from '../components/tavern.webp';
 import dragonPeekImage from '../assets/images/Peak_a_Boo_Dragon.webp';
@@ -59,7 +65,9 @@ import {
 import { SessionBattleMap } from '../features/sessionPlay/components/SessionBattleMap';
 import { SessionCampaignCalendarPanel } from '../features/sessionPlay/components/SessionCampaignCalendarPanel';
 import { SessionEconomyPanel } from '../features/sessionPlay/components/SessionEconomyPanel';
+import { HumanGmQuickActions } from '../features/sessionPlay/components/HumanGmQuickActions';
 import { useActiveSessionScenarioProjection } from '../features/sessionPlay/hooks/useActiveSessionScenarioProjection';
+import { useDialogFocusTrap } from '../hooks/useDialogFocusTrap';
 import { useCombatActionHandlers } from '../features/sessionPlay/hooks/useCombatActionHandlers';
 import { useCombatForceMoveRequest } from '../features/sessionPlay/hooks/useCombatForceMoveRequest';
 import { useCombatReactionDecision } from '../features/sessionPlay/hooks/useCombatReactionDecision';
@@ -77,6 +85,7 @@ import { useInventoryMapCommandHandlers } from '../features/sessionPlay/hooks/us
 import { useHumanGmAssist } from '../features/sessionPlay/hooks/useHumanGmAssist';
 import { useHumanGmCombatAdminActions } from '../features/sessionPlay/hooks/useHumanGmCombatAdminActions';
 import { useHumanGmSceneActions } from '../features/sessionPlay/hooks/useHumanGmSceneActions';
+import { useHumanGmQuickActions } from '../features/sessionPlay/hooks/useHumanGmQuickActions';
 import { useMainCommandAutocompleteActions } from '../features/sessionPlay/hooks/useMainCommandAutocompleteActions';
 import { useMainCommandAutocompleteState } from '../features/sessionPlay/hooks/useMainCommandAutocompleteState';
 import {
@@ -178,6 +187,7 @@ import type {
   Participant,
   PersistentCharacter,
   PlayerScenarioView,
+  Scenario,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
@@ -187,7 +197,9 @@ import './PlayPage.css';
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface PlayPageProps {
   user: StoredUser;
+  accessToken: string | null;
   snapshot: SessionSnapshot | null;
+  scenarios: Scenario[];
   characters: PersistentCharacter[];
   races: RaceResponseDto[];
   classDefinitions: ClassDefinitionResponseDto[];
@@ -200,10 +212,14 @@ interface PlayPageProps {
   onCreateCharacter: (payload: CharacterPayload) => Promise<boolean>;
   onSelectCharacter: (characterId: string | null) => void;
   onSetReady: (isReady: boolean) => void;
-  onSetHumanGm: (gmUserId: string) => void;
   onStartSession: () => void;
+  onFinishCurrentPlay: () => void;
+  onUpdateSession: (input: UpdateSessionInput) => Promise<SessionSnapshot | null>;
   onLeaveSession: () => void;
   onBackToLobby: () => void;
+  removedParticipants: Participant[];
+  onRemoveParticipant: (participantPublicId: string) => Promise<boolean>;
+  onRestoreParticipant: (participantPublicId: string) => Promise<boolean>;
   onNavigateToCharacters: () => void;
   onMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
   onResolveMainCommandCheck: (
@@ -238,7 +254,9 @@ type QuickCreateAbilities = NonNullable<CharacterPayload['abilities']>;
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
+  accessToken,
   snapshot,
+  scenarios,
   characters,
   races,
   classDefinitions,
@@ -251,10 +269,14 @@ export function PlayPage({
   onCreateCharacter,
   onSelectCharacter,
   onSetReady,
-  onSetHumanGm,
   onStartSession,
+  onFinishCurrentPlay,
+  onUpdateSession,
   onLeaveSession,
   onBackToLobby,
+  removedParticipants,
+  onRemoveParticipant,
+  onRestoreParticipant,
   onNavigateToCharacters,
   onMainCommand,
   onResolveMainCommandCheck,
@@ -271,6 +293,14 @@ export function PlayPage({
 }: PlayPageProps) {
   // UI 상태: 현재 탭, 모달 열림, 입력창 값입니다.
   const [mainMessage, setMainMessage] = useState('');
+  const [pendingParticipantRemoval, setPendingParticipantRemoval] = useState<{ publicId: string; displayName: string } | null>(null);
+  const [settingsTitle, setSettingsTitle] = useState('');
+  const [settingsScenarioId, setSettingsScenarioId] = useState('');
+  const [settingsDescription, setSettingsDescription] = useState('');
+  const [settingsMaxParticipants, setSettingsMaxParticipants] = useState(4);
+  const [settingsGmMode, setSettingsGmMode] = useState<GmMode>(GmMode.AI);
+  const [settingsVisibility, setSettingsVisibility] = useState<SessionVisibility>(SessionVisibility.PUBLIC);
+  const [settingsNextSessionAt, setSettingsNextSessionAt] = useState('');
   const [mainCommandMode, setMainCommandMode] = useState<MainCommandMode>('GM_REQUEST');
   const [isCommandGuideOpen, setCommandGuideOpen] = useState(false);
   const [activeMainHelperGroup, setActiveMainHelperGroup] =
@@ -338,7 +368,11 @@ export function PlayPage({
     cancelLeaveSession,
     confirmLeaveSession,
     leaveConfirmPresentation,
-  } = useSessionLeaveConfirmation({ onLeaveSession });
+  } = useSessionLeaveConfirmation({
+    onLeaveSession,
+    isHost: session?.hostUserId === user.id,
+  });
+  const leaveDialogFocus = useDialogFocusTrap<HTMLElement>(isLeaveConfirmOpen, cancelLeaveSession);
   const {
     chatMessage,
     setChatMessage,
@@ -409,6 +443,7 @@ export function PlayPage({
     openCreateModal,
     closeCreateModal,
   } = useQuickCreateModalLifecycle({ resetQuickCreateForm });
+  const quickCreateDialogFocus = useDialogFocusTrap<HTMLFormElement>(isCreateModalOpen, closeCreateModal);
   const {
     sidebarWidth,
     isSidebarCollapsed,
@@ -470,11 +505,59 @@ export function PlayPage({
   const sessionSettingsPresentation = useSessionSettingsPresentation({
     session,
     phase: snapshot?.state.phase,
+    isHost,
   });
-  const handleCopyInviteCode = useCallback(() => {
+  useEffect(() => {
+    if (!session) return;
+    setSettingsTitle(session.title);
+    setSettingsScenarioId(session.scenarioId ?? '');
+    setSettingsDescription(session.description ?? '');
+    setSettingsMaxParticipants(session.maxParticipants);
+    setSettingsGmMode(session.gmMode);
+    setSettingsVisibility(session.visibility);
+    if (!session.nextSessionAt) {
+      setSettingsNextSessionAt('');
+      return;
+    }
+    const date = new Date(session.nextSessionAt);
+    const localOffset = date.getTimezoneOffset() * 60_000;
+    setSettingsNextSessionAt(new Date(date.getTime() - localOffset).toISOString().slice(0, 16));
+  }, [session]);
+
+  const handleSaveSessionSettings = useCallback(async () => {
+    await onUpdateSession({
+      title: settingsTitle.trim(),
+      scenarioId: settingsScenarioId || undefined,
+      description: settingsDescription.trim(),
+      maxParticipants: settingsMaxParticipants,
+      gmMode: settingsGmMode,
+      visibility: settingsVisibility,
+      nextSessionAt: settingsNextSessionAt
+        ? new Date(settingsNextSessionAt).toISOString()
+        : null,
+    });
+  }, [
+    onUpdateSession,
+    settingsDescription,
+    settingsGmMode,
+    settingsMaxParticipants,
+    settingsNextSessionAt,
+    settingsScenarioId,
+    settingsTitle,
+    settingsVisibility,
+  ]);
+  const handleCopyInviteCode = useCallback(async () => {
     if (!sessionSettingsPresentation.inviteCodeToCopy) return;
-    void navigator.clipboard.writeText(sessionSettingsPresentation.inviteCodeToCopy);
-  }, [sessionSettingsPresentation.inviteCodeToCopy]);
+    const fallbackUrl = `${window.location.origin}/join/${sessionSettingsPresentation.inviteCodeToCopy}`;
+    try {
+      const invite = session
+        ? await getSessionInvite(user, session.publicId || session.id, accessToken)
+        : null;
+      await navigator.clipboard.writeText(invite?.shareUrl || fallbackUrl);
+    } catch {
+      await navigator.clipboard.writeText(fallbackUrl);
+    }
+  }, [accessToken, session, sessionSettingsPresentation.inviteCodeToCopy, user]);
   const {
     scenarioLevelLabel,
     isCharacterLevelAllowedForScenario,
@@ -890,6 +973,14 @@ export function PlayPage({
     isRecruiting,
     completedCombatNodeIds: snapshotCompletedCombatNodeIds,
   });
+  const humanGmQuickActions = useHumanGmQuickActions({
+    user,
+    sessionId: session?.id ?? null,
+    canUseHumanGmView,
+    currentNodeId: currentNode?.id ?? null,
+    stateVersion: snapshot?.state.version,
+    onAction,
+  });
   const {
     mainCommandText,
     mainCommandPresets,
@@ -1083,7 +1174,7 @@ export function PlayPage({
           missingCombat &&
           currentNode?.id &&
           !isCombatBusy &&
-          (!isHumanGmMode(session.gmMode) || isGmUser)
+          !isHumanGmMode(session.gmMode)
         ) {
           const autoStartKey = `${session.id}:${currentNode.id}`;
           if (autoCombatStartKeyRef.current !== autoStartKey) {
@@ -1108,7 +1199,7 @@ export function PlayPage({
   useEffect(() => {
     if (!user || !session?.id || !currentNode?.id || !isCombatNode) return;
     if (!isCombatChecked || combat || isCombatBusy || combatError) return;
-    if (isHumanGmMode(session.gmMode) && !isGmUser) return;
+    if (isHumanGmMode(session.gmMode)) return;
 
     const autoStartKey = `${session.id}:${currentNode.id}`;
     if (autoCombatStartKeyRef.current === autoStartKey) return;
@@ -1331,7 +1422,6 @@ export function PlayPage({
   const getParticipantCardPresentation = useParticipantCardPresentation({
     isHumanGmSession,
     isRecruiting,
-    isHost,
     gmUserId,
     currentUserId: user.id,
     getParticipantBadge,
@@ -1438,7 +1528,7 @@ export function PlayPage({
                   <button
                     type="button"
                     className="invite-copy-button"
-                    onClick={handleCopyInviteCode}
+                    onClick={() => void handleCopyInviteCode()}
                     disabled={!sessionSettingsPresentation.canCopyInviteCode}
                     aria-label={sessionSettingsPresentation.inviteCopyAriaLabel}
                   >
@@ -1620,7 +1710,7 @@ export function PlayPage({
                       {wantedActionsPresentation.readyButtonLabel}
                     </button>
                   </div>
-                  {/* 호스트가 오버레이를 닫아도 시작 확인창으로 다시 돌아올 수 있는 진입점입니다. */}
+                  {/* 세션 관리자가 오버레이를 닫아도 시작 확인창으로 다시 돌아올 수 있는 진입점입니다. */}
                   {wantedActionsPresentation.shouldShowStartButton ? (
                     <button
                       type="button"
@@ -1639,6 +1729,30 @@ export function PlayPage({
           {session && !isRecruiting ? (
             <section className="session-game-surface">
               {scenarioLoadError ? <p className="panel-error">{scenarioLoadError}</p> : null}
+              {canUseHumanGmView && currentNode ? (
+                <HumanGmQuickActions
+                  currentSceneTitle={currentNode.title || '제목 없는 장면'}
+                  revealOptions={humanGmQuickActions.revealOptions}
+                  selectedRevealId={humanGmQuickActions.selectedRevealId}
+                  isRevealPending={humanGmQuickActions.isRevealPending}
+                  feedback={humanGmQuickActions.feedback}
+                  canStartCombat={Boolean(
+                    isHumanGmMode(session.gmMode) &&
+                    isCombatNode &&
+                    isCombatChecked &&
+                    !combat &&
+                    !combatError
+                  )}
+                  isCombatPending={isCombatBusy}
+                  onRevealSelectionChange={humanGmQuickActions.setSelectedRevealId}
+                  onReveal={() => void humanGmQuickActions.revealSelected()}
+                  onStartCombat={() => {
+                    if (!isCombatBusy) {
+                      void runCombatRequest(() => startCombat(user, session.id));
+                    }
+                  }}
+                />
+              ) : null}
               {isSessionCompleted ? (
                 <div className="session-game-surface__placeholder">
                   <span className="eyebrow">{sessionCompletionPresentation.eyebrow}</span>
@@ -1895,7 +2009,15 @@ export function PlayPage({
 
         {isLeaveConfirmOpen ? (
           <div className="session-status-floating-layer expanded session-leave-confirm-layer">
-            <section className="session-ready-card session-main-ready-overlay session-leave-confirm-overlay">
+            <section
+              ref={leaveDialogFocus.dialogRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label={leaveConfirmPresentation.title}
+              onKeyDown={leaveDialogFocus.onDialogKeyDown}
+              className="session-ready-card session-main-ready-overlay session-leave-confirm-overlay"
+            >
               <button
                 type="button"
                 className="session-ready-close-button"
@@ -2010,16 +2132,6 @@ export function PlayPage({
                         <div className={participantCard.recruitingStatusClassName}>
                           {participantCard.recruitingStatusLabel}
                         </div>
-                        {participantCard.canAssignHumanGm ? (
-                          <button
-                            type="button"
-                            className="recruiting-party-slot-gm-button"
-                            disabled={busy}
-                            onClick={() => onSetHumanGm(participant.userId)}
-                          >
-                            {participantCard.assignHumanGmLabel}
-                          </button>
-                        ) : null}
                       </>
                     ) : (
                       <>
@@ -2677,6 +2789,11 @@ export function PlayPage({
               {!isRecruiting ? (
                 <>
                   <div className="session-settings-actions">
+                    {isHost && session?.activityStatus === SessionActivityStatus.PLAYING ? (
+                      <button type="button" className="primary" disabled={busy} onClick={onFinishCurrentPlay}>
+                        진행 저장 후 닫기
+                      </button>
+                    ) : null}
                     <button type="button" className="ghost" onClick={onBackToLobby}>
                       {sessionSettingsPresentation.backToLobbyLabel}
                     </button>
@@ -2694,6 +2811,11 @@ export function PlayPage({
                   </div>
 
                   <div className="session-settings-list">
+                    {isHost && session?.activityStatus === SessionActivityStatus.PLAYING ? (
+                      <p className="session-settings-readonly-notice">
+                        플레이 중에는 방 설정을 변경할 수 없습니다. 진행을 저장하고 닫은 뒤 수정할 수 있습니다.
+                      </p>
+                    ) : null}
                     <article className="session-settings-entry">
                       <span className="eyebrow">
                         {sessionSettingsPresentation.inviteCodeEyebrow}
@@ -2703,7 +2825,7 @@ export function PlayPage({
                         <button
                           type="button"
                           className="session-settings-copy-button"
-                          onClick={handleCopyInviteCode}
+                          onClick={() => void handleCopyInviteCode()}
                           disabled={!sessionSettingsPresentation.canCopyInviteCode}
                         >
                           {sessionSettingsPresentation.inviteCodeCopyLabel}
@@ -2732,20 +2854,145 @@ export function PlayPage({
                 </>
               ) : null}
               {isRecruiting ? (
-                <dl className="session-meta">
-                  <div>
-                    <dt>{sessionSettingsPresentation.recruitingStatusLabel}</dt>
-                    <dd>{sessionSettingsPresentation.statusText}</dd>
+                isHost ? (
+                  <form
+                    className="session-settings-edit-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleSaveSessionSettings();
+                    }}
+                  >
+                    <label>
+                      <span>세션 제목</span>
+                      <input
+                        value={settingsTitle}
+                        maxLength={100}
+                        required
+                        onChange={(event) => setSettingsTitle(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>세션 설명</span>
+                      <textarea
+                        value={settingsDescription}
+                        maxLength={500}
+                        onChange={(event) => setSettingsDescription(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>시나리오</span>
+                      <select
+                        value={settingsScenarioId}
+                        onChange={(event) => setSettingsScenarioId(event.target.value)}
+                      >
+                        {scenarios.map((scenarioOption) => (
+                          <option key={scenarioOption.id} value={scenarioOption.id}>
+                            {scenarioOption.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="session-settings-edit-grid">
+                      <label>
+                        <span>총 인원 (1~8명)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={8}
+                          value={settingsMaxParticipants}
+                          onChange={(event) => setSettingsMaxParticipants(Number(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        <span>공개 범위</span>
+                        <select
+                          value={settingsVisibility}
+                          onChange={(event) => setSettingsVisibility(event.target.value as SessionVisibility)}
+                        >
+                          <option value={SessionVisibility.PUBLIC}>공개</option>
+                          <option value={SessionVisibility.PRIVATE}>비공개</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>GM 유형</span>
+                        <select
+                          value={settingsGmMode}
+                          onChange={(event) => setSettingsGmMode(event.target.value as GmMode)}
+                        >
+                          <option value={GmMode.AI}>AI GM</option>
+                          <option value={GmMode.HUMAN}>사람 GM</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>다음 플레이 일정</span>
+                        <input
+                          type="datetime-local"
+                          value={settingsNextSessionAt}
+                          onChange={(event) => setSettingsNextSessionAt(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <button type="submit" className="primary" disabled={busy}>
+                      설정 저장
+                    </button>
+                  </form>
+                ) : (
+                  <dl className="session-meta">
+                    <div><dt>상태</dt><dd>{sessionSettingsPresentation.statusText}</dd></div>
+                    <div><dt>단계</dt><dd>{sessionSettingsPresentation.phaseText}</dd></div>
+                    <div><dt>공개 범위</dt><dd>{sessionSettingsPresentation.visibilityText}</dd></div>
+                  </dl>
+                )
+              ) : null}
+              {isHost ? (
+                <section className="session-member-management" aria-labelledby="session-member-management-title">
+                  <div className="section-heading">
+                    <div>
+                      <span className="eyebrow">구성원 관리</span>
+                      <h3 id="session-member-management-title">세션 참가자</h3>
+                    </div>
                   </div>
-                  <div>
-                    <dt>{sessionSettingsPresentation.recruitingPhaseLabel}</dt>
-                    <dd>{sessionSettingsPresentation.phaseText}</dd>
+                  <div className="session-member-management-list">
+                    {participants
+                      .filter((participant) => participant.userId !== user.id)
+                      .map((participant) => (
+                        <div key={participant.id}>
+                          <span>{participant.user.displayName}</span>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            disabled={busy}
+                            onClick={() => setPendingParticipantRemoval({
+                              publicId: participant.user.publicId,
+                              displayName: participant.user.displayName,
+                            })}
+                          >
+                            세션에서 내보내기
+                          </button>
+                        </div>
+                      ))}
+                    {!participants.some((participant) => participant.userId !== user.id) ? (
+                      <p>관리할 참가자가 없습니다.</p>
+                    ) : null}
                   </div>
-                  <div>
-                    <dt>{sessionSettingsPresentation.recruitingVisibilityLabel}</dt>
-                    <dd>{sessionSettingsPresentation.visibilityText}</dd>
-                  </div>
-                </dl>
+                  {removedParticipants.length ? (
+                    <div className="session-member-management-list">
+                      <strong>내보낸 참가자</strong>
+                      {removedParticipants.map((participant) => (
+                        <div key={participant.id}>
+                          <span>{participant.user.displayName}</span>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void onRestoreParticipant(participant.user.publicId)}
+                          >
+                            내보내기 취소
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
               ) : null}
             </div>
           ) : null}
@@ -2765,7 +3012,13 @@ export function PlayPage({
       {/* 캐릭터가 없는 플레이어가 빠르게 캐릭터를 만드는 모달입니다. */}
       {isCreateModalOpen ? (
         <div className="modal-shell" role="dialog" aria-modal="true">
-          <form className="modal-card" onSubmit={handleCreateCharacter}>
+          <form
+            ref={quickCreateDialogFocus.dialogRef}
+            tabIndex={-1}
+            className="modal-card"
+            onKeyDown={quickCreateDialogFocus.onDialogKeyDown}
+            onSubmit={handleCreateCharacter}
+          >
             <div className="section-heading">
               <div>
                 <span className="eyebrow">{quickCreateModalPresentation.eyebrow}</span>
@@ -2883,6 +3136,22 @@ export function PlayPage({
           {revealedClueToast.text ? <small>{revealedClueToast.text}</small> : null}
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(pendingParticipantRemoval)}
+        title="세션 참가자 내보내기"
+        confirmLabel="세션에서 내보내기"
+        busy={busy}
+        danger
+        onClose={() => setPendingParticipantRemoval(null)}
+        onConfirm={() => {
+          if (!pendingParticipantRemoval) return;
+          void onRemoveParticipant(pendingParticipantRemoval.publicId);
+          setPendingParticipantRemoval(null);
+        }}
+      >
+        <p><strong>{pendingParticipantRemoval?.displayName}</strong> 님을 세션에서 내보낼까요?</p>
+        <p>내보낸 뒤에는 세션 관리자가 명시적으로 복구하기 전까지 다시 참가할 수 없습니다.</p>
+      </ConfirmDialog>
 
       {/* 세션 전원에게 보이는 주사위 굴림 오버레이 (turn.log.created 이벤트로 트리거). */}
       <DiceRollOverlay data={activeDiceRoll} onDismiss={onDismissDiceRoll} />

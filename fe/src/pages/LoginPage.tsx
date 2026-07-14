@@ -12,6 +12,7 @@ import { FormEvent, useState } from "react";
 import logoImage from "../assets/images/Logo.webp";
 import { Icon } from "../components/Icon";
 import type { AuthNotice } from "../hooks/useAuth";
+import { confirmPasswordReset, requestPasswordReset } from "../services/authApi";
 import "./LoginPage.css";
 import {
   mapAuthServerErrorToFields,
@@ -23,7 +24,7 @@ import {
 } from "../utils/authValidation";
 
 // 현재 화면에 보여줄 인증 폼 종류입니다.
-type LoginMode = "guest" | "login" | "register";
+type LoginMode = "guest" | "login" | "register" | "reset-request" | "reset-confirm";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface LoginPageProps {
@@ -49,15 +50,22 @@ export function LoginPage({
   onClearFeedback,
 }: LoginPageProps) {
   // 입력 폼 상태: 선택된 로그인 방식과 각 입력값을 관리합니다.
-  const [mode, setMode] = useState<LoginMode>("guest");
+  const initialResetToken = new URLSearchParams(window.location.search).get("token") ?? "";
+  const [mode, setMode] = useState<LoginMode>(initialResetToken ? "reset-confirm" : "guest");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
+  const [resetToken] = useState(initialResetToken);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetFeedback, setResetFeedback] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
   // 서버 에러를 필드별 메시지로 변환해 클라이언트 검증 에러와 합칩니다.
-  const serverFieldErrors = mapAuthServerErrorToFields(mode, error);
+  const serverFieldErrors = mode === "reset-request" || mode === "reset-confirm"
+    ? {}
+    : mapAuthServerErrorToFields(mode, error);
   const visibleFieldErrors = { ...fieldErrors, ...serverFieldErrors };
   const formError = error && Object.keys(serverFieldErrors).length === 0 ? error : null;
 
@@ -112,6 +120,50 @@ export function LoginPage({
     if (hasFieldErrors(nextErrors)) return;
 
     onRegister(email, password, name);
+  }
+
+  async function submitResetRequest(e: FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) {
+      setResetError("이메일을 입력해주세요.");
+      return;
+    }
+    setResetBusy(true);
+    setResetError(null);
+    try {
+      await requestPasswordReset(email.trim());
+      setResetFeedback("계정이 존재하고 메일 발송이 가능한 경우 재설정 안내를 보냈습니다.");
+    } catch (caught) {
+      setResetError(caught instanceof Error ? caught.message : "재설정 요청을 처리하지 못했습니다.");
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  async function submitResetConfirm(e: FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) {
+      setResetError("새 비밀번호는 8자 이상이어야 합니다.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setResetError("비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+    setResetBusy(true);
+    setResetError(null);
+    try {
+      await confirmPasswordReset(resetToken, password);
+      window.history.replaceState({}, "", window.location.pathname);
+      setResetFeedback("비밀번호를 재설정했습니다. 새 비밀번호로 로그인해주세요.");
+      setPassword("");
+      setConfirmPassword("");
+      setMode("login");
+    } catch (caught) {
+      setResetError(caught instanceof Error ? caught.message : "비밀번호를 재설정하지 못했습니다.");
+    } finally {
+      setResetBusy(false);
+    }
   }
   return (
     <main className="login-page">
@@ -184,6 +236,9 @@ export function LoginPage({
               <Icon name="enter" />
               {busy ? "입장 중..." : "게스트로 시작"}
             </button>
+            <p className="login-retention-note">
+              게스트로 만든 캐릭터와 진행 기록은 7일간 보존됩니다. 계정 화면에서 이메일 계정으로 저장하면 그대로 이어갈 수 있습니다.
+            </p>
             {formError ? <p className="form-error" role="alert">{formError}</p> : null}
           </form>
         ) : null}
@@ -234,6 +289,9 @@ export function LoginPage({
             <button type="submit" className="login-submit-muted" disabled={busy}>
               {busy ? "로그인 중..." : "로그인"}
             </button>
+            <button type="button" className="login-text-action" onClick={() => selectMode("reset-request")}>
+              비밀번호를 잊으셨나요?
+            </button>
 
             <div className="login-divider">
               <span />
@@ -256,6 +314,34 @@ export function LoginPage({
             </div>
 
             {formError ? <p className="form-error" role="alert">{formError}</p> : null}
+          </form>
+        ) : null}
+        {resetFeedback && mode !== "reset-request" ? (
+          <div className="login-alert success" role="status" aria-live="polite">{resetFeedback}</div>
+        ) : null}
+
+        {mode === "reset-request" ? (
+          <form className="login-card login-card-fantasy" onSubmit={submitResetRequest} noValidate>
+            <h2>비밀번호 재설정</h2>
+            <p>가입한 이메일로 30분 동안 한 번 사용할 수 있는 재설정 링크를 보냅니다.</p>
+            <label htmlFor="reset-email">이메일</label>
+            <input id="reset-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+            <button type="submit" disabled={resetBusy}>{resetBusy ? "요청 중..." : "재설정 메일 요청"}</button>
+            <button type="button" className="login-text-action" onClick={() => selectMode("login")}>로그인으로 돌아가기</button>
+            {resetFeedback ? <p className="login-alert success" role="status">{resetFeedback}</p> : null}
+            {resetError ? <p className="form-error" role="alert">{resetError}</p> : null}
+          </form>
+        ) : null}
+
+        {mode === "reset-confirm" ? (
+          <form className="login-card login-card-fantasy" onSubmit={submitResetConfirm} noValidate>
+            <h2>새 비밀번호 설정</h2>
+            <label htmlFor="reset-new-password">새 비밀번호</label>
+            <input id="reset-new-password" type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
+            <label htmlFor="reset-confirm-password">새 비밀번호 확인</label>
+            <input id="reset-confirm-password" type="password" minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" />
+            <button type="submit" disabled={resetBusy || !resetToken}>{resetBusy ? "변경 중..." : "비밀번호 재설정"}</button>
+            {resetError ? <p className="form-error" role="alert">{resetError}</p> : null}
           </form>
         ) : null}
 

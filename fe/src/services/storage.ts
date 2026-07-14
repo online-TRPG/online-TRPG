@@ -15,6 +15,9 @@ const SNAPSHOT_KEY = "trpg.currentSnapshot";
 const TOKEN_KEY = "trpg.accessToken";
 const AUTH_MODE_KEY = "trpg.authMode";
 const OAUTH_PROVIDER_KEY = "trpg.oauthProvider";
+const AUTH_RETURN_TO_KEY = "trpg.authReturnTo";
+const OAUTH_INTENT_KEY = "trpg.oauthIntent";
+const DELETE_REAUTH_TICKET_KEY = "trpg.deleteReauthTicket";
 const STORED_USER_SCHEMA_VERSION = 1;
 const STORED_SNAPSHOT_SCHEMA_VERSION = 1;
 const STORED_USER_ROLE = {
@@ -29,6 +32,12 @@ type VersionedStoredValue<T> = {
 };
 
 export type OAuthProvider = "kakao" | "discord";
+export type OAuthIntent = "login" | "delete_reauth";
+export type StoredDeleteReauthTicket = {
+  provider: OAuthProvider;
+  ticket: string;
+  expiresAt: number;
+};
 
 export function loadStoredUser(): StoredUser | null {
   const raw = readStorageValue(USER_KEY);
@@ -130,6 +139,67 @@ export function clearStoredOAuthProvider(): void {
   removeStorageValue(OAUTH_PROVIDER_KEY);
 }
 
+export function loadStoredOAuthIntent(): OAuthIntent {
+  return readStorageValue(OAUTH_INTENT_KEY) === "delete_reauth" ? "delete_reauth" : "login";
+}
+
+export function saveStoredOAuthIntent(intent: OAuthIntent): void {
+  writeStorageValue(OAUTH_INTENT_KEY, intent);
+}
+
+export function clearStoredOAuthIntent(): void {
+  removeStorageValue(OAUTH_INTENT_KEY);
+}
+
+export function loadStoredAuthReturnTo(): string | null {
+  const value = readStorageValue(AUTH_RETURN_TO_KEY);
+  if (value === '/account' || value?.startsWith('/join/')) return value;
+  if (value !== null) removeStorageValue(AUTH_RETURN_TO_KEY);
+  return null;
+}
+
+export function saveStoredAuthReturnTo(path: string): void {
+  if (path === '/account' || path.startsWith('/join/')) writeStorageValue(AUTH_RETURN_TO_KEY, path);
+}
+
+export function clearStoredAuthReturnTo(): void {
+  removeStorageValue(AUTH_RETURN_TO_KEY);
+}
+
+export function saveStoredDeleteReauthTicket(value: StoredDeleteReauthTicket): void {
+  writeSessionStorageValue(DELETE_REAUTH_TICKET_KEY, JSON.stringify(value));
+}
+
+export function loadStoredDeleteReauthTicket(): StoredDeleteReauthTicket | null {
+  const raw = readSessionStorageValue(DELETE_REAUTH_TICKET_KEY);
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (
+      !isRecord(value) ||
+      (value.provider !== 'kakao' && value.provider !== 'discord') ||
+      typeof value.ticket !== 'string' ||
+      typeof value.expiresAt !== 'number' ||
+      value.expiresAt <= Date.now()
+    ) {
+      clearStoredDeleteReauthTicket();
+      return null;
+    }
+    return {
+      provider: value.provider,
+      ticket: value.ticket,
+      expiresAt: value.expiresAt,
+    };
+  } catch {
+    clearStoredDeleteReauthTicket();
+    return null;
+  }
+}
+
+export function clearStoredDeleteReauthTicket(): void {
+  removeSessionStorageValue(DELETE_REAUTH_TICKET_KEY);
+}
+
 export function loadStoredSnapshot(): SessionSnapshot | null {
   const raw = readStorageValue(SNAPSHOT_KEY);
   if (!raw) return null;
@@ -157,6 +227,9 @@ export function clearAll(): void {
   clearStoredToken();
   clearStoredAuthMode();
   clearStoredOAuthProvider();
+  clearStoredOAuthIntent();
+  clearStoredAuthReturnTo();
+  clearStoredDeleteReauthTicket();
   clearStoredSnapshot();
 }
 
@@ -200,5 +273,29 @@ function removeStorageValue(key: string): void {
     globalThis.localStorage?.removeItem(key);
   } catch {
     // Storage cleanup is best-effort when browser privacy settings deny access.
+  }
+}
+
+function readSessionStorageValue(key: string): string | null {
+  try {
+    return globalThis.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionStorageValue(key: string, value: string): void {
+  try {
+    globalThis.sessionStorage?.setItem(key, value);
+  } catch {
+    // 짧은 수명의 재인증 결과는 저장소를 사용할 수 없으면 다시 인증받는다.
+  }
+}
+
+function removeSessionStorageValue(key: string): void {
+  try {
+    globalThis.sessionStorage?.removeItem(key);
+  } catch {
+    // 정리는 best-effort로 처리한다.
   }
 }

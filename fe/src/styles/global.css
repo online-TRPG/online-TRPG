@@ -1584,6 +1584,153 @@ label {
   align-items: flex-start;
 }
 
+.session-play-schedule-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.session-home-settings {
+  display: grid;
+  gap: 16px;
+}
+
+.session-home-settings-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.session-home-settings-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.session-home-settings-wide,
+.session-home-settings-form > button {
+  grid-column: 1 / -1;
+}
+
+.session-home-settings-form input,
+.session-home-settings-form select,
+.session-home-settings-form textarea {
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid rgba(115, 86, 48, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.96);
+  color: inherit;
+  font: inherit;
+}
+
+.scenario-publication-dialog {
+  width: min(620px, calc(100vw - 64px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}
+
+.scenario-publication-form {
+  display: grid;
+  gap: 16px;
+}
+
+.scenario-publication-form > label:not(.scenario-publication-check) {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.scenario-publication-form select,
+.scenario-publication-form textarea {
+  padding: 10px 12px;
+  border: 1px solid rgba(115, 86, 48, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.96);
+  color: inherit;
+  font: inherit;
+}
+
+.scenario-publication-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.5;
+}
+
+.scenario-publication-check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.scenario-validation-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 3px solid #f1c75b;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.session-home-settings-form textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.session-play-schedule-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 8px 12px;
+  align-items: end;
+}
+
+.session-play-schedule-form label,
+.session-play-schedule-form small {
+  grid-column: 1 / -1;
+}
+
+.session-play-schedule-form input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(115, 86, 48, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.96);
+  color: inherit;
+}
+
+.session-play-attendance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.session-play-applications {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(115, 86, 48, 0.2);
+}
+
 .session-page-grid,
 .dashboard-grid {
   display: grid;

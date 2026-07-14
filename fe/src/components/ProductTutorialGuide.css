@@ -1,0 +1,84 @@
+.product-tutorial-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(9, 7, 5, 0.72);
+}
+
+.product-tutorial-card,
+.product-tutorial-guide {
+  border: 1px solid rgba(218, 176, 101, 0.55);
+  border-radius: 14px;
+  background: #211b16;
+  color: #f5ead8;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+}
+
+.product-tutorial-card {
+  width: min(520px, 100%);
+  padding: 28px;
+}
+
+.product-tutorial-card h2 {
+  margin: 6px 0 12px;
+}
+
+.product-tutorial-eyebrow {
+  margin: 0;
+  color: #dbb56f;
+  font-weight: 700;
+}
+
+.product-tutorial-guest-note {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(219, 181, 111, 0.12);
+}
+
+.product-tutorial-guide {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 900;
+  display: grid;
+  width: min(420px, calc(100vw - 48px));
+  gap: 10px;
+  padding: 18px;
+}
+
+.product-tutorial-play-guide {
+  bottom: 92px;
+}
+
+.product-tutorial-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.product-tutorial-guide button,
+.product-tutorial-card button {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: #b88638;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.product-tutorial-guide button.secondary,
+.product-tutorial-card button.secondary {
+  background: #51463b;
+}
+
+.product-tutorial-guide button:disabled,
+.product-tutorial-card button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}

@@ -26,7 +26,7 @@ export function getParticipantBadge(params: {
 }): string | null {
   if (!params.session) return null;
   if (params.isHumanGmSession && params.participantUserId === params.gmUserId) return 'GM';
-  if (params.participantUserId === params.session.hostUserId) return 'HOST';
+  if (params.participantUserId === params.session.hostUserId) return '세션 관리자';
   return null;
 }
 

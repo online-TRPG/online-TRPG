@@ -11,8 +11,10 @@ import {
   reissue,
   updateMe,
 } from "../services/authApi";
+import type { DeleteAccountCredential } from "../services/authApi";
 import { assertUsableAccessToken, getAccessTokenExpiresAtMs } from "../services/authToken";
 import { AUTH_EXPIRED_EVENT, AUTH_TOKEN_REISSUED_EVENT } from "../services/httpClient";
+import { trackProductEvent } from "../services/productEvents";
 import { isRecord, readString } from "@trpg/shared-types/frontend";
 import {
   clearAll,
@@ -55,7 +57,7 @@ export interface UseAuthReturn {
   registerMember: (email: string, password: string, name: string) => Promise<void>;
   convertGuestAccount: (email: string, password: string, name: string) => Promise<boolean>;
   handleOAuthCallback: (provider: "kakao" | "discord", code: string) => Promise<void>;
-  deleteAccount: (password: string) => Promise<boolean>;
+  deleteAccount: (credential: DeleteAccountCredential) => Promise<boolean>;
   updateDisplayName: (displayName: string) => Promise<User>;
   signOut: () => Promise<void>;
   clearError: () => void;
@@ -308,6 +310,7 @@ export function useAuth(
     setBusy(true);
     try {
       const response = await convertGuestToLocal(currentAuth.user, email, password, name);
+      trackProductEvent("account_conversion_completed", "account");
       persist(toStoredUser(response.user), response.accessToken, "member");
       setNotice({ kind: "success", message: "게스트 계정을 회원 계정으로 저장했습니다." });
       appendLog("system", "계정 저장", "게스트 계정을 회원 계정으로 저장했습니다.");
@@ -346,16 +349,10 @@ export function useAuth(
     }
   }
 
-  async function deleteAccount(password: string): Promise<boolean> {
+  async function deleteAccount(credential: DeleteAccountCredential): Promise<boolean> {
     const currentAuth = currentAuthRef.current;
-    if (!currentAuth.accessToken || currentAuth.authMode !== "member") {
-      setError("회원 계정만 탈퇴할 수 있습니다.");
-      setNotice(null);
-      return false;
-    }
-
-    if (!password) {
-      setError("비밀번호를 입력해주세요.");
+    if (!currentAuth.user || !currentAuth.authMode) {
+      setError("현재 계정 정보를 확인할 수 없습니다.");
       setNotice(null);
       return false;
     }
@@ -364,7 +361,7 @@ export function useAuth(
     setNotice(null);
     setBusy(true);
     try {
-      await apiDeleteMe(currentAuth.accessToken, password);
+      await apiDeleteMe(currentAuth.user, currentAuth.accessToken, credential);
 
       // 서버 탈퇴가 끝난 뒤에는 로컬 인증 정보도 즉시 지워 재요청에서 삭제된 계정 토큰을 쓰지 않게 한다.
       handledExpiredTokenRef.current = false;

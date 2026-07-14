@@ -18,7 +18,7 @@ export function useSessionPermissionProjection(
   const { session, userId } = params;
 
   const isHumanGmSession = isHumanGmMode(session?.gmMode);
-  const gmUserId = isHumanGmSession ? (session?.gmUserId ?? session?.hostUserId ?? null) : null;
+  const gmUserId = isHumanGmSession ? (session?.hostUserId ?? null) : null;
   const isGmUser = Boolean(gmUserId && gmUserId === userId);
   const isHost = session?.hostUserId === userId;
   const isRecruiting = isRecruitingSessionStatus(session?.status);

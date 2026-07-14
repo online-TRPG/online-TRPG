@@ -60,7 +60,7 @@ export function useSessionStartTransition(params: UseSessionStartTransitionParam
         : '인간 GM이 세션을 시작할 때까지 기다려주세요.'
       : isHost
         ? '지금 게임을 시작하시겠습니까?'
-        : '호스트가 세션을 시작할 때까지 기다려주세요.',
+        : '세션 관리자가 플레이를 시작할 때까지 기다려주세요.',
     cancelLabel: '취소',
     startLabel: '게임 시작',
   };

@@ -170,6 +170,16 @@ export function connectSessionSocket(
     handlers.onLog("Reaction prompt", payload.reaction.message);
   }, handlers);
 
+  socket.on("session.play.updated", (payload: unknown) => {
+    window.dispatchEvent(new CustomEvent("trpg:session-play-updated", { detail: payload }));
+  });
+  socket.on("session.attendance.updated", (payload: unknown) => {
+    window.dispatchEvent(new CustomEvent("trpg:session-attendance-updated", { detail: payload }));
+  });
+  socket.on("session.active-play.changed", (payload: unknown) => {
+    window.dispatchEvent(new CustomEvent("trpg:active-play-changed", { detail: payload }));
+  });
+
   return socket;
 }
 

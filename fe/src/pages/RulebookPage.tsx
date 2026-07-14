@@ -5,6 +5,7 @@ import type {
 } from '@trpg/shared-types';
 import { decodeArray, isRecord, readNumber, readString } from '@trpg/shared-types/frontend';
 import dndLogo from '../assets/images/DnD5e_Logo.webp';
+import { getRuleSetLabel } from '../presentation/ruleSetLabels';
 import './RulebookPage.css';
 
 interface RulebookPageProps {
@@ -408,7 +409,7 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
 
         const nextRulebook = payload.rulebooks.find((entry) => entry.ruleSetId === ruleSetId);
         if (!nextRulebook) {
-          throw new Error(`룰셋 "${ruleSetId}"에 해당하는 룰북을 찾을 수 없습니다.`);
+          throw new Error(`${getRuleSetLabel(ruleSetId)} 룰북을 찾을 수 없습니다.`);
         }
 
         setRulebook(nextRulebook);

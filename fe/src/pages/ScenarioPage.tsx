@@ -82,10 +82,10 @@ function formatScenarioUpdatedAt(value: string | null | undefined): string {
 
 function formatPublishStatus(scenario: Scenario): string {
   if (scenario.sourceType === "SYSTEM") return "기본 제공 공개 시나리오";
-  if (scenario.publishStatus === "public") return `공개 revision ${scenario.revisionNumber ?? ""}`.trim();
-  if (scenario.publishStatus === "link") return `링크 공개 revision ${scenario.revisionNumber ?? ""}`.trim();
-  if (scenario.publishStatus === "private") return `비공개 revision ${scenario.revisionNumber ?? ""}`.trim();
-  if (scenario.publishStatus === "unpublished") return `공개 취소 revision ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "public") return `공개 버전 ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "link") return `링크 공개 버전 ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "private") return `비공개 버전 ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "unpublished") return `공개 취소 버전 ${scenario.revisionNumber ?? ""}`.trim();
   return "draft";
 }
 
@@ -424,7 +424,7 @@ export function ScenarioPage({
 
   async function handleUnpublishSelected() {
     if (!selectedScenario) return;
-    const confirmed = window.confirm(`${selectedScenario.title} revision을 공개 취소할까요? 기존 세션 snapshot은 유지됩니다.`);
+    const confirmed = window.confirm(`${selectedScenario.title} 공개 버전을 취소할까요? 기존 세션 진행 기록은 유지됩니다.`);
     if (!confirmed) return;
 
     setLocalBusy(true);
@@ -524,10 +524,10 @@ export function ScenarioPage({
 
   async function handleForkSelected() {
     if (!selectedScenario || !selectedCanFork) {
-      setPublicFeedback("작성자가 이 공개 시나리오의 fork를 허용하지 않았습니다.");
+      setPublicFeedback("작성자가 이 공개 시나리오의 복제를 허용하지 않았습니다.");
       return;
     }
-    const title = window.prompt("fork draft 제목을 입력하세요.", `${selectedScenario.title} Fork`) ?? "";
+    const title = window.prompt("복제할 시나리오 제목을 입력하세요.", `${selectedScenario.title} 복제본`) ?? "";
     setLocalBusy(true);
     setLocalError(null);
     setPublicFeedback(null);
@@ -549,9 +549,9 @@ export function ScenarioPage({
       setActiveLibrary("my");
       setSearchTerm("");
       setSelectedScenarioId(nextMine.some((scenario) => scenario.id === created.id) ? created.id : nextMine[0]?.id ?? null);
-      setPublicFeedback("공개 revision을 독립 draft로 fork했습니다.");
+      setPublicFeedback("공개 시나리오를 독립 편집본으로 복제했습니다.");
     } catch (caught) {
-      setLocalError(caught instanceof Error ? caught.message : "fork 생성에 실패했습니다.");
+      setLocalError(caught instanceof Error ? caught.message : "시나리오 복제에 실패했습니다.");
     } finally {
       setLocalBusy(false);
     }
@@ -636,7 +636,7 @@ export function ScenarioPage({
                       disabled={!selectedCanFork || disabled}
                       onClick={() => void handleForkSelected()}
                     >
-                      Fork해서 가져오기
+                      내 시나리오로 복제
                     </button>
                     <button
                       type="button"
@@ -796,7 +796,7 @@ export function ScenarioPage({
                     <span>{formatPublishStatus(scenario)}</span>
                     {activeLibrary === "public" ? (
                       <span className="scenario-library-updated-at">
-                        fork {scenario.forkCount ?? 0}
+                        복제 {scenario.forkCount ?? 0}회
                       </span>
                     ) : null}
                     <span className="scenario-library-updated-at">
@@ -841,7 +841,25 @@ export function ScenarioPage({
                       <dt>레벨 / 예상 시간</dt>
                       <dd>
                         {formatScenarioLevel(selectedScenario)}
-                        {selectedScenario.estimatedMinutes ? ` · ${selectedScenario.estimatedMinutes}분` : ""}
+                        {selectedScenario.estimatedMinutes
+                          ? ` · 약 ${selectedScenario.estimatedMinutes}분`
+                          : " · 예상 시간 미정"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>권장 인원 / 지원 GM</dt>
+                      <dd>
+                        {selectedScenario.recommendedPlayersMin && selectedScenario.recommendedPlayersMax
+                          ? `${selectedScenario.recommendedPlayersMin}~${selectedScenario.recommendedPlayersMax}명`
+                          : "권장 인원 미정"}
+                        {" · "}
+                        {selectedScenario.gmMode === "BOTH"
+                          ? "AI GM·사람 GM"
+                          : selectedScenario.gmMode === "AI"
+                            ? "AI GM"
+                            : selectedScenario.gmMode === "HUMAN"
+                              ? "사람 GM"
+                              : "지원 GM 미정"}
                       </dd>
                     </div>
                     <div>

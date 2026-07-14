@@ -9,27 +9,25 @@
  * 5) JSX: 입력 폼 카드와 선택 시나리오 프리뷰 카드
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { isRecruitingSessionStatus } from '@trpg/shared-types/frontend';
+import {
+  GmMode,
+  SessionVisibility,
+} from '@trpg/shared-types/frontend';
 import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
-import { getScenario } from '../services/scenarioApi';
-import type { AvailableSessionListItem, Scenario, StoredUser } from '../types/session';
+import type { CreateSessionInput } from '../services/sessionApi';
+import { trackProductEvent } from '../services/productEvents';
+import type { Scenario } from '../types/session';
 import './SessionCreatePage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionCreatePageProps {
-  user: StoredUser;
-  accessToken: string | null;
   scenarios: Scenario[];
-  mySessionList: AvailableSessionListItem[];
   initialScenarioId?: string | null;
   busy: boolean;
   error: string | null;
-  onCreateSession: (
-    title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
-  ) => void | Promise<void>;
+  onCreateSession: (input: CreateSessionInput) => void | Promise<void>;
 }
 
 function readClampedInteger(value: string, fallback: number, min: number, max: number) {
@@ -38,6 +36,21 @@ function readClampedInteger(value: string, fallback: number, min: number, max: n
     return fallback;
   }
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function padSchedulePart(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+const SCHEDULE_HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => padSchedulePart(hour));
+const SCHEDULE_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => padSchedulePart(minute));
+
+function createCurrentLocalSchedule(): { date: string; time: string } {
+  const now = new Date();
+  return {
+    date: `${now.getFullYear()}-${padSchedulePart(now.getMonth() + 1)}-${padSchedulePart(now.getDate())}`,
+    time: `${padSchedulePart(now.getHours())}:${padSchedulePart(now.getMinutes())}`,
+  };
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -63,15 +76,15 @@ function UsersIcon() {
 }
 
 export function SessionCreatePage({
-  user,
-  accessToken,
   scenarios,
-  mySessionList,
   initialScenarioId = null,
   busy,
   error,
   onCreateSession,
 }: SessionCreatePageProps) {
+  useEffect(() => {
+    trackProductEvent('session_create_started', 'session-create');
+  }, []);
   // 시나리오 데이터를 셀렉트 박스와 프리뷰 카드에서 쓰기 쉬운 형태로 변환합니다.
   const scenarioOptions = useMemo(() => buildSessionScenarioOptions(scenarios), [scenarios]);
   const providedScenarioOptions = useMemo(
@@ -84,13 +97,14 @@ export function SessionCreatePage({
   );
   // 세션 생성 폼에서 사용자가 입력/선택하는 값들입니다.
   const [sessionTitle, setSessionTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [selectedScenarioKey, setSelectedScenarioKey] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
-  const [useAiGm, setUseAiGm] = useState(true);
-  const [selectedScenarioImage, setSelectedScenarioImage] = useState<string | null>(null);
-
-  // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
-  const hasRecruitingSession = mySessionList.some((item) => isRecruitingSessionStatus(item.status));
+  const [gmMode, setGmMode] = useState<GmMode>(GmMode.AI);
+  const [visibility, setVisibility] = useState<SessionVisibility>(SessionVisibility.PUBLIC);
+  const [playSchedule, setPlaySchedule] = useState(createCurrentLocalSchedule);
+  const [joinPolicy, setJoinPolicy] = useState<'INVITE_ONLY' | 'APPROVAL_REQUIRED' | 'OPEN_JOIN'>('APPROVAL_REQUIRED');
+  const [openLobbyNow, setOpenLobbyNow] = useState(true);
 
   // 시나리오 옵션이 로드되면 구현 완료된 기본 제공 시나리오를 우선 선택합니다.
   useEffect(() => {
@@ -115,54 +129,35 @@ export function SessionCreatePage({
     scenarioOptions[0] ??
     null;
 
-  useEffect(() => {
-    let ignore = false;
-
-    if (!selectedScenario) {
-      setSelectedScenarioImage(null);
-      return () => {
-        ignore = true;
-      };
-    }
-
-    setSelectedScenarioImage(selectedScenario.image);
-
-    if (!selectedScenario.scenarioId) {
-      return () => {
-        ignore = true;
-      };
-    }
-
-    void getScenario(selectedScenario.scenarioId, user, accessToken)
-      .then((detail) => {
-        if (ignore) return;
-        const firstNodeImage =
-          detail.nodes.find((node) => typeof node.imageUrl === 'string' && node.imageUrl.trim())?.imageUrl?.trim() ??
-          null;
-        setSelectedScenarioImage(firstNodeImage || selectedScenario.image);
-      })
-      .catch(() => {
-        if (!ignore) {
-          setSelectedScenarioImage(selectedScenario.image);
-        }
-      });
-
-    return () => {
-      ignore = true;
-    };
-  }, [accessToken, selectedScenario, user]);
-
   // 폼 제출 시 부모의 세션 생성 콜백으로 입력값을 전달합니다.
   function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (hasRecruitingSession) return;
-
-    void onCreateSession(sessionTitle.trim() || selectedScenario?.title || '새 세션', {
+    void onCreateSession({
+      title: sessionTitle.trim() || selectedScenario?.title || '새 세션',
+      description: description.trim(),
       scenarioId: selectedScenario?.scenarioId,
       maxParticipants: maxPlayers,
-      useAiGm,
+      gmMode,
+      visibility,
+      nextSessionAt: new Date(`${playSchedule.date}T${playSchedule.time}`).toISOString(),
+      recruitmentStatus: visibility === SessionVisibility.PUBLIC ? 'OPEN' : 'CLOSED',
+      joinPolicy: visibility === SessionVisibility.PRIVATE ? 'INVITE_ONLY' : joinPolicy,
+      openLobbyNow,
     });
   }
+
+  function updatePlayScheduleTime(part: 'hour' | 'minute', value: string) {
+    setPlaySchedule((current) => {
+      const [currentHour = '00', currentMinute = '00'] = current.time.split(':');
+      return {
+        ...current,
+        time: part === 'hour' ? `${value}:${currentMinute}` : `${currentHour}:${value}`,
+      };
+    });
+  }
+
+  const [selectedScheduleHour = '00', selectedScheduleMinute = '00'] = playSchedule.time.split(':');
+
   return (
     <main className="session-create-page">
       <section
@@ -210,43 +205,166 @@ export function SessionCreatePage({
               </select>
             </div>
 
+            <div className="session-create-field">
+              <label htmlFor="session-description-page">세션 설명</label>
+              <textarea
+                id="session-description-page"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                maxLength={500}
+                placeholder="진행 방식, 예상 분위기, 일정, 참가자가 미리 알아야 할 내용을 자유롭게 작성해주세요."
+              />
+            </div>
+
             <div className="session-create-inline-grid">
               <div className="session-create-field session-create-range-field">
-                <label htmlFor="max-players-page">참가 인원 (1 ~ 4)</label>
+                <label htmlFor="max-players-page">총 인원 (GM/세션 관리자 포함, 1~8명)</label>
                 <input
                   id="max-players-page"
                   type="number"
                   min={1}
-                  max={4}
+                  max={8}
                   value={maxPlayers}
                   step={1}
                   onChange={(event) =>
-                    setMaxPlayers(readClampedInteger(event.target.value, maxPlayers, 1, 4))
+                    setMaxPlayers(readClampedInteger(event.target.value, maxPlayers, 1, 8))
                   }
                 />
               </div>
 
-              <label
-                className="session-create-mini-card session-create-ai-card session-create-ai-inline"
-                htmlFor="use-ai-gm-page"
-              >
-                <div className="session-create-ai-inline-copy">
-                  <RobotIcon />
-                  <strong>AI GM 사용</strong>
-                </div>
-                <input
-                  id="use-ai-gm-page"
-                  type="checkbox"
-                  checked={useAiGm}
-                  onChange={(event) => setUseAiGm(event.target.checked)}
-                />
-              </label>
+              <div className="session-create-field">
+                <label htmlFor="session-visibility-page">공개 범위</label>
+                <select
+                  id="session-visibility-page"
+                  value={visibility}
+                  onChange={(event) => setVisibility(event.target.value as SessionVisibility)}
+                >
+                  <option value={SessionVisibility.PUBLIC}>공개 · 목록에서 모집</option>
+                  <option value={SessionVisibility.PRIVATE}>비공개 · 초대로만 참가</option>
+                </select>
+              </div>
             </div>
+
+            <fieldset className="session-create-gm-field">
+              <legend>GM 유형</legend>
+              <label className={gmMode === GmMode.AI ? 'selected' : ''}>
+                <input
+                  type="radio"
+                  name="gm-mode"
+                  value={GmMode.AI}
+                  checked={gmMode === GmMode.AI}
+                  onChange={() => setGmMode(GmMode.AI)}
+                />
+                <RobotIcon />
+                <span>
+                  <strong>AI GM</strong>
+                  <small>AI가 시나리오 진행과 판정을 맡습니다.</small>
+                </span>
+              </label>
+              <label className={gmMode === GmMode.HUMAN ? 'selected' : ''}>
+                <input
+                  type="radio"
+                  name="gm-mode"
+                  value={GmMode.HUMAN}
+                  checked={gmMode === GmMode.HUMAN}
+                  onChange={() => setGmMode(GmMode.HUMAN)}
+                />
+                <UsersIcon />
+                <span>
+                  <strong>사람 GM</strong>
+                  <small>세션을 만든 GM이 직접 진행과 판정을 맡습니다.</small>
+                </span>
+              </label>
+            </fieldset>
+
+            <div className="session-create-field">
+              <span className="session-create-field-label">플레이 일정</span>
+              <div className="session-create-schedule-grid">
+                <label className="session-create-schedule-control" htmlFor="next-session-date-page">
+                  <span>날짜</span>
+                  <input
+                    id="next-session-date-page"
+                    type="date"
+                    value={playSchedule.date}
+                    required
+                    onClick={(event) => event.currentTarget.showPicker?.()}
+                    onChange={(event) =>
+                      setPlaySchedule((current) => ({ ...current, date: event.target.value }))
+                    }
+                  />
+                </label>
+                <div className="session-create-schedule-control">
+                  <span id="next-session-time-label">시간</span>
+                  <div
+                    className="session-create-time-selects"
+                    role="group"
+                    aria-labelledby="next-session-time-label"
+                  >
+                    <select
+                      id="next-session-hour-page"
+                      value={selectedScheduleHour}
+                      aria-label="시"
+                      onChange={(event) => updatePlayScheduleTime('hour', event.target.value)}
+                    >
+                      {SCHEDULE_HOUR_OPTIONS.map((hour) => (
+                        <option key={hour} value={hour}>
+                          {hour}시
+                        </option>
+                      ))}
+                    </select>
+                    <span aria-hidden="true">:</span>
+                    <select
+                      id="next-session-minute-page"
+                      value={selectedScheduleMinute}
+                      aria-label="분"
+                      onChange={(event) => updatePlayScheduleTime('minute', event.target.value)}
+                    >
+                      {SCHEDULE_MINUTE_OPTIONS.map((minute) => (
+                        <option key={minute} value={minute}>
+                          {minute}분
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="session-create-field">
+              <label htmlFor="session-join-policy-page">참가 방식</label>
+              <select
+                id="session-join-policy-page"
+                value={visibility === SessionVisibility.PRIVATE ? 'INVITE_ONLY' : joinPolicy}
+                disabled={visibility === SessionVisibility.PRIVATE}
+                onChange={(event) => setJoinPolicy(event.target.value as 'APPROVAL_REQUIRED' | 'OPEN_JOIN')}
+              >
+                {visibility === SessionVisibility.PRIVATE ? <option value="INVITE_ONLY">초대 전용</option> : null}
+                <option value="APPROVAL_REQUIRED">참가 신청 후 세션 관리자 승인</option>
+                <option value="OPEN_JOIN">바로 참가</option>
+              </select>
+              <small>
+                {visibility === SessionVisibility.PRIVATE
+                  ? '비공개 세션은 초대를 받은 사람만 참가합니다.'
+                  : '공개 세션은 신청을 검토하거나 누구나 바로 참가하게 할 수 있습니다.'}
+              </small>
+            </div>
+
+            <label className="session-create-checkbox">
+              <input
+                type="checkbox"
+                checked={openLobbyNow}
+                onChange={(event) => setOpenLobbyNow(event.target.checked)}
+              />
+              <span>
+                <strong>생성 후 바로 대기실 열기</strong>
+                <small>끄면 세션 홈만 열리고, 세션 관리자가 준비를 마친 뒤 대기실을 열 수 있습니다.</small>
+              </span>
+            </label>
 
             <button
               type="submit"
               className="session-create-submit"
-              disabled={busy || hasRecruitingSession}
+              disabled={busy}
             >
               <img
                 src={buttonSimpleBeigeImage}
@@ -265,7 +383,7 @@ export function SessionCreatePage({
             {selectedScenario ? (
               <>
                 <img
-                  src={selectedScenarioImage || selectedScenario.image}
+                  src={selectedScenario.image}
                   alt={`${selectedScenario.title} thumbnail`}
                   className="session-create-preview-image"
                 />
@@ -274,10 +392,30 @@ export function SessionCreatePage({
                   <div className="session-create-preview-title-row">
                     <h2>{selectedScenario.title}</h2>
                     <span className="session-create-preview-pill">
-                      {useAiGm ? 'AI GM' : '인간 GM'}
+                      {gmMode === GmMode.AI ? 'AI GM' : '사람 GM'}
                     </span>
                   </div>
                   <p className="session-create-preview-description">{selectedScenario.description}</p>
+
+                  <div className="session-create-preview-meta">
+                    <span>
+                      권장 레벨 {selectedScenario.startLevel}
+                      {selectedScenario.recommendedEndLevel &&
+                      selectedScenario.recommendedEndLevel !== selectedScenario.startLevel
+                        ? `~${selectedScenario.recommendedEndLevel}`
+                        : ''}
+                    </span>
+                    <span>
+                      {selectedScenario.estimatedMinutes
+                        ? `예상 ${selectedScenario.estimatedMinutes}분`
+                        : '예상 시간 미정'}
+                    </span>
+                    <span>
+                      {selectedScenario.recommendedPlayersMin && selectedScenario.recommendedPlayersMax
+                        ? `${selectedScenario.recommendedPlayersMin}~${selectedScenario.recommendedPlayersMax}명 권장`
+                        : '권장 인원 미정'}
+                    </span>
+                  </div>
 
                   <div className="session-create-preview-foot">
                     <span className="session-create-preview-count">

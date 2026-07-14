@@ -40,9 +40,10 @@
 
 .session-create-panel-form {
   display: grid;
-  grid-template-rows: auto auto auto auto auto;
-  gap: 16px;
-  padding: 42px 34px 28px;
+  align-content: start;
+  gap: 14px;
+  padding: 28px 34px 24px;
+  overflow: auto;
 }
 
 .session-create-field {
@@ -51,6 +52,7 @@
 }
 
 .session-create-field label,
+.session-create-field-label,
 .session-create-mini-label,
 .session-create-ai-card strong {
   display: inline-block;
@@ -61,8 +63,52 @@
   line-height: 1.1;
 }
 
+.session-create-schedule-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.session-create-schedule-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-create-schedule-control > span {
+  color: rgba(40, 28, 16, 0.72);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.session-create-schedule-control input {
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.session-create-time-selects {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.session-create-time-selects select {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 10px;
+  box-sizing: border-box;
+}
+
+.session-create-time-selects > span {
+  color: #1d150e;
+  font-weight: 900;
+}
+
 .session-create-field input,
-.session-create-field select {
+.session-create-field select,
+.session-create-field textarea {
   min-height: 44px;
   padding: 0 16px;
   border-radius: 16px;
@@ -71,6 +117,14 @@
   color: #17110a;
   font-size: 16px;
   font-weight: 600;
+}
+
+.session-create-field textarea {
+  min-height: 78px;
+  padding-block: 12px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
 }
 
 .session-create-field select {
@@ -166,7 +220,7 @@
 
 .session-create-submit {
   min-height: 58px;
-  margin-top: 32px;
+  margin-top: 8px;
   position: relative;
   border-radius: 18px;
   border: 0;
@@ -183,6 +237,95 @@
   appearance: none;
   -webkit-appearance: none;
   transform-origin: center center;
+}
+
+.session-create-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(196, 165, 118, 0.52);
+  border-radius: 16px;
+  background: rgba(255, 252, 246, 0.94);
+  cursor: pointer;
+}
+
+.session-create-checkbox input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.session-create-checkbox span {
+  display: grid;
+  gap: 4px;
+}
+
+.session-create-checkbox small,
+.session-create-field small {
+  color: rgba(40, 28, 16, 0.72);
+  line-height: 1.4;
+}
+
+.session-create-gm-field {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.session-create-gm-field legend {
+  grid-column: 1 / -1;
+  margin-bottom: 8px;
+  color: #1d150e;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.session-create-gm-field label {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 1px solid rgba(196, 165, 118, 0.52);
+  border-radius: 16px;
+  background: rgba(255, 252, 246, 0.94);
+  cursor: pointer;
+}
+
+.session-create-gm-field label.selected {
+  border-color: #235a91;
+  box-shadow: inset 0 0 0 1px #235a91;
+}
+
+.session-create-gm-field input {
+  accent-color: #235a91;
+}
+
+.session-create-gm-field .session-create-icon,
+.session-create-gm-field .session-create-meta-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.session-create-gm-field span {
+  display: grid;
+  gap: 3px;
+}
+
+.session-create-gm-field strong {
+  color: #1d150e;
+  font-size: 15px;
+}
+
+.session-create-gm-field small {
+  color: rgba(40, 28, 16, 0.72);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .session-create-submit:hover:not(:disabled) {
@@ -293,6 +436,21 @@
   max-height: 92px;
   overflow: auto;
   padding-right: 6px;
+}
+
+.session-create-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.session-create-preview-meta span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(35, 90, 145, 0.1);
+  color: #1f4d7b;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .session-create-preview-foot {

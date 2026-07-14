@@ -9,9 +9,12 @@ import type {
   HumanGmAiAssistSuggestionDto,
   HumanGmMessageDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmRevealOptionDto,
   HumanGmPrivateNoteDto,
   RemoveHumanGmInventoryItemDto,
   ReportHumanGmAiAssistApplicationFailureDto,
+  RevealSessionContentDto,
+  SessionRevealResponseDto,
   SessionSnapshotDto,
   SetHumanGmDifficultyClassDto,
   UpdateSessionNodeDto,
@@ -20,8 +23,10 @@ import {
   decodeHumanGmAiAssistSuggestion,
   decodeHumanGmAiAssistSuggestionArray,
   decodeHumanGmNodeMoveOptionArray,
+  decodeHumanGmRevealOptionArray,
   decodeHumanGmPrivateNoteArray,
   decodeSessionSnapshot,
+  decodeSessionRevealResponse,
 } from '@trpg/shared-types/frontend';
 import type {
   SessionSnapshot,
@@ -29,23 +34,6 @@ import type {
 } from '../types/session';
 import { normalizeSessionSnapshot } from '../types/session';
 import { requestJson } from './httpClient';
-
-export async function updateHumanGm(
-  user: StoredUser,
-  sessionId: string,
-  gmUserId: string,
-  accessToken?: string | null
-): Promise<SessionSnapshot> {
-  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm`, {
-    method: 'PATCH',
-    user,
-    accessToken,
-    body: { gmUserId },
-    decode: decodeSessionSnapshot,
-  });
-
-  return normalizeSessionSnapshot(snapshot);
-}
 
 export async function updateHumanGmSessionNode(
   user: StoredUser,
@@ -92,6 +80,34 @@ export function getHumanGmNodeMoveOptions(
     user,
     accessToken,
     decode: decodeHumanGmNodeMoveOptionArray,
+  });
+}
+
+export function getHumanGmRevealOptions(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null,
+): Promise<HumanGmRevealOptionDto[]> {
+  return requestJson<HumanGmRevealOptionDto[]>(`/sessions/${sessionId}/gm/reveal-options`, {
+    method: 'GET',
+    user,
+    accessToken,
+    decode: decodeHumanGmRevealOptionArray,
+  });
+}
+
+export function revealHumanGmContent(
+  user: StoredUser,
+  sessionId: string,
+  payload: RevealSessionContentDto,
+  accessToken?: string | null,
+): Promise<SessionRevealResponseDto> {
+  return requestJson<SessionRevealResponseDto>(`/sessions/${sessionId}/gm/reveals`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+    decode: decodeSessionRevealResponse,
   });
 }
 

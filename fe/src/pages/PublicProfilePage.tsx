@@ -93,8 +93,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
   // 공개 프로필에서도 이름 계열 필드는 닉네임 하나만 보여줘 사용자가 같은 값을 여러 이름으로 보지 않게 합니다.
   const profileRows = [
     { label: "닉네임", value: nickname },
-    { label: "프로필 주소", value: canonicalPath },
-    { label: "회원 유형", value: effectiveProfile.authProvider },
+    { label: "가입일", value: effectiveProfile.createdAt ? new Date(effectiveProfile.createdAt).toLocaleDateString("ko-KR") : "-" },
     { label: "공개 대상", value: "세션 탐색 중 확인 가능한 기본 프로필" },
   ];
 
@@ -109,7 +108,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
             <div>
               <h1>{nickname}</h1>
               <p>
-                현재 MVP에서는 세션 상세 화면에서 받은 최소 프로필 정보만 공개합니다. 쪽지, 외부 연락 수단, 대표 캐릭터 같은 확장 요소는 이후 단계에서 붙일 예정입니다.
+                세션에 함께할 사용자를 확인할 수 있도록 공개 닉네임과 가입 정보를 표시합니다.
               </p>
             </div>
           </div>
@@ -122,7 +121,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
         </div>
       </section>
 
-      {/* 공개 가능한 최소 정보와 이후 확장 예정 기능을 카드로 표시합니다. */}
+      {/* 공개 가능한 기본 정보와 현재 조회 상태를 표시합니다. */}
       <section className="profile-grid">
         <article className="profile-card">
           <div className="section-heading">
@@ -145,16 +144,12 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
         <article className="profile-card">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Availability</span>
-              <h2>확장 예정 기능</h2>
+              <span className="eyebrow">프로필 안내</span>
+              <h2>공개 정보</h2>
             </div>
           </div>
 
           <div className="profile-notes">
-            <div className="profile-note">
-              <strong>직접 연락 기능</strong>
-              <p>자체 쪽지나 외부 OAuth 계정 연동을 통한 연락 기능은 MVP 범위 밖으로 두고, 프로필 화면에서 역할과 기본 정보만 우선 확인합니다.</p>
-            </div>
             <div className="profile-note">
               <strong>현재 상태</strong>
               <p>

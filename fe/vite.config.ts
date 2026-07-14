@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      "@trpg/shared-types/frontend": fileURLToPath(
+        new URL("../shared-types/src/frontend.ts", import.meta.url),
+      ),
       "@trpg/shared-types/browser-runtime": fileURLToPath(
         new URL("../shared-types/src/browser-runtime.ts", import.meta.url),
       ),

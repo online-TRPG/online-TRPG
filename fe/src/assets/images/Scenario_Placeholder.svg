@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title description">
+  <title id="title">시나리오 대표 이미지 없음</title>
+  <desc id="description">책과 주사위 문양이 있는 중립적인 시나리오 자리표시자</desc>
+  <rect width="960" height="540" fill="#e7dcc8"/>
+  <path d="M0 410c180-70 310-35 480 22 170-57 300-92 480-22v130H0z" fill="#d2c09f"/>
+  <g fill="none" stroke="#6f5b3e" stroke-width="14" stroke-linejoin="round">
+    <path d="M285 155h150c34 0 58 16 65 42v218c-12-23-35-35-69-35H285z"/>
+    <path d="M675 155H525c-34 0-58 16-65 42v218c12-23 35-35 69-35h146z"/>
+    <path d="M480 197v218"/>
+    <path d="M570 242l48 28-18 54h-60l-18-54z"/>
+  </g>
+  <g fill="#6f5b3e">
+    <circle cx="570" cy="270" r="7"/>
+    <circle cx="548" cy="300" r="7"/>
+    <circle cx="592" cy="300" r="7"/>
+  </g>
+</svg>

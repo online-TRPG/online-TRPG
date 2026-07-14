@@ -1,9 +1,17 @@
 import modalFancyBlue from "./Modal_Fancy_Blue.webp";
 import buttonFancyBlue from "./Button_Fancy_Blue.webp";
 import buttonFancyBlueCancel from "./Button_Fancy_Blue_Cancel.webp";
-import { GmMode, SessionParticipantStatus, SessionScenarioStatus, isAiGmMode } from "@trpg/shared-types/frontend";
-import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
+import {
+  GmMode,
+  SessionActivityStatus,
+  SessionJoinPolicy,
+  SessionParticipantStatus,
+  SessionScenarioStatus,
+  isAiGmMode,
+} from "@trpg/shared-types/frontend";
+import { scenarioPlaceholder } from "../data/sessionVisuals";
 import type { SessionDetail, User } from "../types/session";
+import { useDialogFocusTrap } from "../hooks/useDialogFocusTrap";
 
 interface SessionDetailModalProps {
   detail: SessionDetail | null;
@@ -11,8 +19,6 @@ interface SessionDetailModalProps {
   error: string | null;
   busy: boolean;
   canEnter: boolean;
-  isEnterBlocked?: boolean;
-  isCurrentSession: boolean;
   isKnownMember: boolean;
   onClose: () => void;
   onEnter: () => void | Promise<void>;
@@ -21,39 +27,13 @@ interface SessionDetailModalProps {
 
 const GM_MODE_LABEL: Record<GmMode, string> = {
   [GmMode.AI]: "AI GM",
-  [GmMode.HUMAN]: "인간 GM",
+  [GmMode.HUMAN]: "사람 GM",
 };
 
 function getDetailErrorMessage(error: string | null): string | null {
   if (!error) return null;
   if (error.includes("Failed to fetch")) return "세션 정보를 불러오지 못했습니다.";
   return error;
-}
-
-function getDurationLabel(title: string, difficulty: string): string {
-  const normalized = `${title} ${difficulty}`.toLowerCase();
-  if (normalized.includes("dragon") || normalized.includes("hard")) return "90~120분";
-  if (normalized.includes("maze") || normalized.includes("treasure")) return "60~90분";
-  return "60~90분";
-}
-
-function getThemeLabel(title: string, theme: string): string {
-  const normalized = title.toLowerCase();
-  if (normalized.includes("goblin")) return "고블린 동굴 / 모험 / 전투";
-  if (normalized.includes("dragon")) return "설원 / 추적 / 전투";
-  if (normalized.includes("forest")) return "숲 / 조사 / 추리";
-  if (normalized.includes("maze")) return "미궁 / 퍼즐 / 탐험";
-  return `${theme} / 모험`;
-}
-
-function getRecommendationTags(title: string, gmModeLabel: string): string[] {
-  const normalized = title.toLowerCase();
-  const tags = [gmModeLabel === "AI GM" ? "입문자 환영" : "GM과 협동", "협동 플레이"];
-  if (normalized.includes("goblin")) tags.push("짧고 가볍게 즐기기");
-  else if (normalized.includes("dragon")) tags.push("전투 중심");
-  else if (normalized.includes("maze")) tags.push("퍼즐 선호");
-  else tags.push("탐험 선호");
-  return tags;
 }
 
 function truncateText(value: string, maxLength: number): string {
@@ -112,13 +92,12 @@ export function SessionDetailModal({
   error,
   busy,
   canEnter,
-  isEnterBlocked = false,
-  isCurrentSession,
   isKnownMember,
   onClose,
   onEnter,
   onOpenHostProfile,
 }: SessionDetailModalProps) {
+  const dialogFocus = useDialogFocusTrap<HTMLElement>(Boolean(loading || detail || error), onClose);
   if (!loading && !detail && !error) return null;
 
   const activeScenario =
@@ -126,11 +105,11 @@ export function SessionDetailModal({
   const participantCount = detail?.participants.filter((item) => item.status === SessionParticipantStatus.JOINED).length ?? 0;
   const detailError = getDetailErrorMessage(error);
 
-  const visualTitle = activeScenario?.title ?? detail?.session.title ?? "";
-  const visual = findSessionVisualByTitle(visualTitle) ?? sessionVisualPresets[0];
-  const previewImage = activeScenario?.thumbnailUrl?.trim() || visual.image;
+  const previewImage = activeScenario?.thumbnailUrl?.trim() || scenarioPlaceholder;
   const rawScenarioIntroduction =
-    activeScenario?.description?.trim() || detail?.session.description?.trim() || visual.description;
+    activeScenario?.description?.trim() ||
+    detail?.session.description?.trim() ||
+    "시나리오 설명이 아직 입력되지 않았습니다.";
   const scenarioIntroduction = truncateText(
     rawScenarioIntroduction,
     getIntroductionMaxLength(rawScenarioIntroduction),
@@ -140,19 +119,40 @@ export function SessionDetailModal({
       ? GM_MODE_LABEL[GmMode.AI]
       : GM_MODE_LABEL[GmMode.HUMAN]
     : GM_MODE_LABEL[GmMode.AI];
-  const difficultyLabel = visual.difficulty === "Hard" ? "어려움" : visual.difficulty === "Normal" ? "보통" : visual.difficulty;
-  const durationLabel = getDurationLabel(visualTitle, difficultyLabel);
-  const themeLabel = getThemeLabel(visualTitle, visual.theme);
-  const recommendationTags = getRecommendationTags(visualTitle, gmModeLabel);
-  const enterLabel = isCurrentSession ? "현재 세션 열기" : isKnownMember ? "다시 입장하기" : "참여하기";
+  const difficultyLabel = activeScenario?.difficulty?.trim() || "난이도 미정";
+  const durationLabel = activeScenario?.estimatedMinutes
+    ? `약 ${activeScenario.estimatedMinutes}분`
+    : "예상 시간 미정";
+  const themeLabel = activeScenario?.tags?.length
+    ? activeScenario.tags.join(" / ")
+    : "테마 미정";
+  const recommendationTags = activeScenario?.tags ?? [];
+  const recommendedPlayersLabel =
+    activeScenario?.recommendedPlayersMin && activeScenario?.recommendedPlayersMax
+      ? `${activeScenario.recommendedPlayersMin}~${activeScenario.recommendedPlayersMax}명 권장`
+      : activeScenario?.recommendedPlayersMin
+        ? `${activeScenario.recommendedPlayersMin}명 이상 권장`
+        : activeScenario?.recommendedPlayersMax
+          ? `${activeScenario.recommendedPlayersMax}명 이하 권장`
+          : "권장 인원 미정";
+  const canEnterLive = detail && [SessionActivityStatus.LOBBY_OPEN, SessionActivityStatus.PLAYING]
+    .includes(detail.session.activityStatus);
+  const enterLabel = isKnownMember
+    ? canEnterLive ? "대기실 입장" : "세션 홈 열기"
+    : detail?.session.joinPolicy === SessionJoinPolicy.APPROVAL_REQUIRED
+      ? "참가 신청 화면 열기"
+      : "참여하기";
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
+        ref={dialogFocus.dialogRef}
+        tabIndex={-1}
         className="session-detail-modal-fancy"
         role="dialog"
         aria-modal="true"
         aria-labelledby="session-detail-title"
+        onKeyDown={dialogFocus.onDialogKeyDown}
         onClick={(event) => event.stopPropagation()}
         style={{ backgroundImage: `url(${modalFancyBlue})` }}
       >
@@ -187,7 +187,7 @@ export function SessionDetailModal({
                   <div className="session-detail-titlemeta">
                     <div className="session-detail-pill session-detail-pill-primary">{gmModeLabel}</div>
                     <button type="button" className="session-detail-hostlink" onClick={() => onOpenHostProfile(detail.host)}>
-                      호스트: {detail.host.displayName}
+                      세션 관리자: {detail.host.displayName}
                     </button>
                   </div>
                 </div>
@@ -207,14 +207,12 @@ export function SessionDetailModal({
                 <section className="session-detail-fancy-section session-detail-fancy-tags">
                   <div className="session-detail-fancy-section-title">
                     <MetaIcon kind="star" />
-                    <strong>이런 플레이어에게 추천</strong>
+                    <strong>테마 태그</strong>
                   </div>
                   <div className="session-detail-tag-list">
-                    {recommendationTags.map((tag) => (
-                      <span key={tag} className="session-detail-tag">
-                        {tag}
-                      </span>
-                    ))}
+                    {recommendationTags.length ? recommendationTags.map((tag) => (
+                      <span key={tag} className="session-detail-tag">{tag}</span>
+                    )) : <span className="session-detail-tag">태그 미정</span>}
                   </div>
                 </section>
               </section>
@@ -229,6 +227,7 @@ export function SessionDetailModal({
                     <strong>
                       {participantCount} / {detail.session.maxParticipants}
                     </strong>
+                    <small>{recommendedPlayersLabel}</small>
                   </div>
                 </div>
 
@@ -265,7 +264,7 @@ export function SessionDetailModal({
                 <div className="session-detail-hostline">
                   <button
                     type="button"
-                    className={`session-detail-enter${isEnterBlocked ? " is-blocked" : ""}`}
+                    className="session-detail-enter"
                     disabled={busy || !canEnter}
                     onClick={() => void onEnter()}
                     style={{ backgroundImage: `url(${buttonFancyBlue})` }}

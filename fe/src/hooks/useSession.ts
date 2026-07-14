@@ -15,6 +15,9 @@ import type {
   UpdatePreparedSpellsDto,
   VttMapDeltaDto,
   VttMapStateDto,
+  ActivePlayResponseDto,
+  SessionPlayResponseDto,
+  SessionScheduleVersionAcknowledgementDto,
 } from '@trpg/shared-types';
 import {
   ActionInputType,
@@ -25,10 +28,11 @@ import {
   MAIN_COMMAND_PENDING_LOG_TIMEOUT_MS,
   getMainCommandCheckEffect,
   getPrimaryMainCommandCheckOption,
-  isBlockingSessionStatus,
   isMainCommandCheckRequired,
   isRecord,
   normalizeSessionStatus,
+  SessionActivityStatus,
+  SessionParticipantStatus,
 } from '@trpg/shared-types/frontend';
 import {
   applyVttMapDelta,
@@ -46,26 +50,37 @@ import {
   updateCharacter as apiUpdateCharacter,
   updatePreparedSpells as apiUpdatePreparedSpells,
 } from '../services/characterApi';
-import { updateHumanGm as apiUpdateHumanGm } from '../services/humanGmApi';
 import {
   approveRestAction as apiApproveRestAction,
+  enterActivePlay as apiEnterActivePlay,
+  heartbeatActivePlay as apiHeartbeatActivePlay,
+  leaveActivePlay as apiLeaveActivePlay,
+  listSessionPlays as apiListSessionPlays,
   cancelRestAction as apiCancelRestAction,
   createSession as apiCreateSession,
   getSession,
+  getSessionApplicationProximityWarnings as apiGetSessionApplicationProximityWarnings,
+  getSessionInviteProximityWarnings as apiGetSessionInviteProximityWarnings,
   joinSession as apiJoinSession,
   joinSessionById as apiJoinSessionById,
   leaveSession as apiLeaveSession,
+  listRemovedParticipants as apiListRemovedParticipants,
   listTurnLogs as apiListTurnLogs,
   listMySessions as apiListMySessions,
   listSessions,
   rejectRestAction as apiRejectRestAction,
+  removeSessionParticipant as apiRemoveSessionParticipant,
+  restoreSessionParticipant as apiRestoreSessionParticipant,
   resolveMainCommandCheck as apiResolveMainCommandCheck,
-  startSession as apiStartSession,
+  startSessionPlay as apiStartSessionPlay,
   submitAction as apiSubmitAction,
   submitMainCommand as apiSubmitMainCommand,
   submitRestAction as apiSubmitRestAction,
+  updateSession as apiUpdateSession,
+  transitionSessionPlay as apiTransitionSessionPlay,
   updateReadyState as apiUpdateReadyState,
 } from '../services/sessionApi';
+import type { CreateSessionInput, UpdateSessionInput } from '../services/sessionApi';
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
 import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from '../services/storage';
 import { readVttMapFromSessionFlags } from '../features/sessionPlay/utils/sessionStateFlags';
@@ -150,19 +165,27 @@ export interface CharacterPayload {
 export interface UseSessionReturn {
   snapshot: SessionSnapshot | null;
   sessionList: AvailableSessionListItem[];
+  sessionListTotal: number;
   mySessionList: AvailableSessionListItem[];
+  mySessionListTotal: number;
   myCharacters: PersistentCharacter[];
+  removedParticipants: Participant[];
+  sessionPlays: SessionPlayResponseDto[];
+  activePlay: ActivePlayResponseDto | null;
   socketConnected: boolean;
   hasOlderTurnLogs: boolean;
   isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
-  createSession: (
-    title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
-  ) => Promise<SessionSnapshot | null>;
+  confirmation: { title: string; message: string; confirmLabel: string; danger?: boolean } | null;
+  resolveConfirmation: (confirmed: boolean) => void;
+  createSession: (input: CreateSessionInput) => Promise<SessionSnapshot | null>;
+  updateSession: (input: UpdateSessionInput) => Promise<SessionSnapshot | null>;
   joinSession: (inviteCode: string) => Promise<SessionSnapshot | null>;
   joinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
+  enterPlay: (sessionId: string, playId: string) => Promise<boolean>;
+  exitPlayView: () => Promise<void>;
+  refreshSessionPlays: (sessionId?: string) => Promise<void>;
   createCharacter: (payload: CharacterPayload) => Promise<boolean>;
   cloneCharacter: (characterId: string) => Promise<void>;
   updateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
@@ -171,9 +194,11 @@ export interface UseSessionReturn {
   deleteCharacter: (characterId: string) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
-  setHumanGm: (gmUserId: string) => Promise<void>;
   startSession: () => Promise<void>;
+  finishCurrentPlay: () => Promise<SessionSnapshot | null>;
   leaveSession: () => Promise<boolean>;
+  removeParticipant: (participantPublicId: string) => Promise<boolean>;
+  restoreParticipant: (participantPublicId: string) => Promise<boolean>;
   sendMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
   resolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto
@@ -689,14 +714,19 @@ export function useSession(
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [sessionList, setSessionList] = useState<AvailableSessionListItem[]>([]);
+  const [sessionListTotal, setSessionListTotal] = useState(0);
   const [mySessionList, setMySessionList] = useState<AvailableSessionListItem[]>([]);
+  const [mySessionListTotal, setMySessionListTotal] = useState(0);
   const [myCharacters, setMyCharacters] = useState<PersistentCharacter[]>([]);
+  const [removedParticipants, setRemovedParticipants] = useState<Participant[]>([]);
+  const [sessionPlays, setSessionPlays] = useState<SessionPlayResponseDto[]>([]);
+  const [activePlay, setActivePlay] = useState<ActivePlayResponseDto | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
   const [turnLogNextCursor, setTurnLogNextCursor] = useState<string | null>(null);
   const [isLoadingTurnLogs, setIsLoadingTurnLogs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mySessionsLoaded, setMySessionsLoaded] = useState(false);
+  const [confirmation, setConfirmation] = useState<UseSessionReturn['confirmation']>(null);
   // 세션 진행 중 주사위 굴림을 전원에게 보여주는 오버레이. turn.log.created 이벤트로 채워진다.
   const [activeDiceRoll, setActiveDiceRoll] = useState<DiceRollOverlayData | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -705,6 +735,24 @@ export function useSession(
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
   const pendingMainCommandLogsRef = useRef<PendingMainCommandLog[]>([]);
   const pendingMainCommandCheckLogsRef = useRef<PendingMainCommandCheckLog[]>([]);
+  const confirmationResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+
+  function requestConfirmation(next: NonNullable<UseSessionReturn['confirmation']>): Promise<boolean> {
+    confirmationResolverRef.current?.(false);
+    setConfirmation(next);
+    return new Promise<boolean>((resolve) => {
+      confirmationResolverRef.current = resolve;
+    });
+  }
+
+  function resolveConfirmation(confirmed: boolean) {
+    const resolve = confirmationResolverRef.current;
+    confirmationResolverRef.current = null;
+    setConfirmation(null);
+    resolve?.(confirmed);
+  }
+
+  useEffect(() => () => confirmationResolverRef.current?.(false), []);
 
   const removePendingMainCommandLog = useCallback(
     (entry: PendingMainCommandLog, options?: { removeRaw?: boolean; removePending?: boolean }) => {
@@ -764,6 +812,7 @@ export function useSession(
     setSnapshot(null);
     snapshotRef.current = null;
     setSocketConnected(false);
+    setActivePlay(null);
     socketRef.current?.disconnect();
     socketRef.current = null;
     seenTurnLogIdsRef.current.clear();
@@ -782,6 +831,7 @@ export function useSession(
     pendingMainCommandCheckLogsRef.current = [];
     setTurnLogNextCursor(null);
     setIsLoadingTurnLogs(false);
+    setSessionPlays([]);
     clearSessionLogs();
   }, [clearSessionLogs]);
 
@@ -831,11 +881,6 @@ export function useSession(
     snapshotRef.current = snapshot;
   }, [snapshot]);
 
-  const hasBlockingSession = useCallback(
-    () => mySessionList.some((item) => isBlockingSessionStatus(item.status)),
-    [mySessionList]
-  );
-
   useEffect(() => {
     if (!user) {
       // 로그아웃/토큰 만료 직후 이전 사용자의 세션 화면이 남지 않도록 메모리 상태까지 함께 비웁니다.
@@ -843,9 +888,11 @@ export function useSession(
       snapshotRef.current = null;
       clearStoredSnapshot();
       setSessionList([]);
+      setSessionListTotal(0);
       setMySessionList([]);
+      setMySessionListTotal(0);
       setMyCharacters([]);
-      setMySessionsLoaded(false);
+      setRemovedParticipants([]);
       seenTurnLogIdsRef.current.clear();
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
@@ -855,13 +902,16 @@ export function useSession(
     }
 
     void listSessions(user, accessToken)
-      .then((result) => setSessionList(result.content))
+      .then((result) => {
+        setSessionList(result.content);
+        setSessionListTotal(result.totalElements);
+      })
       .catch(() => undefined);
 
     void apiListMySessions(user, accessToken)
       .then((result) => {
         setMySessionList(result.content);
-        setMySessionsLoaded(true);
+        setMySessionListTotal(result.totalElements);
       })
       .catch(() => undefined);
 
@@ -871,32 +921,14 @@ export function useSession(
   }, [accessToken, clearSessionLogs, user]);
 
   useEffect(() => {
-    if (!user || !snapshot || !mySessionsLoaded || busy) return;
-
-    const matchedSession = mySessionList.find(
-      (item) =>
-        item.sessionId === snapshot.session.id || item.sessionPublicId === snapshot.session.publicId
-    );
-
-    if (!matchedSession) {
-      clearLocalSessionState();
+    if (!user || !snapshot || snapshot.session.hostUserId !== user.id) {
+      setRemovedParticipants([]);
       return;
     }
-
-    if (
-      matchedSession &&
-      !isBlockingSessionStatus(matchedSession.status) &&
-      isBlockingSessionStatus(snapshot.session.status)
-    ) {
-      clearStoredSnapshot();
-      setSnapshot(null);
-      setSocketConnected(false);
-      seenTurnLogIdsRef.current.clear();
-      loadedTurnLogSessionIdRef.current = null;
-      setTurnLogNextCursor(null);
-      setIsLoadingTurnLogs(false);
-    }
-  }, [busy, clearLocalSessionState, mySessionList, mySessionsLoaded, snapshot, user]);
+    void apiListRemovedParticipants(user, snapshot.session.id, accessToken)
+      .then(setRemovedParticipants)
+      .catch(() => setRemovedParticipants([]));
+  }, [accessToken, snapshot?.session.hostUserId, snapshot?.session.id, user]);
 
   const buildPlayerRawInputLog = useCallback(
     (turnLog: TurnLogResponseDto): LogWriteInput | null => {
@@ -1103,11 +1135,26 @@ export function useSession(
   }, [accessToken, appendHistoricalTurnLogs, isLoadingTurnLogs, turnLogNextCursor, user]);
 
   useEffect(() => {
-    if (!user || !snapshot?.session.id) return undefined;
+    if (
+      !user ||
+      !snapshot?.session.id ||
+      !snapshot.session.currentPlayId ||
+      activePlay?.sessionId !== snapshot.session.id ||
+      activePlay.playId !== snapshot.session.currentPlayId
+    ) return undefined;
 
     const socket: Socket = connectSessionSocket(user, snapshot.session.id, {
       onSnapshot: updateSnapshot,
       onParticipantUpdated: (participant: Participant) => {
+        if (participant.userId === user.id && participant.status !== SessionParticipantStatus.JOINED) {
+          clearLocalSessionState();
+          setError(
+            participant.status === SessionParticipantStatus.KICKED
+              ? '세션 관리자가 이 세션에서 내보냈습니다.'
+              : '세션 소속이 종료되었습니다.',
+          );
+          return;
+        }
         setSnapshot((current) => {
           if (!current) return current;
 
@@ -1339,7 +1386,57 @@ export function useSession(
       }
       socket.disconnect();
     };
-  }, [appendLog, appendServerTurnLog, removeLog, snapshot?.session.id, updateSnapshot, user]);
+  }, [activePlay?.playId, activePlay?.sessionId, appendLog, appendServerTurnLog, removeLog, snapshot?.session.currentPlayId, snapshot?.session.id, updateSnapshot, user]);
+
+  useEffect(() => {
+    if (!user || !activePlay) return undefined;
+    const intervalId = window.setInterval(() => {
+      void apiHeartbeatActivePlay(user, activePlay.playId, accessToken)
+        .then(setActivePlay)
+        .catch(() => undefined);
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [accessToken, activePlay?.playId, user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    const refreshPlays = () => {
+      const sessionId = snapshotRef.current?.session.id;
+      if (!sessionId) return;
+      void apiListSessionPlays(user, sessionId, accessToken).then(setSessionPlays).catch(() => undefined);
+    };
+    const handleActivePlayChanged = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isRecord(event.detail)) return;
+      const payload = event.detail;
+      if (payload.activePlay === null) {
+        setActivePlay(null);
+        return;
+      }
+      if (!isRecord(payload.activePlay)) return;
+      const next = payload.activePlay;
+      if (
+        typeof next.sessionId === 'string' &&
+        typeof next.playId === 'string' &&
+        typeof next.acquiredAt === 'string' &&
+        typeof next.heartbeatAt === 'string'
+      ) {
+        setActivePlay({
+          sessionId: next.sessionId,
+          playId: next.playId,
+          acquiredAt: next.acquiredAt,
+          heartbeatAt: next.heartbeatAt,
+        });
+      }
+    };
+    window.addEventListener('trpg:session-play-updated', refreshPlays);
+    window.addEventListener('trpg:session-attendance-updated', refreshPlays);
+    window.addEventListener('trpg:active-play-changed', handleActivePlayChanged);
+    return () => {
+      window.removeEventListener('trpg:session-play-updated', refreshPlays);
+      window.removeEventListener('trpg:session-attendance-updated', refreshPlays);
+      window.removeEventListener('trpg:active-play-changed', handleActivePlayChanged);
+    };
+  }, [accessToken, user]);
 
   useEffect(() => {
     if (!user || !snapshot?.session.id) return;
@@ -1376,8 +1473,9 @@ export function useSession(
         apiListMySessions(user, accessToken),
       ]);
       setSessionList(publicSessions.content);
+      setSessionListTotal(publicSessions.totalElements);
       setMySessionList(mySessions.content);
-      setMySessionsLoaded(true);
+      setMySessionListTotal(mySessions.totalElements);
       return {
         publicSessions: publicSessions.content,
         mySessions: mySessions.content,
@@ -1391,6 +1489,64 @@ export function useSession(
 
   async function refreshSessionList() {
     await refreshSessionListInternal();
+  }
+
+  async function refreshSessionPlays(sessionId = snapshotRef.current?.session.id) {
+    if (!user || !sessionId) {
+      setSessionPlays([]);
+      return;
+    }
+    try {
+      setSessionPlays(await apiListSessionPlays(user, sessionId, accessToken));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '플레이 일정을 불러오지 못했습니다.');
+    }
+  }
+
+  async function enterPlay(sessionId: string, playId: string): Promise<boolean> {
+    if (!user) return false;
+    setError(null);
+    setBusy(true);
+    try {
+      const acquired = await apiEnterActivePlay(user, sessionId, playId, false, accessToken);
+      setActivePlay(acquired);
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '대기실에 입장하지 못했습니다.';
+      if (
+        (message.includes('다른 플레이') || message.includes('이동하면 현재 플레이')) &&
+        await requestConfirmation({
+          title: '실시간 플레이 전환',
+          message: `${message}\n\n현재 플레이에서 나가고 새 플레이로 이동할까요?`,
+          confirmLabel: '새 플레이로 이동',
+        })
+      ) {
+        try {
+          const acquired = await apiEnterActivePlay(user, sessionId, playId, true, accessToken);
+          setActivePlay(acquired);
+          return true;
+        } catch (retryError) {
+          setError(retryError instanceof Error ? retryError.message : '플레이 전환에 실패했습니다.');
+          return false;
+        }
+      }
+      setError(message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exitPlayView(): Promise<void> {
+    if (user) {
+      try {
+        await apiLeaveActivePlay(user, accessToken);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : '플레이 화면에서 나가지 못했습니다.');
+      }
+    }
+    setActivePlay(null);
+    clearLocalSessionState();
   }
 
   async function refreshMyCharacters() {
@@ -1409,21 +1565,14 @@ export function useSession(
     updateSnapshot(await getSession(user, sessionId, accessToken));
   }
 
-  async function createSession(
-    title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
-  ): Promise<SessionSnapshot | null> {
+  async function createSession(input: CreateSessionInput): Promise<SessionSnapshot | null> {
     if (!user) return null;
-    if (hasBlockingSession()) {
-      setError('모집 중인 세션에는 하나만 참가할 수 있습니다.');
-      return null;
-    }
 
     setError(null);
     setBusy(true);
 
     try {
-      const next = await apiCreateSession(user, title, options, accessToken);
+      const next = await apiCreateSession(user, input, accessToken);
       updateSnapshot(next);
       appendLog('rest', '세션 생성', `${next.session.title} 세션을 생성했습니다.`);
       const lists = await refreshSessionListInternal();
@@ -1440,18 +1589,101 @@ export function useSession(
     }
   }
 
+  async function updateSession(input: UpdateSessionInput): Promise<SessionSnapshot | null> {
+    if (!user || !snapshot) return null;
+
+    setError(null);
+    setBusy(true);
+    try {
+      await apiUpdateSession(
+        user,
+        snapshot.session.publicId || snapshot.session.id,
+        input,
+        accessToken,
+      );
+      const next = await getSession(
+        user,
+        snapshot.session.publicId || snapshot.session.id,
+        accessToken,
+      );
+      updateSnapshot(next);
+      await refreshSessionListInternal();
+      return next;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '세션 설정을 저장하지 못했습니다.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmProximityWarnings(sessionId: string): Promise<SessionScheduleVersionAcknowledgementDto[] | null> {
+    if (!user) return null;
+    const warnings = await apiGetSessionApplicationProximityWarnings(user, sessionId, accessToken);
+    if (!warnings.length) return [];
+    const scheduleLines = warnings.map((warning) => {
+      const start = new Intl.DateTimeFormat('ko-KR', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(warning.scheduledStartAt));
+      const hours = Math.floor(warning.differenceMinutes / 60);
+      const minutes = warning.differenceMinutes % 60;
+      const interval = hours > 0 ? `${hours}시간 ${minutes}분` : `${minutes}분`;
+      return `· ${warning.sessionTitle} · ${start} · 시작 간격 ${interval}`;
+    });
+    const confirmed = await requestConfirmation({
+      title: '가까운 플레이 일정 확인',
+      message: [
+      '이미 참가를 예정한 플레이와 시작 시간이 6시간 이하로 가깝습니다.',
+      '',
+      ...scheduleLines,
+      '',
+      '시간이 겹칠 수 있다는 점을 확인했으며 그대로 계속할까요?',
+      ].join('\n'),
+      confirmLabel: '확인하고 계속',
+    });
+    return confirmed ? warnings.map((warning) => ({
+      comparedPlayId: warning.comparedPlayId,
+      playScheduleVersion: warning.targetScheduleVersion,
+      comparedScheduleVersion: warning.scheduleVersion,
+    })) : null;
+  }
+
+  async function confirmInviteProximityWarnings(inviteCode: string): Promise<SessionScheduleVersionAcknowledgementDto[] | null> {
+    if (!user) return null;
+    const warnings = await apiGetSessionInviteProximityWarnings(user, inviteCode, accessToken);
+    if (!warnings.length) return [];
+    const lines = warnings.map((warning) =>
+      `· ${warning.sessionTitle} · ${new Date(warning.scheduledStartAt).toLocaleString('ko-KR')} · ${warning.differenceMinutes}분 차이`,
+    );
+    const confirmed = await requestConfirmation({
+      title: '가까운 플레이 일정 확인',
+      message: [
+      '이미 참가를 예정한 플레이와 시작 시간이 6시간 이하로 가깝습니다.',
+      '',
+      ...lines,
+      '',
+      '겹칠 수 있음을 확인하고 초대를 수락할까요?',
+      ].join('\n'),
+      confirmLabel: '확인하고 초대 수락',
+    });
+    return confirmed ? warnings.map((warning) => ({
+      comparedPlayId: warning.comparedPlayId,
+      playScheduleVersion: warning.targetScheduleVersion,
+      comparedScheduleVersion: warning.scheduleVersion,
+    })) : null;
+  }
+
   async function joinSession(inviteCode: string): Promise<SessionSnapshot | null> {
     if (!user) return null;
-    if (hasBlockingSession()) {
-      setError('모집 중인 세션에는 하나만 참가할 수 있습니다.');
-      return null;
-    }
 
     setError(null);
     setBusy(true);
 
     try {
-      const next = await apiJoinSession(user, inviteCode, accessToken);
+      const acknowledged = await confirmInviteProximityWarnings(inviteCode);
+      if (acknowledged === null) return null;
+      const next = await apiJoinSession(user, inviteCode, accessToken, acknowledged);
       updateSnapshot(next);
       appendLog('rest', '세션 입장', `${next.session.title} 세션에 입장했습니다.`);
       const lists = await refreshSessionListInternal();
@@ -1473,22 +1705,28 @@ export function useSession(
     const knownSession = mySessionList.find(
       (item) => item.sessionId === sessionId || item.sessionPublicId === sessionId
     );
-    if (!knownSession && hasBlockingSession()) {
-      setError('모집 중인 세션에는 하나만 참가할 수 있습니다.');
-      return null;
-    }
+    const currentSessionMatches = snapshotRef.current && (
+      snapshotRef.current.session.id === sessionId ||
+      snapshotRef.current.session.publicId === sessionId
+    );
 
     setError(null);
     setBusy(true);
 
     try {
-      const next = knownSession
+      const acknowledged = knownSession || currentSessionMatches
+        ? []
+        : await confirmProximityWarnings(sessionId);
+      if (acknowledged === null) return null;
+      const next = currentSessionMatches
+        ? await getSession(user, sessionId, accessToken)
+        : knownSession
         ? await getSession(
             user,
             knownSession.sessionPublicId || knownSession.sessionId,
             accessToken
           )
-        : await apiJoinSessionById(user, sessionId, accessToken);
+        : await apiJoinSessionById(user, sessionId, accessToken, acknowledged);
       updateSnapshot(next);
       appendLog('rest', '세션 입장', `${next.session.title} 세션에 입장했습니다.`);
       const lists = await refreshSessionListInternal();
@@ -1705,29 +1943,18 @@ export function useSession(
     }
   }
 
-  async function setHumanGm(gmUserId: string) {
-    if (!user || !snapshot) return;
-    setError(null);
-    setBusy(true);
-
-    try {
-      const next = await apiUpdateHumanGm(user, snapshot.session.id, gmUserId, accessToken);
-      updateSnapshot(next);
-      appendLog('rest', 'GM 지정', '인간 GM을 변경했습니다.');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'GM 지정에 실패했습니다.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function startSession() {
-    if (!user || !snapshot) return;
+    if (!user || !snapshot?.session.currentPlayId) return;
     setError(null);
     setBusy(true);
 
     try {
-      const next = await apiStartSession(user, snapshot.session.id, accessToken);
+      const plays = await apiListSessionPlays(user, snapshot.session.id, accessToken);
+      const currentPlay = plays.find((play) => play.id === snapshot.session.currentPlayId);
+      if (!currentPlay) throw new Error('현재 플레이 정보를 찾지 못했습니다.');
+      const next = await apiStartSessionPlay(user, snapshot.session.id, currentPlay.id, {
+        expectedStateVersion: currentPlay.stateVersion,
+      }, accessToken);
       updateSnapshot(next);
       await refreshSessionList();
       appendLog('rest', '세션 시작', `${next.session.title} 세션을 시작했습니다.`);
@@ -1746,11 +1973,18 @@ export function useSession(
     const previousSnapshot = snapshot;
     const leavingSessionId = snapshot.session.id;
     const leavingSessionTitle = snapshot.session.title;
+    const isHostLeaving = snapshot.session.hostUserId === user.id;
     clearLocalSessionState();
 
     try {
       await apiLeaveSession(user, leavingSessionId, accessToken);
-      appendLog('rest', '세션 이탈', `${leavingSessionTitle} 세션에서 이탈했습니다.`);
+      appendLog(
+        'rest',
+        isHostLeaving ? '세션 삭제' : '세션 이탈',
+        isHostLeaving
+          ? `${leavingSessionTitle} 세션을 삭제했습니다.`
+          : `${leavingSessionTitle} 세션에서 이탈했습니다.`,
+      );
       await refreshSessionList();
       await refreshMyCharacters();
       return true;
@@ -1773,6 +2007,74 @@ export function useSession(
       setBusy(false);
     }
   }
+
+  async function finishCurrentPlay(): Promise<SessionSnapshot | null> {
+    if (!user || !snapshot?.session.currentPlayId) return null;
+    setError(null);
+    setBusy(true);
+    try {
+      const plays = await apiListSessionPlays(user, snapshot.session.id, accessToken);
+      const currentPlay = plays.find((play) => play.id === snapshot.session.currentPlayId);
+      if (!currentPlay) throw new Error('현재 플레이 정보를 찾지 못했습니다.');
+      await apiTransitionSessionPlay(user, snapshot.session.id, currentPlay.id, 'finish', {
+        expectedStateVersion: currentPlay.stateVersion,
+      }, accessToken);
+      setActivePlay(null);
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      const next = await getSession(user, snapshot.session.id, accessToken);
+      updateSnapshot(next);
+      await refreshSessionListInternal();
+      setSessionPlays(await apiListSessionPlays(user, next.session.id, accessToken));
+      appendLog('rest', '플레이 닫기', '진행을 저장하고 플레이를 닫았습니다.');
+      return next;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '진행을 저장하지 못했습니다.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeParticipant(participantPublicId: string): Promise<boolean> {
+    if (!user || !snapshot) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiRemoveSessionParticipant(user, snapshot.session.id, participantPublicId, accessToken);
+      const removed = snapshot.participants.find(
+        (participant) => participant.user.publicId === participantPublicId,
+      );
+      if (removed) setRemovedParticipants((current) => [removed, ...current]);
+      const nextSnapshot = await getSession(user, snapshot.session.id, accessToken);
+      updateSnapshot(nextSnapshot);
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '참가자를 내보내지 못했습니다.');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreParticipant(participantPublicId: string): Promise<boolean> {
+    if (!user || !snapshot) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiRestoreSessionParticipant(user, snapshot.session.id, participantPublicId, accessToken);
+      setRemovedParticipants((current) =>
+        current.filter((participant) => participant.user.publicId !== participantPublicId),
+      );
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '참가자 복구에 실패했습니다.');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendAction(rawText: string) {
     if (!user || !snapshot) return;
 
@@ -2140,16 +2442,27 @@ export function useSession(
   return {
     snapshot,
     sessionList,
+    sessionListTotal,
     mySessionList,
+    mySessionListTotal,
     myCharacters,
+    removedParticipants,
+    sessionPlays,
+    activePlay,
     socketConnected,
     hasOlderTurnLogs: Boolean(turnLogNextCursor),
     isLoadingTurnLogs,
     busy,
     error,
+    confirmation,
+    resolveConfirmation,
     createSession,
+    updateSession,
     joinSession,
     joinSessionById,
+    enterPlay,
+    exitPlayView,
+    refreshSessionPlays,
     createCharacter,
     cloneCharacter,
     updateCharacter,
@@ -2158,9 +2471,11 @@ export function useSession(
     deleteCharacter,
     selectCharacter,
     setReadyState,
-    setHumanGm,
     startSession,
+    finishCurrentPlay,
     leaveSession,
+    removeParticipant,
+    restoreParticipant,
     sendMainCommand,
     resolveMainCommandCheck,
     requestRest,
