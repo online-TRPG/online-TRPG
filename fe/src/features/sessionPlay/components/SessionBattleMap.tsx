@@ -37,6 +37,7 @@ interface SessionBattleMapProps {
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
+  keyboardMoveTokenId?: string | null;
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
   onMapChange: (map: VttMapStateDto) => void;
@@ -74,6 +75,7 @@ export function SessionBattleMap({
   tokenHealthByTokenId,
   attackRangeOverlay,
   combatMovementMode,
+  keyboardMoveTokenId,
   showHiddenContent,
   showPlayerVisionPreview,
   onMapChange,
@@ -105,6 +107,7 @@ export function SessionBattleMap({
       tokenHealthByTokenId={tokenHealthByTokenId}
       attackRangeOverlay={attackRangeOverlay}
       combatMovementMode={combatMovementMode}
+      keyboardMoveTokenId={keyboardMoveTokenId}
       showHiddenContent={showHiddenContent}
       showPlayerVisionPreview={showPlayerVisionPreview}
       onChange={onMapChange}

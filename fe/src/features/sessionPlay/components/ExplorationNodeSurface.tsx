@@ -271,7 +271,7 @@ export function ExplorationNodeSurface({
     selection: mapSelection,
     shortRestHitDiceToSpend,
   });
-  const selectionDisplay = useMemo(
+  const selectionPresentation = useMemo(
     () => getSelectionDisplay(mapSelection, node),
     [mapSelection, node]
   );
@@ -602,22 +602,25 @@ export function ExplorationNodeSurface({
               onCharacterClick={(character) => setSelectedMapCharacterId(character.id)}
             />
             {map ? (
-              <SessionBattleMap
-                map={map}
-                characters={characters}
-                isHost={isHost}
-                currentUserId={currentUserId}
-                showHiddenContent={isGmView}
-                onMapChange={onMapChange}
-                onTokenMoveRequest={isGmView ? undefined : onTokenMoveRequest}
-                onPingRequest={onPingRequest}
-                onSelectionChange={(nextSelection) =>
-                  setMapSelection((current) =>
-                    isSameMapSelection(current, nextSelection) ? null : nextSelection
-                  )
-                }
-                title={explorationPresentation.mapTitle}
-              />
+              <>
+                <SessionBattleMap
+                  map={map}
+                  characters={characters}
+                  isHost={isHost}
+                  currentUserId={currentUserId}
+                  showHiddenContent={isGmView}
+                  keyboardMoveTokenId={!isGmView && !isBusy ? controlledToken?.id : null}
+                  onMapChange={onMapChange}
+                  onTokenMoveRequest={isGmView ? undefined : onTokenMoveRequest}
+                  onPingRequest={onPingRequest}
+                  onSelectionChange={(nextSelection) =>
+                    setMapSelection((current) =>
+                      isSameMapSelection(current, nextSelection) ? null : nextSelection
+                    )
+                  }
+                  title={explorationPresentation.mapTitle}
+                />
+              </>
             ) : (
               <div className="exploration-map-placeholder">
                 <span>{explorationPresentation.mapPlaceholderEyebrow}</span>
@@ -630,26 +633,26 @@ export function ExplorationNodeSurface({
             aria-label={explorationPresentation.selectionStripAriaLabel}
           >
             <span>
-              {explorationPresentation.selectionTargetLabel}: <strong>{selectionDisplay.target}</strong>
+              {explorationPresentation.selectionTargetLabel}: <strong>{selectionPresentation.target}</strong>
             </span>
             <span>
               {explorationPresentation.selectionStatusLabel}:{' '}
               <strong>
-                {selectionDisplay.monsterHpLabel ? (
+                {selectionPresentation.monsterHpLabel ? (
                   <span className="exploration-selection-hp">
                     <span className="exploration-selection-hp-bar" aria-hidden="true">
                       <span />
                     </span>
-                    <span>{selectionDisplay.monsterHpLabel}</span>
-                    <span>{selectionDisplay.status}</span>
+                    <span>{selectionPresentation.monsterHpLabel}</span>
+                    <span>{selectionPresentation.status}</span>
                   </span>
                 ) : (
-                  selectionDisplay.status
+                  selectionPresentation.status
                 )}
               </strong>
             </span>
             <span>
-              요약: <strong>{selectionDisplay.summary}</strong>
+              요약: <strong>{selectionPresentation.summary}</strong>
             </span>
           </section>
         </main>
@@ -1070,7 +1073,7 @@ export function ExplorationNodeSurface({
                 title={
                   isGmView
                     ? explorationPresentation.gmObjectPickupReadonlyTitle
-                    : explorationPresentation.mapObjectPickupTitle(selectionDisplay.target)
+                    : explorationPresentation.mapObjectPickupTitle(selectionPresentation.target)
                 }
                 onClick={() =>
                   void onPickupMapObject?.(
@@ -1198,15 +1201,6 @@ export function ExplorationNodeSurface({
                     <article
                       className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
                       key={`${item.id}-${equipmentDisplayState}`}
-                      role="button"
-                      tabIndex={0}
-                      aria-pressed={isSelected}
-                      onClick={() => onSelectInventoryItem?.(item)}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        onSelectInventoryItem?.(item);
-                      }}
                     >
                       <span className="exploration-inventory-item-icon" aria-hidden="true">
                         <GameIcon name={getInventoryItemIconName(item)} size={28} />
@@ -1217,6 +1211,14 @@ export function ExplorationNodeSurface({
                         </strong>
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
+                      <button
+                        type="button"
+                        className="exploration-inventory-select"
+                        aria-pressed={isSelected}
+                        onClick={() => onSelectInventoryItem?.(item)}
+                      >
+                        {isSelected ? '선택됨' : '선택'}
+                      </button>
                       {isWeapon || isArmor || isShield ? (
                         <>
                           <button

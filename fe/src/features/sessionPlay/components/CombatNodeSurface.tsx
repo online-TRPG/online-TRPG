@@ -1369,6 +1369,7 @@ export function CombatNodeSurface({
                 tokenHealthByTokenId={enemyTokenHealthByTokenId}
                 attackRangeOverlay={attackRangeOverlay}
                 combatMovementMode={combatMovementMode}
+                keyboardMoveTokenId={canControlActiveActor && !isCombatBusy ? activeActorToken?.id : null}
                 showHiddenContent={isGmView}
                 showPlayerVisionPreview={isGmView}
                 onMapChange={onMapChange}
