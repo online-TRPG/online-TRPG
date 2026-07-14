@@ -97,6 +97,9 @@ function createMainCommandsService(
   aiService: never,
   turnLogsService: never,
   realtimeEvents: never,
+  overrides?: {
+    sceneTransitionState?: MainCommandSceneTransitionStateService;
+  },
 ) {
   const checkEffectParser = new MainCommandCheckEffectParserService();
   const contextLoader = new MainCommandContextLoaderService(prisma, sessionsService);
@@ -149,7 +152,8 @@ function createMainCommandsService(
     prisma,
     transitionEvaluator,
   );
-  const sceneTransitionState = new MainCommandSceneTransitionStateService(prisma);
+  const sceneTransitionState = overrides?.sceneTransitionState
+    ?? new MainCommandSceneTransitionStateService(prisma);
   const sceneTransitionResponse = new MainCommandSceneTransitionResponseService();
   const sceneTransitionResolution = new MainCommandSceneTransitionResolutionService(
     sessionsService,
@@ -1485,14 +1489,18 @@ describe("MainCommandsService scene transition branch resolution", () => {
     const realtimeEvents = {
       emitSessionSnapshot: jest.fn(),
     };
+    const sceneTransitionState = {
+      applySceneTransition: jest.fn().mockResolvedValue(undefined),
+    };
     const service = createMainCommandsService(
       {} as never,
       sessionsService as never,
       { runInterpreter: jest.fn() } as never,
       {} as never,
       realtimeEvents as never,
+      { sceneTransitionState: sceneTransitionState as never },
     );
-    return { service, sessionsService, realtimeEvents };
+    return { service, sessionsService, realtimeEvents, sceneTransitionState };
   };
 
   const context: {
@@ -1606,7 +1614,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
   });
 
   it("auto-advances to the only branch whose condition is already satisfied", async () => {
-    const { service } = createService();
+    const { service, sceneTransitionState } = createService();
     const internals = service as unknown as {
       handleSceneTransition: (
         requestId: string,
@@ -1617,7 +1625,6 @@ describe("MainCommandsService scene transition branch resolution", () => {
       loadTransitionCandidates: jest.Mock;
       matchTransitionCandidate: jest.Mock;
       evaluateTransitionCandidatesWithRevealedClues: jest.Mock;
-      applySceneTransition: jest.Mock;
     };
     internals.loadTransitionCandidates = jest.fn().mockResolvedValue([leftCandidate, rightCandidate]);
     internals.matchTransitionCandidate = jest.fn().mockReturnValue(null);
@@ -1625,7 +1632,6 @@ describe("MainCommandsService scene transition branch resolution", () => {
       { target: leftCandidate, conditionResult: blockedCondition },
       { target: rightCandidate, conditionResult: satisfiedCondition },
     ]);
-    internals.applySceneTransition = jest.fn().mockResolvedValue(undefined);
 
     const response = await internals.handleSceneTransition(
       "request-1",
@@ -1637,7 +1643,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
     expect(response.status).toBe(MainCommandStatus.RESOLVED);
     expect(response.statePatch?.currentNodeId).toBe("node-right");
     expect(response.message).toContain("오른쪽 방");
-    expect(internals.applySceneTransition).toHaveBeenCalledWith(context, "node-right");
+    expect(sceneTransitionState.applySceneTransition).toHaveBeenCalledWith(context, "node-right");
   });
 
   it("asks for a destination when more than one branch is already satisfied", async () => {

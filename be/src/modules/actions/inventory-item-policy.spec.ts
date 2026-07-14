@@ -117,7 +117,7 @@ describe("inventory item policy", () => {
         id: "item.healing_potion",
         name: "치유 물약",
         itemType: "consumable",
-        propertiesJson: '["Potion", 3, "Healing"]',
+        propertiesJson: '["Potion", "Healing"]',
       }),
     ).toBe("item.healing_potion 치유 물약 consumable potion healing");
   });

@@ -584,8 +584,8 @@ describe("CharactersService level up", () => {
   it("rejects duplicate ASI ability choices during higher-level character creation", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
-      hitDie: "d6",
-      koName: "위저드",
+      hitDie: "d10",
+      koName: "파이터",
       startingEquipmentJson: JSON.stringify({ slots: [] }),
       startingCantripCount: 0,
       startingSpellCount: 0,
@@ -596,14 +596,14 @@ describe("CharactersService level up", () => {
 
     await expect(
       service.createCharacter("user-1", {
-        name: "Duplicate ASI Wizard",
+        name: "Duplicate ASI Fighter",
         ancestry: "Unknown",
-        className: "wizard",
-        subclassName: "evocation",
+        className: "fighter",
+        subclassName: "champion",
         level: 8,
         abilities: { str: 8, dex: 14, con: 14, int: 19, wis: 10, cha: 10 },
         proficientSkills: [],
-        features: ["asi:int", "asi:int"],
+        features: ["fighting_style:defense", "asi:int", "asi:int"],
         startingEquipmentSelection: [],
       }),
     ).rejects.toMatchObject({
@@ -1626,6 +1626,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "wizard",
       subclassName: "evocation",
+      featuresJson: JSON.stringify([]),
       level: 1,
       maxHp: 8,
       spellsJson: JSON.stringify({
@@ -1678,6 +1679,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "wizard",
       subclassName: "evocation",
+      featuresJson: JSON.stringify([]),
       level: 4,
       maxHp: 20,
       spellsJson: JSON.stringify({
@@ -1730,6 +1732,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "wizard",
       subclassName: "evocation",
+      featuresJson: JSON.stringify([]),
       level: 16,
       maxHp: 92,
       spellsJson: JSON.stringify({
@@ -1908,6 +1911,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "sorcerer",
       subclassName: "draconic_bloodline",
+      featuresJson: JSON.stringify([]),
       level: 4,
       maxHp: 20,
       spellsJson: JSON.stringify({
@@ -1955,6 +1959,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "sorcerer",
       subclassName: "draconic_bloodline",
+      featuresJson: JSON.stringify([]),
       level: 4,
       spellsJson: JSON.stringify({
         cantrips: [
@@ -1989,6 +1994,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "warlock",
       subclassName: "fiend",
+      featuresJson: JSON.stringify([]),
       level: 9,
       maxHp: 60,
       spellsJson: JSON.stringify({
@@ -2044,6 +2050,7 @@ describe("CharactersService level up", () => {
       ...baseCharacter,
       className: "cleric",
       subclassName: "life",
+      featuresJson: JSON.stringify([]),
       level: 3,
       maxHp: 24,
       abilitiesJson: JSON.stringify({ str: 10, dex: 10, con: 14, int: 10, wis: 14, cha: 10 }),

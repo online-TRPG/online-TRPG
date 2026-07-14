@@ -723,6 +723,13 @@ export class MainCommandsService {
     return this.mainCommandTransitionEvaluator.evaluateTransitionCondition(candidate, recentLogs, publicClues, evidence);
   }
 
+  evaluateTransitionConditionContract(
+    contract: TransitionConditionCandidateContract,
+    evidence: TransitionEvidence,
+  ): TransitionConditionEvaluation {
+    return this.mainCommandTransitionEvaluator.evaluateTransitionConditionContract(contract, evidence);
+  }
+
   private async evaluateTransitionConditionWithRevealedClues(
     context: LoadedContext,
     candidate: TransitionCandidate,

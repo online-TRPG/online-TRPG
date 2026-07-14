@@ -227,7 +227,7 @@ export class CommandParserService {
         "INVALID_TARGET_DISTANCE",
       ),
       slotLevel: args[3]
-        ? this.parseOptionalIntegerInRange(args[3], 1, 9, "INVALID_SPELL_SLOT_LEVEL")
+        ? this.parseOptionalIntegerInRange(args[3], 0, 9, "INVALID_SPELL_SLOT_LEVEL")
         : null,
     };
   }
@@ -261,7 +261,7 @@ export class CommandParserService {
       saveDc,
       targetIds,
       slotLevel: args[3]
-        ? this.parseOptionalIntegerInRange(args[3], 1, 9, "INVALID_SPELL_SLOT_LEVEL")
+        ? this.parseOptionalIntegerInRange(args[3], 0, 9, "INVALID_SPELL_SLOT_LEVEL")
         : null,
     };
   }
@@ -473,8 +473,11 @@ export class CommandParserService {
     max: number,
     reason: string,
   ): number {
-    const parsed = this.parseOptionalPositiveInteger(value, min, reason);
-    if (parsed < min || parsed > max) {
+    if (!value) {
+      return min;
+    }
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
       throw badRequest("ACTION_400", "잘못된 명령입니다.", { reason });
     }
     return parsed;
