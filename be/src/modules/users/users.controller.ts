@@ -17,19 +17,25 @@ import { ApiCreatedResponse, ApiOkResponse, ApiSecurity, ApiTags } from "@nestjs
 import {
   AuthTokenResponseDto,
   ConvertGuestToLocalUserDto,
+  ChangePasswordDto,
+  ConfirmPasswordResetDto,
   CreateGuestUserDto,
   DeleteMeDto,
   EmailCheckResponseDto,
   LoginResponseDto,
   LoginUserDto,
   OAuthLoginDto,
+  OAuthReauthResponseDto,
   OAuthUrlResponseDto,
   PaginatedResponse,
-  ParticipantRole,
   RegisterUserDto,
+  RecordProductEventDto,
+  RequestPasswordResetDto,
   SessionListItemResponseDto,
-  SessionStatus,
+  SessionListQueryDto,
+  UpdateUserProductProgressDto,
   UpdateMeDto,
+  UserProductProgressResponseDto,
   UserResponseDto,
 } from "@trpg/shared-types";
 import { apiResponse, ApiResponse } from "../../common/api-response";
@@ -37,6 +43,7 @@ import { getRefreshTokenExpiresInMs } from "../../common/auth/token.utils";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { SessionsService } from "../sessions/sessions.service";
 import { UsersService } from "./users.service";
+import { ProductEventsService } from "./product-events.service";
 
 @ApiTags("users")
 @Controller("users")
@@ -44,6 +51,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly sessionsService: SessionsService,
+    private readonly productEvents: ProductEventsService,
   ) {}
 
   @Post("guest")
@@ -132,6 +140,70 @@ export class UsersController {
     return apiResponse("USER_200", "닉네임이 변경되었습니다.", await this.usersService.updateMe(userId, dto));
   }
 
+  @Patch("me/password")
+  @HttpCode(200)
+  @ApiSecurity("bearer")
+  async changePassword(
+    @CurrentUserId() userId: string,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<ApiResponse<null>> {
+    await this.usersService.changePassword(userId, dto);
+    return apiResponse("USER_200", "비밀번호가 변경되었습니다. 다시 로그인해주세요.", null);
+  }
+
+  @Post("password-reset/request")
+  @HttpCode(200)
+  async requestPasswordReset(@Body() dto: RequestPasswordResetDto): Promise<ApiResponse<null>> {
+    await this.usersService.requestPasswordReset(dto);
+    return apiResponse("USER_200", "계정이 존재하고 메일 발송이 가능한 경우 재설정 안내를 보냈습니다.", null);
+  }
+
+  @Post("password-reset/confirm")
+  @HttpCode(200)
+  async confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto): Promise<ApiResponse<null>> {
+    await this.usersService.confirmPasswordReset(dto);
+    return apiResponse("USER_200", "비밀번호가 재설정되었습니다.", null);
+  }
+
+  @Post("me/product-events")
+  @HttpCode(202)
+  @ApiSecurity("bearer")
+  recordProductEvent(
+    @CurrentUserId() userId: string,
+    @Body() dto: RecordProductEventDto,
+  ): ApiResponse<null> {
+    this.productEvents.record(userId, dto);
+    return apiResponse("USER_202", "제품 이벤트를 기록했습니다.", null);
+  }
+
+  @Get("me/product-progress")
+  @ApiSecurity("bearer")
+  @ApiOkResponse({ type: UserProductProgressResponseDto })
+  async getProductProgress(
+    @CurrentUserId() userId: string,
+  ): Promise<ApiResponse<UserProductProgressResponseDto>> {
+    return apiResponse(
+      "USER_200",
+      "사용자 안내 진행 상태를 조회했습니다.",
+      await this.usersService.getProductProgress(userId),
+    );
+  }
+
+  @Patch("me/product-progress")
+  @HttpCode(200)
+  @ApiSecurity("bearer")
+  @ApiOkResponse({ type: UserProductProgressResponseDto })
+  async updateProductProgress(
+    @CurrentUserId() userId: string,
+    @Body() dto: UpdateUserProductProgressDto,
+  ): Promise<ApiResponse<UserProductProgressResponseDto>> {
+    return apiResponse(
+      "USER_200",
+      "사용자 안내 진행 상태를 저장했습니다.",
+      await this.usersService.updateProductProgress(userId, dto),
+    );
+  }
+
   @Get("public/:publicId")
   @ApiOkResponse({ type: UserResponseDto })
   async getPublicProfile(@Param("publicId") publicId: string): Promise<ApiResponse<UserResponseDto>> {
@@ -149,6 +221,26 @@ export class UsersController {
     await this.usersService.deleteMe(userId, dto);
     this.clearRefreshCookie(response);
     return apiResponse("USER_200", "회원 탈퇴가 완료되었습니다.", null);
+  }
+
+  @Post("me/reauth/:provider")
+  @HttpCode(200)
+  @ApiSecurity("bearer")
+  @ApiOkResponse({ type: OAuthReauthResponseDto })
+  async reauthenticateOAuth(
+    @CurrentUserId() userId: string,
+    @Param("provider") providerParam: string,
+    @Body() dto: OAuthLoginDto,
+  ): Promise<ApiResponse<OAuthReauthResponseDto>> {
+    const provider = providerParam.toLowerCase();
+    if (provider !== "kakao" && provider !== "discord") {
+      throw new BadRequestException("지원하지 않는 OAuth 제공자입니다.");
+    }
+    return apiResponse(
+      "USER_200",
+      "소셜 계정 재인증이 완료되었습니다.",
+      await this.usersService.reauthenticateOAuth(userId, provider.toUpperCase() as "KAKAO" | "DISCORD", dto),
+    );
   }
 
   @Get("oauth/kakao/url")
@@ -204,16 +296,19 @@ export class UsersController {
   @ApiOkResponse({ type: [SessionListItemResponseDto] })
   async listMySessions(
     @CurrentUserId() userId: string,
-    @Query("status") status?: string,
-    @Query("role") role?: string,
-    @Query("page") page = "0",
-    @Query("size") size = "10",
+    @Query() query: SessionListQueryDto,
   ): Promise<ApiResponse<PaginatedResponse<SessionListItemResponseDto>>> {
-    const currentPage = this.toPageNumber(page);
-    const pageSize = this.toPageSize(size);
+    const currentPage = query.page ?? 0;
+    const pageSize = query.size ?? 10;
     const result = await this.sessionsService.listMySessions(userId, {
-      status: this.toSessionStatus(status),
-      role: this.toParticipantRole(role),
+      query: query.query,
+      status: query.status,
+      activityStatus: query.activityStatus,
+      gmMode: query.gmMode,
+      scenarioId: query.scenarioId,
+      ruleSetId: query.ruleSetId,
+      role: query.role,
+      sort: query.sort,
       page: currentPage,
       size: pageSize,
     });
@@ -323,43 +418,4 @@ export class UsersController {
     };
   }
 
-  private toSessionStatus(value: string | undefined): SessionStatus | undefined {
-    if (!value) {
-      return undefined;
-    }
-    const normalized = value.toLowerCase();
-    const match = Object.values(SessionStatus).find((status) => status === normalized);
-    if (!match) {
-      throw new BadRequestException("status 형식이 올바르지 않습니다.");
-    }
-    return match;
-  }
-
-  private toParticipantRole(value: string | undefined): ParticipantRole | undefined {
-    if (!value) {
-      return undefined;
-    }
-    const normalized = value.toUpperCase();
-    const match = Object.values(ParticipantRole).find((role) => role === normalized);
-    if (!match) {
-      throw new BadRequestException("role 형식이 올바르지 않습니다.");
-    }
-    return match;
-  }
-
-  private toPageNumber(value: string): number {
-    const page = Number(value);
-    if (!Number.isInteger(page) || page < 0) {
-      throw new BadRequestException("page 형식이 올바르지 않습니다.");
-    }
-    return page;
-  }
-
-  private toPageSize(value: string): number {
-    const size = Number(value);
-    if (!Number.isInteger(size) || size < 1 || size > 100) {
-      throw new BadRequestException("size 형식이 올바르지 않습니다.");
-    }
-    return size;
-  }
 }

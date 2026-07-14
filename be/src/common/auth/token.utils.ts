@@ -5,7 +5,8 @@ import { createHmac, randomBytes } from "crypto";
 type TokenPayload = {
   sub: string;
   email?: string | null;
-  type: "access" | "refresh";
+  type: "access" | "refresh" | "reauth";
+  provider?: "KAKAO" | "DISCORD";
   exp: number;
 };
 
@@ -13,6 +14,7 @@ type TokenPayload = {
 const accessTokenTtlSeconds = 60 * 60 * 48;
 // refresh token은 access token 재발급용 장기 토큰이라 DB 저장 만료와 쿠키 만료를 같은 값으로 맞춘다.
 const refreshTokenTtlSeconds = 60 * 60 * 24 * 14;
+const reauthTokenTtlSeconds = 60 * 5;
 
 function getJwtSecret(): string {
   return process.env.JWT_SECRET?.trim() || "dev-only-jwt-secret-change-me";
@@ -50,7 +52,16 @@ export function createRefreshToken(userId: string, email?: string | null): strin
   });
 }
 
-export function verifyToken(token: string, expectedType: "access" | "refresh"): TokenPayload {
+export function createReauthToken(userId: string, provider: "KAKAO" | "DISCORD"): string {
+  return createToken({
+    sub: userId,
+    type: "reauth",
+    provider,
+    exp: Math.floor(Date.now() / 1000) + reauthTokenTtlSeconds,
+  });
+}
+
+export function verifyToken(token: string, expectedType: "access" | "refresh" | "reauth"): TokenPayload {
   const parts = token.split(".");
   if (parts.length !== 3) {
     throw new UnauthorizedException("토큰 형식이 올바르지 않습니다.");
@@ -82,6 +93,10 @@ export function verifyToken(token: string, expectedType: "access" | "refresh"): 
   return payload;
 }
 
+export function getReauthTokenExpiresIn(): number {
+  return reauthTokenTtlSeconds;
+}
+
 export function getAccessTokenExpiresIn(): number {
   return accessTokenTtlSeconds;
 }
@@ -108,8 +123,15 @@ function decodeTokenPayload(value: unknown): TokenPayload {
   if (value.email !== undefined && value.email !== null && !isString(value.email)) {
     throw new UnauthorizedException("토큰 email이 올바르지 않습니다.");
   }
-  if (value.type !== "access" && value.type !== "refresh") {
+  if (value.type !== "access" && value.type !== "refresh" && value.type !== "reauth") {
     throw new UnauthorizedException("토큰 타입이 올바르지 않습니다.");
+  }
+  if (
+    value.provider !== undefined &&
+    value.provider !== "KAKAO" &&
+    value.provider !== "DISCORD"
+  ) {
+    throw new UnauthorizedException("토큰 제공자가 올바르지 않습니다.");
   }
   if (!isNumber(value.exp) || !Number.isInteger(value.exp)) {
     throw new UnauthorizedException("토큰 만료 시간이 올바르지 않습니다.");
@@ -118,6 +140,7 @@ function decodeTokenPayload(value: unknown): TokenPayload {
     sub: value.sub,
     email: value.email,
     type: value.type,
+    provider: value.provider,
     exp: value.exp,
   };
 }

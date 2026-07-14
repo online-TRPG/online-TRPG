@@ -8,6 +8,11 @@ function createService() {
       create: jest.fn(),
       updateMany: jest.fn(),
     },
+    passwordResetToken: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      updateMany: jest.fn(),
+    },
     session: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -35,9 +40,11 @@ function createService() {
     return (input as (tx: typeof prisma) => Promise<unknown>)(prisma);
   });
 
+  const email = { sendPasswordReset: jest.fn() };
   return {
     prisma,
-    service: new UsersService(prisma as never),
+    email,
+    service: new UsersService(prisma as never, email as never),
   };
 }
 
@@ -55,6 +62,31 @@ const localUser = {
 };
 
 describe("UsersService", () => {
+  describe("password reset", () => {
+    it("존재하지 않는 이메일에도 성공 응답 경로를 유지하고 토큰을 만들지 않는다.", async () => {
+      const { prisma, service } = createService();
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.requestPasswordReset({ email: "missing@example.com" })).resolves.toBeUndefined();
+      expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
+    });
+
+    it("이미 사용된 재설정 토큰을 거절한다.", async () => {
+      const { prisma, service } = createService();
+      prisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: "reset-1",
+        userId: localUser.id,
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        user: localUser,
+      });
+
+      await expect(service.confirmPasswordReset({ token: "used-token", newPassword: "NewPassword123!" }))
+        .rejects.toThrow(BadRequestException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe("checkEmail", () => {
     it("이메일을 소문자로 정규화하고 중복 여부를 반환한다.", async () => {
       const { prisma, service } = createService();

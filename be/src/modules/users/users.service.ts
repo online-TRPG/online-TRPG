@@ -17,19 +17,25 @@ import {
   User as PrismaUser,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import {
   AuthTokenResponseDto,
   ConvertGuestToLocalUserDto,
+  ChangePasswordDto,
+  ConfirmPasswordResetDto,
   CreateGuestUserDto,
   DeleteMeDto,
   EmailCheckResponseDto,
   LoginResponseDto,
   LoginUserDto,
   OAuthLoginDto,
+  OAuthReauthResponseDto,
   OAuthUrlResponseDto,
   RegisterUserDto,
+  RequestPasswordResetDto,
+  UpdateUserProductProgressDto,
   UpdateMeDto,
+  UserProductProgressResponseDto,
   UserResponseDto,
   isBoolean,
   isNumber,
@@ -42,11 +48,14 @@ import { mapUser } from "../../common/mappers/domain.mapper";
 import { badRequest, conflict, internalError } from "../../common/exceptions/domain-error";
 import {
   createAccessToken,
+  createReauthToken,
   createRefreshToken,
   getAccessTokenExpiresIn,
+  getReauthTokenExpiresIn,
   getRefreshTokenExpiresAt,
   verifyToken,
 } from "../../common/auth/token.utils";
+import { PasswordResetEmailService } from "./password-reset-email.service";
 
 type KakaoTokenResponse = {
   access_token: string;
@@ -92,7 +101,92 @@ type DiscordUserResponse = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwordResetEmail: PasswordResetEmailService = new PasswordResetEmailService(),
+  ) {}
+
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+    const user = await this.getUserEntityOrThrow(userId);
+    if (user.authProvider !== PrismaAuthProvider.LOCAL || !user.passwordHash) {
+      throw new ForbiddenException("이 계정은 비밀번호 변경을 지원하지 않습니다.");
+    }
+    if (!(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
+      throw new ForbiddenException("현재 비밀번호가 일치하지 않습니다.");
+    }
+    const nextHash = await bcrypt.hash(dto.newPassword, 12);
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash: nextHash } }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+    ]);
+  }
+
+  async requestPasswordReset(dto: RequestPasswordResetDto): Promise<void> {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || user.deletedAt || user.authProvider !== PrismaAuthProvider.LOCAL || !user.passwordHash) return;
+
+    const token = randomBytes(32).toString("base64url");
+    const expiresInMinutes = 30;
+    const expiresAt = new Date(Date.now() + expiresInMinutes * 60_000);
+    await this.prisma.$transaction([
+      this.prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash: this.hashToken(token), expiresAt },
+      }),
+    ]);
+
+    const baseUrl = (process.env.PASSWORD_RESET_BASE_URL ?? "http://localhost:5173/reset-password").replace(/\/$/, "");
+    try {
+      await this.passwordResetEmail.sendPasswordReset({
+        email,
+        resetUrl: `${baseUrl}?token=${encodeURIComponent(token)}`,
+        expiresInMinutes,
+      });
+    } catch {
+      // 계정 존재 여부와 발송 상태를 요청 응답으로 노출하지 않는다.
+    }
+  }
+
+  async confirmPasswordReset(dto: ConfirmPasswordResetDto): Promise<void> {
+    const tokenHash = this.hashToken(dto.token.trim());
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+    const now = new Date();
+    if (
+      !resetToken ||
+      resetToken.usedAt ||
+      resetToken.expiresAt <= now ||
+      resetToken.user.deletedAt ||
+      resetToken.user.authProvider !== PrismaAuthProvider.LOCAL
+    ) {
+      throw new BadRequestException("비밀번호 재설정 링크가 만료되었거나 이미 사용되었습니다.");
+    }
+    const nextHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.passwordResetToken.updateMany({
+        where: { id: resetToken.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (claimed.count !== 1) {
+        throw new BadRequestException("비밀번호 재설정 링크가 만료되었거나 이미 사용되었습니다.");
+      }
+      await tx.user.update({ where: { id: resetToken.userId }, data: { passwordHash: nextHash } });
+      await tx.refreshToken.updateMany({
+        where: { userId: resetToken.userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+    });
+  }
 
   async createGuest(dto: CreateGuestUserDto): Promise<UserResponseDto> {
     const user = await this.prisma.user.create({
@@ -285,6 +379,58 @@ export class UsersService {
     return mapUser(user);
   }
 
+  async getProductProgress(userId: string): Promise<UserProductProgressResponseDto> {
+    await this.getUserEntityOrThrow(userId);
+    const progress = await this.prisma.userProductProgress.upsert({
+      where: { userId },
+      create: { userId },
+      update: {},
+    });
+    return this.mapProductProgress(progress);
+  }
+
+  async updateProductProgress(
+    userId: string,
+    dto: UpdateUserProductProgressDto,
+  ): Promise<UserProductProgressResponseDto> {
+    await this.getUserEntityOrThrow(userId);
+    const current = await this.prisma.userProductProgress.upsert({
+      where: { userId },
+      create: { userId },
+      update: {},
+    });
+    const now = new Date();
+
+    if (dto.action === "dismiss_coachmark") {
+      const coachmark = dto.coachmark?.trim();
+      if (!coachmark) {
+        throw new BadRequestException("닫을 안내 항목이 필요합니다.");
+      }
+      const dismissedCoachmarks = current.dismissedCoachmarks.includes(coachmark)
+        ? current.dismissedCoachmarks
+        : [...current.dismissedCoachmarks, coachmark];
+      const progress = await this.prisma.userProductProgress.update({
+        where: { userId },
+        data: { dismissedCoachmarks },
+      });
+      return this.mapProductProgress(progress);
+    }
+
+    const data =
+      dto.action === "start_tutorial"
+        ? { tutorialStartedAt: current.tutorialStartedAt ?? now, onboardingVersion: 1 }
+        : dto.action === "dismiss_tutorial"
+          ? { dismissedAt: current.dismissedAt ?? now }
+          : dto.action === "complete_tutorial"
+            ? { completedAt: current.completedAt ?? now }
+            : { firstActionAt: current.firstActionAt ?? now };
+    const progress = await this.prisma.userProductProgress.update({
+      where: { userId },
+      data,
+    });
+    return this.mapProductProgress(progress);
+  }
+
   async getPublicProfile(publicId: string): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: {
@@ -300,16 +446,27 @@ export class UsersService {
     return mapUser(await this.ensureUserPublicId(user));
   }
 
+  private mapProductProgress(progress: {
+    onboardingVersion: number;
+    tutorialStartedAt: Date | null;
+    firstActionAt: Date | null;
+    completedAt: Date | null;
+    dismissedAt: Date | null;
+    dismissedCoachmarks: string[];
+  }): UserProductProgressResponseDto {
+    return {
+      onboardingVersion: progress.onboardingVersion,
+      tutorialStartedAt: progress.tutorialStartedAt?.toISOString() ?? null,
+      firstActionAt: progress.firstActionAt?.toISOString() ?? null,
+      completedAt: progress.completedAt?.toISOString() ?? null,
+      dismissedAt: progress.dismissedAt?.toISOString() ?? null,
+      dismissedCoachmarks: progress.dismissedCoachmarks,
+    };
+  }
+
   async deleteMe(userId: string, dto: DeleteMeDto): Promise<void> {
     const user = await this.getUserEntityOrThrow(userId);
-    if (!user.passwordHash) {
-      throw new ForbiddenException("비밀번호가 일치하지 않습니다.");
-    }
-
-    const matches = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!matches) {
-      throw new ForbiddenException("비밀번호가 일치하지 않습니다.");
-    }
+    await this.assertDeleteAuthorization(user, dto);
 
     await this.prisma.$transaction(async (tx) => {
       const blockingHostSession = await tx.session.findFirst({
@@ -326,7 +483,7 @@ export class UsersService {
 
       if (blockingHostSession) {
         throw new ConflictException(
-          "진행 중이거나 일시정지된 호스트 세션이 있어 회원 탈퇴를 진행할 수 없습니다.",
+          "진행 중이거나 대기 중인 관리 세션이 있어 회원 탈퇴를 진행할 수 없습니다.",
         );
       }
 
@@ -343,7 +500,7 @@ export class UsersService {
       const hostedRecruitingSessionIds = hostedRecruitingSessions.map((session) => session.id);
 
       if (hostedRecruitingSessionIds.length > 0) {
-        // 호스트가 사라진 모집 세션은 운영할 주체가 없으므로 해산하고, 참가자 상태도 함께 닫아 둔다.
+        // 세션 관리자가 사라진 모집 세션은 운영할 주체가 없으므로 해산하고, 참가자 상태도 함께 닫아 둔다.
         await tx.sessionCharacter.deleteMany({
           where: {
             sessionId: { in: hostedRecruitingSessionIds },
@@ -397,7 +554,7 @@ export class UsersService {
       const joinedActiveSessionIds = joinedActiveSessions.map((participant) => participant.sessionId);
 
       if (joinedActiveSessionIds.length > 0) {
-        // 일반 참가자는 계정 탈퇴 후에도 세션에 남아 보이면 안 되므로, 진행/일시정지 세션에서도 퇴장 상태로 정리한다.
+        // 일반 참가자는 계정 탈퇴 후에도 세션에 남아 보이면 안 되므로, 진행 중/대기 중 세션에서도 퇴장 상태로 정리한다.
         await tx.sessionCharacter.deleteMany({
           where: {
             userId,
@@ -430,6 +587,70 @@ export class UsersService {
         data: { deletedAt: now },
       });
     });
+  }
+
+  async reauthenticateOAuth(
+    userId: string,
+    provider: "KAKAO" | "DISCORD",
+    dto: OAuthLoginDto,
+  ): Promise<OAuthReauthResponseDto> {
+    const user = await this.getUserEntityOrThrow(userId);
+    const expectedProvider = provider === "KAKAO" ? PrismaAuthProvider.KAKAO : PrismaAuthProvider.DISCORD;
+    if (user.authProvider !== expectedProvider) {
+      throw new ForbiddenException("현재 로그인 제공자와 재인증 제공자가 일치하지 않습니다.");
+    }
+
+    const linkedAccount = await this.prisma.socialAccount.findFirst({
+      where: { userId, provider: expectedProvider },
+      select: { providerUserId: true },
+    });
+    if (!linkedAccount) {
+      throw new ForbiddenException("연결된 소셜 계정을 확인할 수 없습니다.");
+    }
+
+    let providerUserId: string;
+    if (provider === "KAKAO") {
+      const token = await this.requestKakaoToken(dto.code.trim(), dto.redirectUri.trim());
+      providerUserId = String((await this.requestKakaoUser(token.accessToken)).id).trim();
+    } else {
+      const token = await this.requestDiscordToken(dto.code.trim(), dto.redirectUri.trim());
+      providerUserId = (await this.requestDiscordUser(token.accessToken)).id.trim();
+    }
+    if (providerUserId !== linkedAccount.providerUserId) {
+      throw new ForbiddenException("현재 계정과 재인증한 소셜 계정이 일치하지 않습니다.");
+    }
+
+    return {
+      ticket: createReauthToken(userId, provider),
+      expiresIn: getReauthTokenExpiresIn(),
+    };
+  }
+
+  private async assertDeleteAuthorization(user: PrismaUser, dto: DeleteMeDto): Promise<void> {
+    if (user.authProvider === PrismaAuthProvider.LOCAL) {
+      if (!user.passwordHash || !dto.password) {
+        throw new ForbiddenException("현재 비밀번호를 입력해주세요.");
+      }
+      const matches = await bcrypt.compare(dto.password, user.passwordHash);
+      if (!matches) throw new ForbiddenException("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    if (user.authProvider === PrismaAuthProvider.GUEST) {
+      if (dto.confirmation !== "DELETE") {
+        throw new ForbiddenException("게스트 계정 삭제 확인이 필요합니다.");
+      }
+      return;
+    }
+
+    if (!dto.reauthTicket) {
+      throw new ForbiddenException("소셜 계정 재인증이 필요합니다.");
+    }
+    const payload = verifyToken(dto.reauthTicket, "reauth");
+    const expectedProvider = user.authProvider === PrismaAuthProvider.KAKAO ? "KAKAO" : "DISCORD";
+    if (payload.sub !== user.id || payload.provider !== expectedProvider) {
+      throw new ForbiddenException("소셜 계정 재인증 정보가 일치하지 않습니다.");
+    }
   }
 
   getOAuthUrl(provider: "KAKAO" | "DISCORD", redirectUri: string, state?: string): OAuthUrlResponseDto {
