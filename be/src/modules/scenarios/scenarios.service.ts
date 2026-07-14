@@ -360,6 +360,12 @@ export class ScenariosService {
     const npcs = this.decodeScenarioNpcsInput(dto.npcs ?? [], "scenario.npcs");
     const startNodeId =
       this.resolveStartNodeId(dto.startNodeId, nodes) ?? nodes[0]?.id ?? `${scenarioId}_start`;
+    this.ensureRecommendedPlayerRange(
+      dto.recommendedPlayersMin,
+      dto.recommendedPlayersMax,
+    );
+    const attribution = this.nullableTrim(dto.attribution);
+    const publicationMetadata = this.resolveScenarioPublicationMetadata(dto, attribution);
 
     const scenario = await this.prisma.scenario.create({
       data: {
@@ -374,11 +380,11 @@ export class ScenariosService {
         startLevel,
         recommendedEndLevel: dto.recommendedEndLevel ?? null,
         license: this.toPrismaScenarioLicense(dto.license ?? ScenarioLicense.ORIGINAL),
-        attribution: this.nullableTrim(dto.attribution),
+        attribution,
         startNodeId,
         npcsJson: JSON.stringify(npcs),
         publication: {
-          create: this.buildScenarioPublicationProjection(this.nullableTrim(dto.attribution)),
+          create: this.buildScenarioPublicationProjection(attribution, publicationMetadata),
         },
         nodes: {
           create: nodes.map(({ scenarioId: _scenarioId, ...node }) => node),
@@ -404,6 +410,10 @@ export class ScenariosService {
     dto: UpdateScenarioDto
   ): Promise<ScenarioResponseDto> {
     const existing = await this.getEditableScenarioEntity(userId, id, { access: "edit" });
+    this.ensureRecommendedPlayerRange(
+      dto.recommendedPlayersMin,
+      dto.recommendedPlayersMax,
+    );
     if (
       dto.expectedUpdatedAt &&
       new Date(dto.expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()
@@ -440,6 +450,15 @@ export class ScenariosService {
       dto.attribution === undefined
         ? existing.attribution
         : this.nullableTrim(dto.attribution);
+    const publicationMetadata = this.resolveScenarioPublicationMetadata(
+      dto,
+      nextAttribution,
+      existing.publication,
+    );
+    this.ensureRecommendedPlayerRange(
+      publicationMetadata.recommendedPlayersMin,
+      publicationMetadata.recommendedPlayersMax,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.scenario.update({
@@ -467,8 +486,14 @@ export class ScenariosService {
           attribution: nextAttribution,
           publication: {
             upsert: {
-              create: this.buildScenarioPublicationProjection(nextAttribution),
-              update: this.buildScenarioPublicationProjection(nextAttribution),
+              create: this.buildScenarioPublicationProjection(
+                nextAttribution,
+                publicationMetadata,
+              ),
+              update: this.buildScenarioPublicationProjection(
+                nextAttribution,
+                publicationMetadata,
+              ),
             },
           },
           startNodeId: nextStartNodeId,
@@ -502,6 +527,10 @@ export class ScenariosService {
     dto: PublishScenarioDto,
   ): Promise<ScenarioResponseDto> {
     const draft = await this.getEditableScenarioEntity(userId, id);
+    this.ensureRecommendedPlayerRange(
+      dto.recommendedPlayersMin,
+      dto.recommendedPlayersMax,
+    );
     const visibility = dto.visibility ?? "public";
     const isSharedPublication = visibility === "public" || visibility === "link";
     if (isSharedPublication && dto.rightsConfirmed !== true) {
@@ -554,8 +583,36 @@ export class ScenariosService {
       },
     );
     const publicMetadata = this.parseScenarioPublicEcosystemMetadata(attribution);
+    const publicationMetadata = {
+      tags: dto.tags === undefined
+        ? draft.publication?.tags ?? publicMetadata.tags
+        : this.compactTrimmedStrings(dto.tags).slice(0, 10),
+      estimatedMinutes:
+        dto.estimatedMinutes === undefined
+          ? draft.publication?.estimatedMinutes ?? publicMetadata.estimatedMinutes
+          : dto.estimatedMinutes,
+      recommendedPlayersMin:
+        dto.recommendedPlayersMin === undefined
+          ? draft.publication?.recommendedPlayersMin
+          : dto.recommendedPlayersMin,
+      recommendedPlayersMax:
+        dto.recommendedPlayersMax === undefined
+          ? draft.publication?.recommendedPlayersMax
+          : dto.recommendedPlayersMax,
+      gmMode:
+        dto.gmMode === undefined
+          ? this.normalizeScenarioPublicGmMode(draft.publication?.gmMode) ?? publicMetadata.gmMode
+          : dto.gmMode,
+    };
+    this.ensureRecommendedPlayerRange(
+      publicationMetadata.recommendedPlayersMin,
+      publicationMetadata.recommendedPlayersMax,
+    );
     const publishedAttribution = this.appendScenarioPublicEcosystemMetadata(attribution, {
       ...publicMetadata,
+      tags: publicationMetadata.tags,
+      estimatedMinutes: publicationMetadata.estimatedMinutes,
+      gmMode: publicationMetadata.gmMode,
       forkAllowed: dto.forkAllowed === true,
       rightsDeclaration: {
         confirmed: dto.rightsConfirmed === true,
@@ -585,7 +642,10 @@ export class ScenariosService {
           : null,
         npcsJson: draft.npcsJson,
         publication: {
-          create: this.buildScenarioPublicationProjection(publishedAttribution),
+          create: this.buildScenarioPublicationProjection(
+            publishedAttribution,
+            publicationMetadata,
+          ),
         },
         nodes: {
           create: draft.nodes.map((node) => ({
@@ -809,6 +869,11 @@ export class ScenariosService {
     const now = new Date().toISOString();
     const sourceRevision = this.parseScenarioRevisionMetadata(scenario.attribution);
     const sourceMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const sourcePublicationMetadata = this.resolveScenarioPublicationMetadata(
+      {},
+      scenario.attribution,
+      scenario.publication,
+    );
     if (!sourceMetadata.forkAllowed) {
       throw new BadRequestException("이 공개 시나리오는 작성자가 fork를 허용하지 않았습니다.");
     }
@@ -844,7 +909,10 @@ export class ScenariosService {
         startNodeId: scenario.startNodeId ? nodeIdMap.get(scenario.startNodeId) ?? scenario.startNodeId : null,
         npcsJson: scenario.npcsJson,
         publication: {
-          create: this.buildScenarioPublicationProjection(attribution),
+          create: this.buildScenarioPublicationProjection(
+            attribution,
+            sourcePublicationMetadata,
+          ),
         },
         nodes: {
           create: scenario.nodes.map((node) => ({
@@ -881,8 +949,14 @@ export class ScenariosService {
         attribution: sourceAttribution,
         publication: {
           upsert: {
-            create: this.buildScenarioPublicationProjection(sourceAttribution),
-            update: this.buildScenarioPublicationProjection(sourceAttribution),
+            create: this.buildScenarioPublicationProjection(
+              sourceAttribution,
+              sourcePublicationMetadata,
+            ),
+            update: this.buildScenarioPublicationProjection(
+              sourceAttribution,
+              sourcePublicationMetadata,
+            ),
           },
         },
       },
@@ -1363,6 +1437,7 @@ export class ScenariosService {
     const scenario = await this.prisma.scenario.findUnique({
       where: { id },
       include: {
+        publication: true,
         nodes: {
           orderBy: { createdAt: 'asc' },
         },
@@ -1487,6 +1562,9 @@ export class ScenariosService {
         forkCount: number;
         gmMode: string | null;
         tags: string[];
+        estimatedMinutes: number | null;
+        recommendedPlayersMin: number | null;
+        recommendedPlayersMax: number | null;
       } | null;
     },
     summary: T,
@@ -1520,14 +1598,7 @@ export class ScenariosService {
     const isOwner = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
     const isVisibleToPublicActions =
       moderationStatus !== "hidden" && moderationStatus !== "removed";
-    const tags = scenario.publication?.tags.length
-      ? scenario.publication.tags
-      : metadata.tags.length
-        ? metadata.tags
-        : this.compactTrimmedStrings([
-            scenario.difficulty,
-            summary.sourceType === "SYSTEM" ? "provided" : null,
-          ]);
+    const tags = scenario.publication ? scenario.publication.tags : metadata.tags;
     const forkCount = scenario.publication?.forkCount ?? metadata.forkCount;
     return {
       ...summary,
@@ -1535,8 +1606,12 @@ export class ScenariosService {
       publishedAt: scenario.publication?.publishedAt?.toISOString() ?? summary.publishedAt,
       publishStatus,
       tags,
-      estimatedMinutes: metadata.estimatedMinutes,
-      gmMode: scenario.publication?.gmMode ?? metadata.gmMode,
+      estimatedMinutes: scenario.publication
+        ? scenario.publication.estimatedMinutes
+        : metadata.estimatedMinutes,
+      recommendedPlayersMin: scenario.publication?.recommendedPlayersMin ?? null,
+      recommendedPlayersMax: scenario.publication?.recommendedPlayersMax ?? null,
+      gmMode: scenario.publication ? scenario.publication.gmMode : metadata.gmMode,
       contentWarnings: metadata.contentWarnings,
       forkCount,
       forkAllowed: metadata.forkAllowed,
@@ -2017,7 +2092,16 @@ export class ScenariosService {
     }
   }
 
-  private buildScenarioPublicationProjection(attribution: string | null | undefined) {
+  private buildScenarioPublicationProjection(
+    attribution: string | null | undefined,
+    overrides?: {
+      tags: string[];
+      estimatedMinutes: number | null;
+      recommendedPlayersMin?: number | null;
+      recommendedPlayersMax?: number | null;
+      gmMode: "AI" | "HUMAN" | "BOTH" | null;
+    },
+  ) {
     const revision = this.parseScenarioRevisionMetadata(attribution);
     const metadata = this.parseScenarioPublicEcosystemMetadata(attribution);
     const visibility =
@@ -2040,9 +2124,69 @@ export class ScenariosService {
       forkCount: metadata.forkCount,
       reportCount: metadata.reports.length,
       appealCount: this.countActiveModerationAppeals(metadata.appeals),
-      gmMode: metadata.gmMode,
-      tags: metadata.tags.map((tag) => tag.toLowerCase()),
+      gmMode: overrides?.gmMode,
+      tags: overrides?.tags.map((tag) => tag.toLowerCase()),
+      estimatedMinutes: overrides?.estimatedMinutes,
+      recommendedPlayersMin: overrides?.recommendedPlayersMin,
+      recommendedPlayersMax: overrides?.recommendedPlayersMax,
     };
+  }
+
+  private resolveScenarioPublicationMetadata(
+    input: {
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      recommendedPlayersMin?: number | null;
+      recommendedPlayersMax?: number | null;
+      gmMode?: "AI" | "HUMAN" | "BOTH" | null;
+    },
+    attribution: string | null | undefined,
+    existing?: {
+      tags: string[];
+      estimatedMinutes: number | null;
+      recommendedPlayersMin: number | null;
+      recommendedPlayersMax: number | null;
+      gmMode: string | null;
+    } | null,
+  ) {
+    const legacy = this.parseScenarioPublicEcosystemMetadata(attribution);
+    return {
+      tags:
+        input.tags === undefined
+          ? existing?.tags ?? legacy.tags
+          : this.compactTrimmedStrings(input.tags).slice(0, 10),
+      estimatedMinutes:
+        input.estimatedMinutes === undefined
+          ? existing?.estimatedMinutes ?? legacy.estimatedMinutes
+          : input.estimatedMinutes,
+      recommendedPlayersMin:
+        input.recommendedPlayersMin === undefined
+          ? existing?.recommendedPlayersMin ?? null
+          : input.recommendedPlayersMin,
+      recommendedPlayersMax:
+        input.recommendedPlayersMax === undefined
+          ? existing?.recommendedPlayersMax ?? null
+          : input.recommendedPlayersMax,
+      gmMode:
+        input.gmMode === undefined
+          ? this.normalizeScenarioPublicGmMode(existing?.gmMode) ?? legacy.gmMode
+          : input.gmMode,
+    };
+  }
+
+  private normalizeScenarioPublicGmMode(
+    value: string | null | undefined,
+  ): "AI" | "HUMAN" | "BOTH" | null {
+    return value === "AI" || value === "HUMAN" || value === "BOTH" ? value : null;
+  }
+
+  private ensureRecommendedPlayerRange(
+    min: number | null | undefined,
+    max: number | null | undefined,
+  ): void {
+    if (min !== undefined && min !== null && max !== undefined && max !== null && min > max) {
+      throw new BadRequestException("권장 최소 인원은 권장 최대 인원보다 클 수 없습니다.");
+    }
   }
 
   private countActiveModerationAppeals(

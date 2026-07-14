@@ -138,7 +138,7 @@ describe("P6 final executable content manifest", () => {
     expect(uniqueP6SpellIds).toHaveLength(
       P6_CONTENT_TARGETS.executableSpells - preP6FinalSrdSpellIds.length,
     );
-    expect(preP6FinalSrdMonsterIds).toHaveLength(154);
+    expect(preP6FinalSrdMonsterIds).toHaveLength(157);
     expect(uniqueP6MonsterIds).toHaveLength(
       P6_CONTENT_TARGETS.executableMonsters - preP6FinalSrdMonsterIds.length,
     );

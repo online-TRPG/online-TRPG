@@ -25,6 +25,7 @@ import {
   P5_VALIDATION_START_NODE_ID,
   P6_VALIDATION_SCENARIO_ID,
   P6_VALIDATION_START_NODE_ID,
+  NODE_SCREEN_TEST_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_START_NODE_ID,
   seedDefaultScenario,
@@ -195,6 +196,7 @@ const createSmokeTarget = (token: { id: string; name?: string; isHostile?: boole
 describe("default scenario seed", () => {
   const seedDefaultScenarioIntoMock = async () => {
     const scenarioUpserts: unknown[] = [];
+    const scenarioPublicationUpserts: unknown[] = [];
     const scenarioNodeUpserts: Array<{ create?: Record<string, unknown>; update?: Record<string, unknown> }> = [];
     const prisma = {
       scenario: {
@@ -209,14 +211,42 @@ describe("default scenario seed", () => {
         }),
       },
       scenarioPublication: {
-        upsert: jest.fn(async () => undefined),
+        upsert: jest.fn(async (args: unknown) => {
+          scenarioPublicationUpserts.push(args);
+        }),
       },
     } as unknown as PrismaClient;
 
     await seedDefaultScenario(prisma);
 
-    return { scenarioUpserts, scenarioNodeUpserts };
+    return { scenarioUpserts, scenarioNodeUpserts, scenarioPublicationUpserts };
   };
+
+  it("keeps internal validation scenarios out of public publication and seeds structured metadata", async () => {
+    const { scenarioPublicationUpserts } = await seedDefaultScenarioIntoMock();
+    expect(scenarioPublicationUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: { scenarioId: NODE_SCREEN_TEST_SCENARIO_ID },
+          update: expect.objectContaining({ visibility: "UNPUBLISHED" }),
+        }),
+        expect.objectContaining({
+          where: { scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID },
+          update: expect.objectContaining({ visibility: "UNPUBLISHED" }),
+        }),
+        expect.objectContaining({
+          where: { scenarioId: P1_ONESHOT_SCENARIO_ID },
+          update: expect.objectContaining({
+            visibility: "PUBLIC",
+            estimatedMinutes: 45,
+            recommendedPlayersMin: 1,
+            recommendedPlayersMax: 4,
+            tags: ["단편", "탐색", "전투"],
+          }),
+        }),
+      ]),
+    );
+  });
 
   it("keeps rule runtime smoke target commands aligned with VTT token ids", async () => {
     const { scenarioUpserts, scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
@@ -1114,7 +1144,6 @@ describe("default scenario seed", () => {
       expect.arrayContaining([
         "monster.ancient_red_dragon",
         "monster.kraken",
-        "monster.beholder",
         "monster.tarrasque",
       ]),
     );

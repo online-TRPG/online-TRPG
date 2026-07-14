@@ -82,6 +82,9 @@ function buildPublication(overrides: Record<string, unknown> = {}) {
     appealCount: 0,
     gmMode: "BOTH",
     tags: [],
+    estimatedMinutes: null,
+    recommendedPlayersMin: null,
+    recommendedPlayersMax: null,
     createdAt: date,
     updatedAt: date,
     ...overrides,
@@ -631,6 +634,9 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
         forkCount: 2,
         gmMode: "BOTH",
         tags: ["high-level", "travel"],
+        estimatedMinutes: 300,
+        recommendedPlayersMin: 2,
+        recommendedPlayersMax: 5,
       }),
     });
     prisma.scenario.findMany.mockResolvedValue([recommended]);
@@ -648,6 +654,8 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
         tags: expect.arrayContaining(["high-level"]),
         forkCount: 2,
         estimatedMinutes: 300,
+        recommendedPlayersMin: 2,
+        recommendedPlayersMax: 5,
         moderationStatus: "visible",
         recommendationReason: expect.stringContaining("2회 fork"),
       }),
