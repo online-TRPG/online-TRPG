@@ -2420,6 +2420,7 @@ function decodeVttToken(value: unknown): VttMapStateDto["tokens"][number] {
     id: readString(record, "id", "vttMap.tokens.id"),
     npcId: readNullableString(record, "npcId", "vttMap.tokens.npcId"),
     sessionCharacterId: readNullableString(record, "sessionCharacterId", "vttMap.tokens.sessionCharacterId"),
+    startingPositionId: readNullableString(record, "startingPositionId", "vttMap.tokens.startingPositionId"),
     name: readString(record, "name", "vttMap.tokens.name"),
     imageUrl: readNullableString(record, "imageUrl", "vttMap.tokens.imageUrl"),
     x: readNumber(record, "x", "vttMap.tokens.x"),

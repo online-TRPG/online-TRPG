@@ -1133,6 +1133,12 @@ export class RevealSessionContentDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  sourceObjectId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
   @MaxLength(300)
   reason?: string | null;
 }
@@ -2242,6 +2248,11 @@ export class VttMapTokenDto {
   @IsOptional()
   @IsString()
   sessionCharacterId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  startingPositionId?: string | null;
 
   @ApiProperty()
   @IsString()

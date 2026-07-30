@@ -102,6 +102,9 @@ function createService() {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    scenarioPublication: {
+      updateMany: jest.fn(),
+    },
     user: {
       findUnique: jest.fn(({ where }: { where: { id: string } }) => {
         if (where.id === "admin-1") {
@@ -123,6 +126,7 @@ function createService() {
     },
     sessionScenario: {
       findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
     },
     turnLog: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -149,6 +153,33 @@ function createService() {
 }
 
 describe("ScenariosService P3 revision publishing", () => {
+  it("soft deletes a scenario without removing linked session runtime", async () => {
+    const { service, prisma } = createService();
+    prisma.scenario.findUnique.mockResolvedValue(buildScenario());
+    prisma.sessionScenario.count.mockResolvedValue(1);
+
+    await service.deleteScenario("creator-1", "scenario_draft");
+
+    expect(prisma.scenario.update).toHaveBeenCalledWith({
+      where: { id: "scenario_draft" },
+      data: { deletedAt: expect.any(Date) },
+    });
+    expect(prisma.scenario.delete).not.toHaveBeenCalled();
+    expect(prisma.sessionScenario.findMany).not.toHaveBeenCalled();
+  });
+
+  it("physically deletes only an unlinked draft", async () => {
+    const { service, prisma } = createService();
+    prisma.scenario.findUnique.mockResolvedValue(buildScenario());
+    prisma.sessionScenario.count.mockResolvedValue(0);
+
+    await service.deleteScenario("creator-1", "scenario_draft");
+
+    expect(prisma.scenario.delete).toHaveBeenCalledWith({
+      where: { id: "scenario_draft" },
+    });
+  });
+
   it("blocks projection reads until coverage is complete and then caches readiness", async () => {
     const { service, prisma } = createService();
     prisma.scenario.count

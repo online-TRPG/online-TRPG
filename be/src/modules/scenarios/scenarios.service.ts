@@ -236,6 +236,7 @@ export class ScenariosService {
             ];
     const scenarios = await this.prisma.scenario.findMany({
       where: {
+        deletedAt: null,
         OR: [
           { id: { in: PROVIDED_SCENARIO_IDS } },
           {
@@ -284,6 +285,7 @@ export class ScenariosService {
     await this.ensureScenarioProjectionReadReady();
     const scenarios = await this.prisma.scenario.findMany({
       where: {
+        deletedAt: null,
         sourceType: { not: PrismaScenarioSourceType.CLONED },
         OR: [
           { createdByUserId: userId },
@@ -701,7 +703,7 @@ export class ScenariosService {
         },
       },
     });
-    if (!revision) {
+    if (!revision || revision.deletedAt) {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
     if (revision.createdByUserId !== userId) {
@@ -1069,6 +1071,7 @@ export class ScenariosService {
     await this.ensureScenarioProjectionReadReady();
     const scenarios = await this.prisma.scenario.findMany({
       where: {
+        deletedAt: null,
         OR: [
           { id: { in: PROVIDED_SCENARIO_IDS } },
           { sourceType: PrismaScenarioSourceType.CLONED },
@@ -1277,67 +1280,25 @@ export class ScenariosService {
   async deleteScenario(userId: string, id: string): Promise<void> {
     await this.getEditableScenarioEntity(userId, id);
 
-    const linkedSessionScenarios = await this.prisma.sessionScenario.findMany({
+    const linkedSessionScenarioCount = await this.prisma.sessionScenario.count({
       where: { scenarioId: id },
-      include: { session: true },
     });
 
-    const deletableLinkedSessionStatuses: PrismaSessionStatus[] = [
-      PrismaSessionStatus.RECRUITING,
-      PrismaSessionStatus.COMPLETED,
-      PrismaSessionStatus.DISBANDED,
-    ];
-    const blockingSession = linkedSessionScenarios.find(
-      ({ session }) =>
-        session.hostUserId !== userId ||
-        !deletableLinkedSessionStatuses.includes(session.status)
-    );
-
-    if (blockingSession) {
-      throw new ConflictException(
-        '진행 중이거나 다른 사용자의 세션에 연결된 시나리오는 삭제할 수 없습니다.'
-      );
+    if (linkedSessionScenarioCount > 0) {
+      await this.prisma.$transaction([
+        this.prisma.scenario.update({
+          where: { id },
+          data: { deletedAt: new Date() },
+        }),
+        this.prisma.scenarioPublication.updateMany({
+          where: { scenarioId: id },
+          data: { visibility: "UNPUBLISHED" },
+        }),
+      ]);
+      return;
     }
 
-    const linkedRecruitingSessionIds = Array.from(
-      new Set(
-        linkedSessionScenarios
-          .filter(
-            ({ session }) =>
-              session.hostUserId === userId && session.status === PrismaSessionStatus.RECRUITING
-          )
-          .map(({ sessionId }) => sessionId)
-      )
-    );
-
-    await this.prisma.$transaction([
-      ...(linkedRecruitingSessionIds.length > 0
-        ? [
-            this.prisma.sessionCharacter.deleteMany({
-              where: { sessionId: { in: linkedRecruitingSessionIds } },
-            }),
-            this.prisma.sessionParticipant.updateMany({
-              where: {
-                sessionId: { in: linkedRecruitingSessionIds },
-                status: PrismaParticipantStatus.JOINED,
-              },
-              data: {
-                status: PrismaParticipantStatus.LEFT,
-                leftAt: new Date(),
-                connectionStatus: PrismaConnectionStatus.OFFLINE,
-                isReady: false,
-                readyAt: null,
-              },
-            }),
-            this.prisma.session.updateMany({
-              where: { id: { in: linkedRecruitingSessionIds } },
-              data: { status: PrismaSessionStatus.DISBANDED },
-            }),
-          ]
-        : []),
-      this.prisma.sessionScenario.deleteMany({ where: { scenarioId: id } }),
-      this.prisma.scenario.delete({ where: { id } }),
-    ]);
+    await this.prisma.scenario.delete({ where: { id } });
   }
 
   async uploadScenarioAsset(
@@ -1422,7 +1383,7 @@ export class ScenariosService {
       },
     });
 
-    if (!scenario) {
+    if (!scenario || scenario.deletedAt) {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
 
@@ -1444,7 +1405,7 @@ export class ScenariosService {
       },
     });
 
-    if (!scenario) {
+    if (!scenario || scenario.deletedAt) {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
 

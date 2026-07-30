@@ -31,6 +31,28 @@ describe("SessionScenarioLinkService", () => {
     });
   });
 
+  it("keeps a soft-deleted source scenario readable through its session link", async () => {
+    prisma.sessionScenario.findFirst.mockResolvedValueOnce({
+      id: "active-scenario",
+      scenario: {
+        id: "scenario-1",
+        deletedAt: new Date("2026-07-31T00:00:00.000Z"),
+      },
+      gameState: { currentNodeId: "node-1" },
+    });
+
+    await expect(
+      service.getActiveEntityOrThrow("session-1"),
+    ).resolves.toMatchObject({
+      id: "active-scenario",
+      scenario: {
+        id: "scenario-1",
+        deletedAt: expect.any(Date),
+      },
+      gameState: { currentNodeId: "node-1" },
+    });
+  });
+
   it("falls back to the first linked scenario and rejects empty sessions", async () => {
     prisma.sessionScenario.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "fallback-scenario" });
 

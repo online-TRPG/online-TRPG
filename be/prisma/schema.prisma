@@ -641,6 +641,7 @@ model Scenario {
   npcsJson         String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
+  deletedAt           DateTime?
   creator          User?              @relation("ScenarioCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   baseScenario     Scenario?          @relation("ScenarioBase", fields: [baseScenarioId], references: [id], onDelete: SetNull)
   derivedScenarios Scenario[]         @relation("ScenarioBase")
@@ -655,6 +656,7 @@ model Scenario {
   @@index([sourceType, createdAt])
   @@index([baseScenarioId, createdAt])
   @@index([startLevel, recommendedEndLevel, id])
+  @@index([deletedAt, updatedAt(sort: Desc), id])
 }
 
 model ScenarioPublication {
@@ -743,7 +745,7 @@ model SessionScenario {
   endedAt    DateTime?
   createdAt  DateTime              @default(now())
   session    Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  scenario   Scenario              @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  scenario   Scenario              @relation(fields: [scenarioId], references: [id], onDelete: Restrict)
   gameState  GameState?
   nodes      SessionScenarioNode[]
   nodeVisits SessionNodeVisit[]
@@ -775,10 +777,24 @@ model SessionScenarioNode {
   updatedAt         DateTime        @updatedAt
   sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
   nodeVisits        SessionNodeVisit[]
+  runtimeState      SessionScenarioNodeRuntimeState?
 
   @@unique([sessionScenarioId, nodeId])
   @@index([sessionScenarioId])
   @@index([originalNodeId])
+}
+
+model SessionScenarioNodeRuntimeState {
+  sessionScenarioId String
+  nodeId            String
+  version           Int                 @default(1)
+  vttMapJson        String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  scenarioNode      SessionScenarioNode @relation(fields: [sessionScenarioId, nodeId], references: [sessionScenarioId, nodeId], onDelete: Cascade)
+
+  @@id([sessionScenarioId, nodeId])
+  @@index([sessionScenarioId, updatedAt])
 }
 
 model SessionNodeVisit {
