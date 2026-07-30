@@ -120,6 +120,38 @@ export class TurnLogsService {
     };
   }
 
+  /**
+   * Returns only server-persisted narration in chronological order for a
+   * player-visible AI summary. Client-supplied log text is intentionally not
+   * accepted at this trust boundary. The caller must authorize session
+   * membership before invoking this internal selector.
+   */
+  async listConfirmedPublicNarrations(
+    sessionId: string,
+    requestedLimit: number,
+  ): Promise<string[]> {
+    // 51 is an intentional sentinel used to detect a FULL request that cannot
+    // be represented truthfully inside the 50-log provider contract.
+    const limit = Math.min(Math.max(requestedLimit, 1), 51);
+    const rows = await this.prisma.turnLog.findMany({
+      where: {
+        sessionId,
+        narration: { not: null },
+      },
+      orderBy: { turnNumber: "desc" },
+      take: limit,
+      select: { narration: true },
+    });
+
+    return rows
+      .slice()
+      .reverse()
+      .flatMap((row) => {
+        const narration = row.narration?.trim();
+        return narration ? [narration] : [];
+      });
+  }
+
   async attachStateDiff(
     turnLogId: string,
     stateDiff: TurnLogStateDiffDto,

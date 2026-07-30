@@ -346,7 +346,7 @@ export class MainCommandsService {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-6)),
     );
 
     if (

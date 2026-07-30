@@ -61,6 +61,26 @@ function createService() {
 }
 
 describe("MainCommandProgressEvidenceService", () => {
+  it("returns recent log lines chronologically and caps each line at its latest 1000 characters", async () => {
+    const harness = createService();
+    harness.turnLogFindMany.mockResolvedValue([
+      { rawInput: "new-input", narration: "N".repeat(1200) },
+      { rawInput: "old-input", narration: "old-narration" },
+    ]);
+
+    const lines = await harness.service.loadRecentLogLines("session-1");
+
+    expect(harness.turnLogFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { turnNumber: "desc" },
+        take: 12,
+      }),
+    );
+    expect(lines[0]).toBe("old-input => old-narration");
+    expect(lines[1]).toHaveLength(1000);
+    expect(lines[1]).toBe("N".repeat(1000));
+  });
+
   it("queries only IDs required by structured transition conditions", async () => {
     const harness = createService();
     harness.sessionRevealFindMany.mockResolvedValue([

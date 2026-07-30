@@ -137,17 +137,14 @@ export class MainCommandCheckResultNarrationService {
   }
 
   private async buildSocialInformationSuccessMessage(userId: string, sessionId: string, effect: MainCommandCheckEffect): Promise<string> {
+    if (effect.publicClues.length === 0) {
+      return this.buildTemplateMessage(effect, ActionOutcome.SUCCESS);
+    }
     const aiResult = await this.aiService.runCheckResult(sessionId, userId, {
       outcome: "SUCCESS",
       intent: effect.intent,
-      playerText: effect.playerText,
-      actionSummary: effect.actionSummary,
       targetName: effect.targetName,
-      targetSummary: effect.targetSummary,
-      targetDisposition: effect.targetDisposition,
-      sceneSummary: effect.sceneText,
-      publicClues: effect.publicClues,
-      visibleEntities: effect.visibleEntityNames,
+      allowedRewardFacts: effect.publicClues,
       outputMode: "NPC_REPLY",
     });
     const narration = aiResult.parsed.narration.trim();
@@ -155,17 +152,14 @@ export class MainCommandCheckResultNarrationService {
   }
 
   private async buildReadEmotionSuccessMessage(userId: string, sessionId: string, effect: MainCommandCheckEffect): Promise<string> {
+    if (effect.publicClues.length === 0) {
+      return this.buildTemplateMessage(effect, ActionOutcome.SUCCESS);
+    }
     const aiResult = await this.aiService.runCheckResult(sessionId, userId, {
       outcome: "SUCCESS",
       intent: effect.intent,
-      playerText: effect.playerText,
-      actionSummary: effect.actionSummary,
       targetName: effect.targetName,
-      targetSummary: effect.targetSummary,
-      targetDisposition: effect.targetDisposition,
-      sceneSummary: effect.sceneText,
-      publicClues: effect.publicClues,
-      visibleEntities: effect.visibleEntityNames,
+      allowedRewardFacts: effect.publicClues,
       outputMode: "OBSERVATION",
     });
     const narration = aiResult.parsed.narration.trim();

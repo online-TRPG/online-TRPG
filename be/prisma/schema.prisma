@@ -84,6 +84,7 @@ enum ScenarioLicense {
 
 enum AiTraceKind {
   NARRATION
+  CHECK_RESULT
   HINT
   SUMMARY
   NPC_DIALOGUE
@@ -1003,12 +1004,19 @@ model AiTrace {
   kind              AiTraceKind
   status            AiTraceStatus
   latencyMs         Int
+  providerLatencyMs Int?
+  attemptLatencies  Json?
+  schemaValidationRetries Int?
   provider          String?
   model             String?
   promptVersion     String?
   attempts          Int?
   finishReason      String?
   providerRequestId String?
+  promptTokenCount  Int?
+  outputTokenCount  Int?
+  cachedTokenCount  Int?
+  totalTokenCount   Int?
   failureType       String?
   fallbackUsed      Boolean        @default(false)
   errorMessage      String?
@@ -1020,6 +1028,7 @@ model AiTrace {
 
   @@index([sessionId, createdAt, id])
   @@index([sessionId, kind, status, createdAt, id])
+  @@index([sessionId, kind, promptVersion, model])
   @@index([userId, createdAt])
   @@index([status, createdAt])
 }

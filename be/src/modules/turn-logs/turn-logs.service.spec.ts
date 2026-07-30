@@ -122,4 +122,32 @@ describe("TurnLogsService", () => {
       narration: "행동 처리 실패: VTT map state conflict",
     });
   });
+
+  it("selects only confirmed narration for player-visible AI summaries", async () => {
+    const prisma = {
+      turnLog: {
+        findMany: jest.fn().mockResolvedValue([
+          { narration: "  두 번째 확정 내레이션  " },
+          { narration: "첫 번째 확정 내레이션" },
+        ]),
+      },
+    };
+    const service = new TurnLogsService(prisma as never, {} as never);
+
+    await expect(
+      service.listConfirmedPublicNarrations("session-1", 999),
+    ).resolves.toEqual([
+      "첫 번째 확정 내레이션",
+      "두 번째 확정 내레이션",
+    ]);
+    expect(prisma.turnLog.findMany).toHaveBeenCalledWith({
+      where: {
+        sessionId: "session-1",
+        narration: { not: null },
+      },
+      orderBy: { turnNumber: "desc" },
+      take: 51,
+      select: { narration: true },
+    });
+  });
 });

@@ -40,8 +40,12 @@ export class MainCommandAiQueryService {
     const result = await this.aiService.runHint(
       userId,
       context.sessionId,
-      this.buildHintRequest(context, dto, recentLogs, [...publicClues, ...eventHints]),
-      { emitSystemMessage: false },
+      this.buildHintRequest(context, dto, recentLogs),
+      {
+        emitSystemMessage: false,
+        trustedPublicClues: [...publicClues, ...eventHints],
+        contextSource: "SERVER_VALIDATED",
+      },
     );
 
     return this.buildMessageResponse(requestId, result.parsed.content);
@@ -52,12 +56,17 @@ export class MainCommandAiQueryService {
     userId: string,
     context: LoadedContext,
     _dto: SubmitMainCommandDto,
-    recentLogs: string[],
+    _recentLogs: string[],
   ): Promise<MainCommandResponseDto> {
-    const logs = recentLogs.length ? recentLogs : [`${context.currentNodeTitle}: ${context.currentNodeSceneText}`];
-    const result = await this.aiService.runSummary(userId, context.sessionId, this.buildSummaryRequest(context, logs), {
-      emitSystemMessage: false,
-    });
+    const result = await this.aiService.runSummary(
+      userId,
+      context.sessionId,
+      this.buildSummaryRequest(),
+      {
+        emitSystemMessage: false,
+        contextSource: "SERVER_VALIDATED",
+      },
+    );
 
     return this.buildMessageResponse(requestId, result.parsed.content);
   }
@@ -70,30 +79,34 @@ export class MainCommandAiQueryService {
     recentLogs: string[],
     publicClues: string[],
   ): Promise<MainCommandResponseDto> {
-    const result = await this.aiService.runHint(userId, context.sessionId, this.buildHintRequest(context, dto, recentLogs, publicClues), {
-      emitSystemMessage: false,
-    });
+    const result = await this.aiService.runHint(
+      userId,
+      context.sessionId,
+      this.buildHintRequest(context, dto, recentLogs),
+      {
+        emitSystemMessage: false,
+        trustedPublicClues: publicClues,
+        contextSource: "SERVER_VALIDATED",
+      },
+    );
 
     return this.buildMessageResponse(requestId, result.parsed.content);
   }
 
-  private buildHintRequest(context: LoadedContext, dto: SubmitMainCommandDto, recentLogs: string[], publicClues: string[]): AiHintRequestDto {
+  private buildHintRequest(context: LoadedContext, dto: SubmitMainCommandDto, recentLogs: string[]): AiHintRequestDto {
     return {
       hintLevel: "NORMAL",
       question: dto.playerText,
       sceneSummary: `${context.currentNodeTitle}: ${context.currentNodeSceneText}`,
-      recentLogs: recentLogs.slice(0, 5),
-      publicClues,
+      recentLogs: recentLogs.slice(-5),
     };
   }
 
-  private buildSummaryRequest(context: LoadedContext, logs: string[]): AiSummaryRequestDto {
+  private buildSummaryRequest(): AiSummaryRequestDto {
     return {
       summaryType: "player_visible",
       rangeType: "RECENT",
-      lastLogCount: Math.min(logs.length, 12),
-      nodeId: context.currentNodeId,
-      logs,
+      lastLogCount: 12,
     };
   }
 

@@ -154,6 +154,7 @@ export enum SessionListSort {
 
 export enum AiTraceKind {
   NARRATION = "NARRATION",
+  CHECK_RESULT = "CHECK_RESULT",
   HINT = "HINT",
   SUMMARY = "SUMMARY",
   NPC_DIALOGUE = "NPC_DIALOGUE",

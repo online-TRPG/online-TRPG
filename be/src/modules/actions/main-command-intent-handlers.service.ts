@@ -568,7 +568,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-6)),
     );
 
     if (
@@ -798,7 +798,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -855,7 +855,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1209,7 +1209,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-6)),
     );
 
     if (
@@ -1267,7 +1267,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1339,7 +1339,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1399,7 +1399,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1457,7 +1457,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1506,7 +1506,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1557,7 +1557,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1612,7 +1612,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (
@@ -1678,7 +1678,7 @@ export class MainCommandIntentHandlersRunner {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-4)),
     );
 
     if (

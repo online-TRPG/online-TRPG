@@ -46,13 +46,13 @@ export class MainCommandNpcDialogueService {
       npcSummary: npc.summary,
       disposition: npc.disposition,
       sceneSummary: `${context.currentNodeTitle}: ${context.currentNodeSceneText}`,
-      recentContext: recentLogs.slice(0, 6),
+      recentContext: recentLogs.slice(-6),
       dialogueIntent: dto.playerText,
-      audienceIds: [context.actorCharacterId],
     };
 
     const result = await this.aiService.runNpcDialogue(userId, context.sessionId, aiRequest, {
       emitChatMessage: false,
+      contextSource: "SERVER_VALIDATED",
     });
 
     return {

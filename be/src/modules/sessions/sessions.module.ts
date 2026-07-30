@@ -116,6 +116,7 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
   ],
   exports: [
     SessionsService,
+    SessionGmRuntimeParticipantAccessService,
     MapRuntimeService,
     VttMapInteractionRuntimeService,
     VttMapDoorRuntimeService,
