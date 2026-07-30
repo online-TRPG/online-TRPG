@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from typing import Annotated, Literal
 
 from app.schemas.actor import ActorAllowedAction, ActorOutput
 from app.schemas.check_result import CheckResultOutput
@@ -18,12 +18,59 @@ from app.schemas.npc_dialogue import NpcDialogueOutput
 from app.schemas.summarizer import SummarizerOutput
 
 
-class SmokeHarnessRequest(BaseModel):
+IdText = Annotated[str, Field(min_length=1, max_length=120)]
+LogText = Annotated[str, Field(min_length=1, max_length=2000)]
+ContextText = Annotated[str, Field(min_length=1, max_length=1000)]
+FactText = Annotated[str, Field(min_length=1, max_length=700)]
+ModelName = Annotated[str, Field(min_length=1, max_length=200)]
+FlagKey = Annotated[str, Field(min_length=1, max_length=100)]
+FlagText = Annotated[str, Field(max_length=300)]
+FlagInteger = Annotated[int, Field(ge=-1_000_000_000, le=1_000_000_000)]
+FlagFloat = Annotated[
+    float,
+    Field(ge=-1_000_000_000, le=1_000_000_000, allow_inf_nan=False),
+]
+FlagValue = bool | FlagText | FlagInteger | FlagFloat | None
+TraceInteger = Annotated[int, Field(ge=0, le=2_147_483_647)]
+
+
+class HarnessRequest(BaseModel):
+    """Reject transport drift instead of silently discarding obsolete fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class MapPoint(HarnessRequest):
+    x: float = Field(allow_inf_nan=False)
+    y: float = Field(allow_inf_nan=False)
+
+
+class InterpreterTransitionCandidate(HarnessRequest):
+    transitionId: str | None = Field(default=None, max_length=100)
+    label: str | None = Field(default=None, max_length=200)
+    condition: str | None = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=500)
+    targetNodeId: str = Field(min_length=1, max_length=100)
+    targetTitle: str | None = Field(default=None, max_length=200)
+    nodeType: str | None = Field(default=None, max_length=40)
+    isFallback: bool | None = None
+
+
+class InterpreterTransitionEvidence(HarnessRequest):
+    recentLogs: list[ContextText] = Field(default_factory=list, max_length=10)
+    revealedClues: list[FactText] = Field(default_factory=list, max_length=20)
+    unrevealedClues: list[IdText] = Field(default_factory=list, max_length=20)
+    flags: dict[FlagKey, FlagValue] = Field(default_factory=dict, max_length=50)
+    currentNodeId: str | None = Field(default=None, max_length=100)
+    combatResolvedForCurrentNode: bool = False
+
+
+class SmokeHarnessRequest(HarnessRequest):
     prompt: str = Field(min_length=1, max_length=4000)
-    model: str | None = None
+    model: ModelName | None = None
 
 
-class AvailableTargetDetail(BaseModel):
+class AvailableTargetDetail(HarnessRequest):
     id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=120)
     kind: str | None = Field(default=None, max_length=40)
@@ -31,7 +78,7 @@ class AvailableTargetDetail(BaseModel):
     disposition: str | None = Field(default=None, max_length=80)
 
 
-class InterpreterHarnessRequest(BaseModel):
+class InterpreterHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     rawText: str = Field(min_length=1, max_length=4000)
@@ -41,8 +88,11 @@ class InterpreterHarnessRequest(BaseModel):
         min_length=1,
         max_length=1000,
     )
-    recentLogs: list[str] = Field(default_factory=list, max_length=6)
-    availableTargets: list[str] = Field(default_factory=lambda: ["stone-door", "door-handle", "door-gap"])
+    recentLogs: list[ContextText] = Field(default_factory=list, max_length=6)
+    availableTargets: list[IdText] = Field(
+        default_factory=lambda: ["stone-door", "door-handle", "door-gap"],
+        max_length=50,
+    )
     availableTargetDetails: list[AvailableTargetDetail] = Field(default_factory=list, max_length=12)
     requestIntent: str | None = Field(default=None, max_length=80)
     screenType: str | None = Field(default=None, max_length=40)
@@ -50,18 +100,18 @@ class InterpreterHarnessRequest(BaseModel):
     targetType: str | None = Field(default=None, max_length=40)
     itemId: str | None = Field(default=None, max_length=120)
     spellId: str | None = Field(default=None, max_length=120)
-    mapPoint: dict[str, float] | None = None
+    mapPoint: MapPoint | None = None
     relatedIntent: str | None = Field(default=None, max_length=80)
-    transitionCandidates: list[dict] = Field(default_factory=list, max_length=8)
-    transitionEvidence: dict | None = None
-    model: str | None = None
+    transitionCandidates: list[InterpreterTransitionCandidate] = Field(default_factory=list, max_length=8)
+    transitionEvidence: InterpreterTransitionEvidence | None = None
+    model: ModelName | None = None
 
 
-class NarratorHarnessRequest(BaseModel):
+class NarratorHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     actorCharacterId: str | None = Field(default=None, min_length=1, max_length=100)
-    rawInput: str = Field(min_length=1, max_length=2000)
+    rawInput: str | None = Field(default=None, min_length=1, max_length=2000)
     action: StructuredAction | None = None
     checkRequest: CheckRequest | None = None
     diceResult: DiceResult | None = None
@@ -71,47 +121,60 @@ class NarratorHarnessRequest(BaseModel):
     actionSummary: str | None = Field(default=None, max_length=1000)
     diceSummary: str | None = Field(default=None, max_length=300)
     sceneTone: str = Field(default="mysterious", max_length=50)
-    model: str | None = None
+    model: ModelName | None = None
+
+    @model_validator(mode="after")
+    def normalize_legacy_scene_tone(self) -> "NarratorHarnessRequest":
+        scene_is_explicit = "scene" in self.model_fields_set
+        legacy_tone_is_explicit = "sceneTone" in self.model_fields_set
+        if scene_is_explicit and legacy_tone_is_explicit and self.scene.tone != self.sceneTone:
+            raise ValueError("scene.tone and legacy sceneTone must match")
+        if legacy_tone_is_explicit and not scene_is_explicit:
+            self.scene.tone = self.sceneTone
+        if self.action is None and not (self.actionSummary or self.rawInput):
+            raise ValueError(
+                "Narrator requires structured action or legacy action text"
+            )
+        return self
 
 
-class DirectorHarnessRequest(BaseModel):
+class DirectorHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     hintLevel: str = Field(default="NORMAL", pattern="^(LIGHT|NORMAL|STRONG)$")
     question: str | None = Field(default=None, max_length=500)
     sceneSummary: str = Field(min_length=1, max_length=1200)
-    recentLogs: list[str] = Field(default_factory=list, max_length=5)
-    publicClues: list[str] = Field(default_factory=list, max_length=10)
-    triedApproaches: list[str] = Field(default_factory=list, max_length=10)
-    model: str | None = None
+    recentLogs: list[ContextText] = Field(default_factory=list, max_length=5)
+    publicClues: list[FactText] = Field(default_factory=list, max_length=10)
+    triedApproaches: list[ContextText] = Field(default_factory=list, max_length=10)
+    responseMode: Literal["HINT", "HUMAN_GM_ASSIST"] = "HINT"
+    model: ModelName | None = None
 
 
-class SummarizerHarnessRequest(BaseModel):
+class SummarizerHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     summaryType: str = Field(default="player_visible", pattern="^(player_visible|ai_context)$")
     rangeType: str = Field(default="RECENT", pattern="^(RECENT|FULL|SINCE_NODE)$")
     lastLogCount: int | None = Field(default=None, ge=1, le=50)
-    nodeId: str | None = Field(default=None, max_length=100)
-    logs: list[str] = Field(min_length=1, max_length=50)
-    includeHiddenContext: bool = False
-    model: str | None = None
+    logs: list[LogText] = Field(min_length=1, max_length=50)
+    model: ModelName | None = None
 
 
-class ActorHarnessRequest(BaseModel):
+class ActorHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     npcEntityId: str = Field(min_length=1, max_length=100)
     npcSummary: str = Field(min_length=1, max_length=1000)
     disposition: str = Field(default="neutral", max_length=80)
     hpStatus: str = Field(default="unknown", max_length=80)
-    conditions: list[str] = Field(default_factory=list, max_length=10)
+    conditions: list[IdText] = Field(default_factory=list, max_length=10)
     sceneSummary: str = Field(min_length=1, max_length=1200)
     allowedActions: list[ActorAllowedAction] = Field(min_length=1, max_length=20)
-    model: str | None = None
+    model: ModelName | None = None
 
 
-class NpcDialogueHarnessRequest(BaseModel):
+class NpcDialogueHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     npcEntityId: str = Field(min_length=1, max_length=100)
@@ -119,81 +182,102 @@ class NpcDialogueHarnessRequest(BaseModel):
     npcSummary: str = Field(min_length=1, max_length=1000)
     disposition: str = Field(default="neutral", max_length=80)
     sceneSummary: str = Field(min_length=1, max_length=1200)
-    recentContext: list[str] = Field(default_factory=list, max_length=8)
-    selectedActionId: str | None = Field(default=None, max_length=100)
+    recentContext: list[ContextText] = Field(default_factory=list, max_length=8)
     dialogueIntent: str = Field(min_length=1, max_length=300)
-    audienceIds: list[str] = Field(default_factory=list, max_length=10)
     maxLength: int = Field(default=160, ge=20, le=500)
-    model: str | None = None
+    model: ModelName | None = None
 
 
-class CheckResultHarnessRequest(BaseModel):
+class CheckResultHarnessRequest(HarnessRequest):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     outcome: str = Field(pattern="^(SUCCESS|FAILURE)$")
     intent: str = Field(min_length=1, max_length=80)
-    playerText: str = Field(min_length=1, max_length=1000)
-    actionSummary: str = Field(min_length=1, max_length=1000)
+    actionSummary: str | None = Field(default=None, min_length=1, max_length=1000)
     targetName: str | None = Field(default=None, max_length=120)
     targetSummary: str | None = Field(default=None, max_length=700)
     targetDisposition: str | None = Field(default=None, max_length=100)
-    sceneSummary: str = Field(min_length=1, max_length=1200)
-    publicClues: list[str] = Field(default_factory=list, max_length=10)
-    visibleEntities: list[str] = Field(default_factory=list, max_length=12)
+    sceneSummary: str | None = Field(default=None, min_length=1, max_length=1200)
+    allowedRewardFacts: list[FactText] = Field(default_factory=list, max_length=10)
+    visibleEntities: list[ContextText] = Field(default_factory=list, max_length=12)
     outputMode: str = Field(default="GM_NARRATION", pattern="^(GM_NARRATION|NPC_REPLY|OBSERVATION)$")
-    model: str | None = None
+    model: ModelName | None = None
 
 
 class HarnessResponse(BaseModel):
-    provider: str
-    model: str
-    latencyMs: int
-    promptVersion: str
-    rawOutput: str
-    finishReason: str | None = None
-    providerRequestId: str | None = None
     trace: "AiTraceSummary"
-    logPaths: dict[str, str] | None = None
     fallback: bool = False
-    fallbackReason: str | None = None
+    fallbackReason: str | None = Field(default=None, max_length=100)
+    _diagnostic_raw_output: str = PrivateAttr(default="")
 
 
 class TraceListItem(BaseModel):
-    id: str | None = None
-    timestamp: str
-    endpoint: str
+    id: str | None = Field(default=None, max_length=100)
+    timestamp: str = Field(max_length=64)
+    endpoint: str = Field(max_length=50)
     status: Literal["success", "failure", "fallback"]
-    sessionId: str | None = None
-    turnId: str | None = None
-    actorCharacterId: str | None = None
-    role: str | None = None
-    provider: str | None = None
-    model: str | None = None
-    promptVersion: str | None = None
-    latencyMs: int | None = None
-    attempts: int | None = None
-    failureType: str | None = None
-    finishReason: str | None = None
-    providerRequestId: str | None = None
-    logPaths: dict[str, str] | None = None
+    sessionId: str | None = Field(default=None, max_length=100)
+    turnId: str | None = Field(default=None, max_length=100)
+    actorCharacterId: str | None = Field(default=None, max_length=100)
+    role: str | None = Field(default=None, max_length=50)
+    provider: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=200)
+    promptVersion: str | None = Field(default=None, max_length=200)
+    latencyMs: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    attempts: int | None = Field(default=None, ge=0, le=2)
+    failureType: str | None = Field(default=None, max_length=100)
+    finishReason: str | None = Field(default=None, max_length=100)
+    providerRequestId: str | None = Field(default=None, max_length=500)
+    diagnosticRef: str | None = Field(default=None, max_length=300)
 
 
 class TraceListResponse(BaseModel):
-    items: list[TraceListItem]
-    total: int
-    filtered: int
+    items: list[TraceListItem] = Field(max_length=100)
+    total: int = Field(ge=0)
+    filtered: int = Field(ge=0)
+    scannedBytes: int = Field(default=0, ge=0)
+    malformedRows: int = Field(default=0, ge=0)
+    scanTruncated: bool = False
 
 
 class AiTraceSummary(BaseModel):
-    role: str
-    provider: str
-    model: str
-    promptVersion: str
-    latencyMs: int
-    attempts: int = Field(ge=1)
-    failureType: str | None = None
-    finishReason: str | None = None
-    providerRequestId: str | None = None
+    role: str = Field(max_length=50)
+    provider: str = Field(max_length=100)
+    model: str = Field(max_length=200)
+    promptVersion: str = Field(max_length=200)
+    latencyMs: int = Field(ge=0, le=2_147_483_647)
+    providerLatencyMs: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    attemptLatenciesMs: list[TraceInteger] = Field(
+        default_factory=list,
+        max_length=2,
+    )
+    schemaValidationRetries: int | None = Field(default=None, ge=0, le=1)
+    attempts: int = Field(ge=0, le=2)
+    failureType: str | None = Field(default=None, max_length=100)
+    finishReason: str | None = Field(default=None, max_length=100)
+    providerRequestId: str | None = Field(default=None, max_length=500)
+    promptTokenCount: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    outputTokenCount: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    cachedTokenCount: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    totalTokenCount: int | None = Field(default=None, ge=0, le=2_147_483_647)
+
+    @model_validator(mode="after")
+    def validate_attempt_metrics(self) -> "AiTraceSummary":
+        if (
+            "attemptLatenciesMs" in self.model_fields_set
+            and len(self.attemptLatenciesMs) != self.attempts
+        ):
+            raise ValueError(
+                "attemptLatenciesMs length must equal attempts when provided"
+            )
+        if (
+            self.schemaValidationRetries is not None
+            and self.schemaValidationRetries > max(0, self.attempts - 1)
+        ):
+            raise ValueError(
+                "schemaValidationRetries cannot exceed completed follow-up attempts"
+            )
+        return self
 
 
 class InterpreterHarnessResponse(HarnessResponse):

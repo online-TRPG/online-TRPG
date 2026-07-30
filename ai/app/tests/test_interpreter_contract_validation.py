@@ -1,4 +1,5 @@
 import pytest
+from copy import deepcopy
 
 from app.clients.google_ai_studio import GeneratedJsonResult
 from app.core.config import Settings
@@ -12,9 +13,13 @@ class StaticInterpreterClient:
         self.parsed_json = parsed_json
 
     def generate_json(self, **kwargs):
+        parsed_json = deepcopy(self.parsed_json)
+        action = parsed_json.get("action")
+        if isinstance(action, dict):
+            action.pop("actorCharacterId", None)
         return GeneratedJsonResult(
             raw_text="{}",
-            parsed_json=self.parsed_json,
+            parsed_json=parsed_json,
             model=kwargs["model"],
             provider="contract-test",
             latency_ms=1,
@@ -55,15 +60,12 @@ def valid_spell_cast_payload(**overrides):
         "clarificationQuestion": None,
         "mentionedSpellId": "spell.chill_touch",
         "mentionedItemId": None,
-        "mentionedConditionIds": [],
         "requiredRuleCheckIds": [
             "rule.spellcasting.casting_time.action",
             "rule.spellcasting.range",
             "rule.spellcasting.spell_attack",
             "rule.combat.attack_roll",
         ],
-        "rulesConfidence": 0.91,
-        "safetyNotes": ["명중 여부와 피해는 백엔드 엔진이 확정해야 함"],
     }
     payload.update(overrides)
     return payload
@@ -117,11 +119,143 @@ def run_plain_contract_case(payload: dict):
     )
 
 
+def run_explicit_spell_selection_case(payload: dict):
+    service = InterpreterService(StaticInterpreterClient(payload), settings())
+    return service.run(
+        InterpreterHarnessRequest(
+            rawText="선택한 주문을 고블린에게 사용한다.",
+            actorCharacterId="wizard-1",
+            sceneSummary="전투 중.",
+            availableTargets=["goblin-1"],
+            requestIntent="MAP_CAST_SPELL",
+            targetId="goblin-1",
+            spellId="spell.chill_touch",
+        )
+    )
+
+
 def test_contract_accepts_valid_spell_cast_output():
     response = run_contract_case(valid_spell_cast_payload())
 
     assert response.parsed.action.type == "MAP_CAST_SPELL"
     assert response.parsed.action.spellId == "spell.chill_touch"
+
+
+def test_explicit_target_and_spell_are_server_owned_provider_fields():
+    request = InterpreterHarnessRequest(
+        rawText="선택한 주문을 고블린에게 사용한다.",
+        actorCharacterId="wizard-1",
+        availableTargets=["goblin-1"],
+        requestIntent="MAP_CAST_SPELL",
+        targetId="goblin-1",
+        spellId="spell.chill_touch",
+    )
+    schema = InterpreterService._response_json_schema(request)
+    action_properties = schema["$defs"]["InterpreterExtractionAction"]["properties"]
+
+    assert "targetId" not in action_properties
+    assert "spellId" not in action_properties
+    assert "mentionedSpellId" not in schema["properties"]
+    assert "targetId" not in schema["$defs"]["InterpreterExtractionAction"].get("required", [])
+    assert "spellId" not in schema["$defs"]["InterpreterExtractionAction"].get("required", [])
+    assert "mentionedSpellId" not in schema.get("required", [])
+
+    response = run_explicit_spell_selection_case(
+        {
+            "action": {
+                "featureId": None,
+                "attackKind": "ranged_spell_attack",
+                "ability": None,
+                "skill": None,
+                "approach": "선택한 주문을 고블린에게 시전한다.",
+                "requiresRoll": True,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedItemId": None,
+            "requiredRuleCheckIds": [],
+        }
+    )
+
+    assert response.parsed.action.targetId == "goblin-1"
+    assert response.parsed.action.spellId == "spell.chill_touch"
+    assert response.parsed.mentionedSpellId == "spell.chill_touch"
+
+
+def test_explicit_selection_contract_rejects_model_echo_fields():
+    with pytest.raises(AiClientError, match="excluded by the active contract"):
+        run_explicit_spell_selection_case(
+            {
+                "action": {
+                    "targetId": "goblin-1",
+                    "spellId": "spell.chill_touch",
+                    "attackKind": "ranged_spell_attack",
+                    "approach": "선택한 주문을 고블린에게 시전한다.",
+                    "requiresRoll": True,
+                },
+                "needsClarification": False,
+                "mentionedSpellId": "spell.chill_touch",
+                "requiredRuleCheckIds": [],
+            }
+        )
+
+
+def test_explicit_self_target_is_preserved_without_available_target_echo():
+    service = InterpreterService(
+        StaticInterpreterClient(
+            {
+                "action": {
+                    "approach": "반응 행동을 준비한다.",
+                    "requiresRoll": False,
+                },
+                "needsClarification": False,
+                "requiredRuleCheckIds": [],
+            }
+        ),
+        settings(),
+    )
+
+    response = service.run(
+        InterpreterHarnessRequest(
+            rawText="내 행동을 준비한다.",
+            actorCharacterId="fighter-1",
+            requestIntent="READY_ACTION",
+            targetId="fighter-1",
+            availableTargets=[],
+        )
+    )
+
+    assert response.parsed.action.targetId == "fighter-1"
+
+
+def test_explicit_magic_item_is_server_owned_provider_field():
+    request = InterpreterHarnessRequest(
+        rawText="선택한 물품을 사용한다.",
+        actorCharacterId="fighter-1",
+        requestIntent="USE_ITEM_EXPLORE",
+        itemId="magic_item.adamantine_armor",
+    )
+    schema = InterpreterService._response_json_schema(request)
+
+    assert "mentionedItemId" not in schema["properties"]
+
+    service = InterpreterService(
+        StaticInterpreterClient(
+            {
+                "action": {
+                    "approach": "선택한 마법 물품을 사용한다.",
+                    "requiresRoll": False,
+                },
+                "needsClarification": False,
+                "requiredRuleCheckIds": [],
+            }
+        ),
+        settings(),
+    )
+    response = service.run(request)
+
+    assert response.parsed.mentionedItemId == "magic_item.adamantine_armor"
 
 
 def test_contract_rejects_spell_id_that_was_not_retrieved():
@@ -155,10 +289,7 @@ def test_contract_accepts_valid_class_feature_output():
             "clarificationQuestion": None,
             "mentionedSpellId": None,
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [],
-            "rulesConfidence": 0.9,
-            "safetyNotes": ["회복량과 HP 변경은 백엔드 엔진이 확정해야 함"],
         }
     )
 
@@ -187,10 +318,7 @@ def test_contract_accepts_main_command_route_action_type():
             "clarificationQuestion": None,
             "mentionedSpellId": None,
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [],
-            "rulesConfidence": 0.9,
-            "safetyNotes": [],
         }
     )
 
@@ -210,6 +338,23 @@ def test_interpreter_schema_omits_scene_transition_without_candidates():
     assert "SceneTransitionContract" not in schema.get("$defs", {})
 
 
+def test_interpreter_rejects_scene_transition_when_contract_omits_it():
+    with pytest.raises(AiClientError, match="excluded by the active contract"):
+        run_plain_contract_case(
+            {
+                "action": {
+                    "type": "READY_ACTION",
+                    "approach": "행동을 준비한다.",
+                    "confidence": 0.9,
+                    "requiresRoll": False,
+                },
+                "needsClarification": False,
+                "requiredRuleCheckIds": [],
+                "sceneTransition": {"candidates": []},
+            }
+        )
+
+
 def test_interpreter_schema_keeps_scene_transition_with_candidates():
     schema = InterpreterService._response_json_schema(
         InterpreterHarnessRequest(
@@ -227,7 +372,8 @@ def test_interpreter_schema_keeps_scene_transition_with_candidates():
     )
 
     assert "sceneTransition" in schema["properties"]
-    assert "SceneTransitionContract" in schema.get("$defs", {})
+    assert "ProviderSceneTransitionContract" in schema.get("$defs", {})
+    assert "SceneTransitionContract" not in schema.get("$defs", {})
 
 
 def test_contract_rejects_class_feature_id_that_was_not_retrieved():
@@ -250,10 +396,7 @@ def test_contract_rejects_class_feature_id_that_was_not_retrieved():
         "clarificationQuestion": None,
         "mentionedSpellId": None,
         "mentionedItemId": None,
-        "mentionedConditionIds": [],
         "requiredRuleCheckIds": [],
-        "rulesConfidence": 0.9,
-        "safetyNotes": ["추가 행동 부여는 백엔드 엔진이 확정해야 함"],
     }
 
     with pytest.raises(AiClientError, match="retrieved class feature IDs"):
@@ -281,16 +424,12 @@ def test_contract_normalizes_single_retrieved_class_feature_from_generic_output(
             "clarificationQuestion": None,
             "mentionedSpellId": None,
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [],
-            "rulesConfidence": None,
-            "safetyNotes": [],
         }
     )
 
     assert response.parsed.action.type == "MAP_USE_CLASS_FEATURE"
     assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
-    assert response.parsed.safetyNotes
 
 
 def test_contract_normalizes_class_feature_with_empty_feature_id():
@@ -314,10 +453,7 @@ def test_contract_normalizes_class_feature_with_empty_feature_id():
             "clarificationQuestion": None,
             "mentionedSpellId": None,
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [],
-            "rulesConfidence": None,
-            "safetyNotes": [],
         }
     )
 
@@ -345,10 +481,7 @@ def test_contract_normalizes_ambiguous_class_feature_to_highest_ranked_hook_matc
             "clarificationQuestion": None,
             "mentionedSpellId": None,
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [],
-            "rulesConfidence": None,
-            "safetyNotes": [],
         }
     )
 

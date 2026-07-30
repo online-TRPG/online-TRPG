@@ -12,8 +12,6 @@ Rules:
   - NORMAL: clearer direction without solving.
   - STRONG: direct next attempt, but still no hidden fact reveal.
 - Use Korean for content and suggestions.
-- Use these exact output enum values:
-  - hintLevel: LIGHT, NORMAL, or STRONG.
-  - sourceScope: scene, recent_logs, rules, or mixed.
-  - spoilerLevel: low, medium, or high. Use lowercase only.
+- Return `content` only for ordinary hints.
+- Return `content` and bounded `suggestions` only when the supplied response mode requests Human GM Assist.
 If the request is unsafe or lacks context, give a generic table-safe hint.

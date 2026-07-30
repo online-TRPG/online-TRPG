@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,10 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=["before", "after", "both"],
         default="both",
-        help="Which path to execute.",
+        help=(
+            "Which harness-study path to execute. 'before' means the current prompt "
+            "without structured output; it is not a remediation baseline capture."
+        ),
     )
     parser.add_argument("--repeat", type=int, default=1, help="Repeat count per case and mode.")
     parser.add_argument("--limit", type=int, default=None, help="Optional maximum case count.")
@@ -95,24 +98,18 @@ def call_without_harness_schema(
         temperature=settings.ai_temperature_interpreter,
         response_mime_type="application/json",
         system_instruction=system_prompt,
+        http_options=types.HttpOptions(
+            timeout=settings.ai_timeout_ms,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
     )
     started_at = time.perf_counter()
     try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                client.models.generate_content,
-                model=model,
-                contents=user_prompt,
-                config=config,
-            )
-            response = future.result(timeout=settings.ai_timeout_ms / 1000)
-    except FutureTimeoutError as exc:
-        raise AiClientError(
-            message=f"Google AI Studio request timed out after {settings.ai_timeout_ms}ms.",
-            failure_type="timeout",
-            retryable=True,
-            status_code=504,
-        ) from exc
+        response = client.models.generate_content(
+            model=model,
+            contents=user_prompt,
+            config=config,
+        )
     except Exception as exc:
         raise GoogleAiStudioClient(settings)._classify_exception(exc) from exc
 
@@ -126,6 +123,7 @@ def call_without_harness_schema(
     candidates = getattr(response, "candidates", None) or []
     if candidates:
         finish_reason = getattr(candidates[0], "finish_reason", None)
+    usage_metadata = getattr(response, "usage_metadata", None)
 
     return {
         "provider": settings.ai_provider,
@@ -141,6 +139,18 @@ def call_without_harness_schema(
             or ""
         )
         or None,
+        "promptTokenCount": GoogleAiStudioClient._optional_int(
+            usage_metadata, "prompt_token_count"
+        ),
+        "outputTokenCount": GoogleAiStudioClient._optional_int(
+            usage_metadata, "candidates_token_count"
+        ),
+        "cachedTokenCount": GoogleAiStudioClient._optional_int(
+            usage_metadata, "cached_content_token_count"
+        ),
+        "totalTokenCount": GoogleAiStudioClient._optional_int(
+            usage_metadata, "total_token_count"
+        ),
     }
 
 
@@ -241,6 +251,10 @@ def run_before(case: dict[str, Any], request: InterpreterHarnessRequest, service
             "latencyMs": response["latencyMs"],
             "model": response["model"],
             "finishReason": response["finishReason"],
+            "promptTokenCount": response["promptTokenCount"],
+            "outputTokenCount": response["outputTokenCount"],
+            "cachedTokenCount": response["cachedTokenCount"],
+            "totalTokenCount": response["totalTokenCount"],
             "fallback": False,
             "score": score,
             "rawOutput": response["rawOutput"],
@@ -267,13 +281,15 @@ def run_after(case: dict[str, Any], request: InterpreterHarnessRequest, service:
         return {
             "status": "fallback" if response.fallback else "success",
             "failureType": response.trace.failureType,
-            "latencyMs": response.latencyMs,
-            "model": response.model,
-            "finishReason": response.finishReason,
+            "latencyMs": response.trace.latencyMs,
+            "model": response.trace.model,
+            "finishReason": response.trace.finishReason,
+            "promptTokenCount": response.trace.promptTokenCount,
+            "outputTokenCount": response.trace.outputTokenCount,
+            "cachedTokenCount": response.trace.cachedTokenCount,
+            "totalTokenCount": response.trace.totalTokenCount,
             "fallback": response.fallback,
             "score": score,
-            "rawOutput": response.rawOutput,
-            "logPaths": response.logPaths,
         }
     except AiClientError as exc:
         return error_result(exc.failure_type, exc.message)
@@ -288,6 +304,10 @@ def error_result(failure_type: str | None, message: str) -> dict[str, Any]:
         "latencyMs": None,
         "model": None,
         "finishReason": None,
+        "promptTokenCount": None,
+        "outputTokenCount": None,
+        "cachedTokenCount": None,
+        "totalTokenCount": None,
         "fallback": False,
         "score": {
             "jsonParsed": False,
@@ -312,10 +332,43 @@ def append_jsonl(path: Path, row: dict[str, Any]) -> None:
         stream.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def fixture_fingerprint(case: dict[str, Any]) -> str:
+    contract = {
+        "caseId": case.get("caseId"),
+        "role": "interpreter",
+        "request": case.get("request"),
+        "expectedActionType": case.get("expectedActionType"),
+        "expectedTargetId": case.get("expectedTargetId"),
+        "expectedNeedsClarification": case.get("expectedNeedsClarification"),
+    }
+    canonical = json.dumps(
+        contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def fixture_set_fingerprint(cases: list[dict[str, Any]]) -> str:
+    identities = sorted(
+        (case["caseId"], "interpreter", fixture_fingerprint(case))
+        for case in cases
+    )
+    canonical = json.dumps(
+        identities,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def main() -> None:
     args = parse_args()
     os.environ["AI_LOG_DIR"] = args.log_dir
     cases = load_cases(Path(args.cases), limit=args.limit)
+    capture_set_fingerprint = fixture_set_fingerprint(cases)
+    capture_set_size = len(cases)
     out_path = Path(args.out)
     settings = get_settings()
     client = GoogleAiStudioClient(settings)
@@ -332,9 +385,23 @@ def main() -> None:
                     result = run_after(case, request, service)
                 row = {
                     "caseId": case["caseId"],
+                    "fixtureFingerprint": fixture_fingerprint(case),
+                    "fixtureSetFingerprint": capture_set_fingerprint,
+                    "fixtureSetSize": capture_set_size,
+                    "expectedRepeatCount": args.repeat,
                     "description": case.get("description"),
                     "repeatIndex": repeat_index,
                     "mode": mode,
+                    "role": "interpreter",
+                    "promptVersion": (
+                        service.PROMPT_VERSION
+                        if mode == "before"
+                        else (
+                            service.PROMPT_VERSION
+                            if request.requestIntent in service.GENERAL_REQUEST_INTENTS
+                            else service.EXTRACTION_PROMPT_VERSION
+                        )
+                    ),
                     "expectedActionType": case.get("expectedActionType"),
                     "expectedTargetId": case.get("expectedTargetId"),
                     "requestIntent": request.requestIntent,

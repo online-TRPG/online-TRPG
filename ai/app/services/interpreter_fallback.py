@@ -65,7 +65,6 @@ class InterpreterFallbackService:
                 ),
                 needsClarification=False,
                 clarificationQuestion=None,
-                safetyNotes=["AI 해석 실패로 로컬 fallback 분류를 사용함", "게임 상태는 변경하지 않음"],
             )
 
         return InterpreterOutput(
@@ -78,7 +77,6 @@ class InterpreterFallbackService:
             ),
             needsClarification=True,
             clarificationQuestion="행동을 조금 더 구체적으로 선택해 주세요.",
-            safetyNotes=["AI 해석 실패로 템플릿 fallback을 사용함", "게임 상태는 변경하지 않음"],
         )
 
     def _infer_request_intent_fallback_action(

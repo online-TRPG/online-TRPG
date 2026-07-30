@@ -1,7 +1,11 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.provider import StrictProviderModel
+
 
 class CheckResultOutput(BaseModel):
     narration: str = Field(min_length=1, max_length=700)
-    rewardInfo: str = Field(min_length=1, max_length=500)
-    safetyNotes: list[str] = Field(default_factory=list, max_length=5)
+
+
+class CheckResultProviderOutput(StrictProviderModel):
+    narration: str = Field(min_length=1, max_length=700)

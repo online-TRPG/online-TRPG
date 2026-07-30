@@ -292,6 +292,8 @@ class SrdRetriever:
         )
         self._rule_hooks = tuple(rule_hooks) if rule_hooks is not None else get_rule_hook_catalog()
         self._rule_fragment_by_id = {fragment.id: fragment for fragment in self._rule_fragments}
+        self._spell_by_id = {spell.id: spell for spell in self._spells}
+        self._magic_item_by_id = {item.id: item for item in self._magic_items}
         index_started_at = time.perf_counter()
 
         spell_terms: list[tuple[str, Spell]] = []
@@ -436,6 +438,12 @@ class SrdRetriever:
 
     def find_spells(self, text: str, limit: int = 5) -> list[Spell]:
         return self._find_indexed_entities(self._spell_index, text, limit)
+
+    def get_spell(self, spell_id: str) -> Spell | None:
+        return self._spell_by_id.get(spell_id)
+
+    def get_magic_item(self, item_id: str) -> MagicItem | None:
+        return self._magic_item_by_id.get(item_id)
 
     def find_conditions(self, text: str, limit: int = 5) -> list[Condition]:
         return self._find_indexed_entities(self._condition_index, text, limit)

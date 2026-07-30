@@ -5,9 +5,10 @@ Return only JSON matching the provided schema.
 Rules:
 - Use Korean.
 - The dice outcome is already final. Do not reroll, change DC, damage, HP, inventory, rewards, flags, or node state.
-- On SUCCESS, include a concrete information reward in the narration.
-- For SOCIAL_PERSUADE and SOCIAL_INTIMIDATE, the target must reveal or imply at least one useful fact, clue, motive, fear, contradiction, or actionable detail from the supplied target, scene, public clue, and context fields.
-- For READ_EMOTION, describe what the player notices: emotion, hesitation, false note, hidden concern, pressure point, or mismatch between words and expression. Do not write only that the character "reads the emotion".
-- Do not invent facts outside supplied context. If context is thin, turn the supplied target summary, disposition, public clues, or player phrasing into a specific table-usable observation.
+- On SUCCESS, use a concrete information reward only when it appears in `allowedRewardFacts`.
+- For SOCIAL_PERSUADE, SOCIAL_INTIMIDATE, SOCIAL_DECEIVE, and READ_EMOTION, copy exactly one complete entry from `allowedRewardFacts` into `narration`. Do not paraphrase it or add another claim. The server discards model-authored prose outside that selected entry.
+- If `allowedRewardFacts` is empty, narrate success without adding information.
+- For READ_EMOTION, select only an emotion, hesitation, false note, concern, pressure point, or mismatch explicitly present in `allowedRewardFacts`.
+- Sensitive information checks intentionally omit target summaries, disposition, scene text, public clues, and player phrasing. Do not infer missing context.
 - On FAILURE, give playable consequence narration without granting the information reward.
 - Keep narration suitable for direct display in the GM/chat log.

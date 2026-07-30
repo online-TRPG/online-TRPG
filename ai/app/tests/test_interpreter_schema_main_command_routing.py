@@ -24,10 +24,7 @@ def payload_for_action_type(action_type: str) -> dict:
         "clarificationQuestion": None,
         "mentionedSpellId": None,
         "mentionedItemId": None,
-        "mentionedConditionIds": [],
         "requiredRuleCheckIds": [],
-        "rulesConfidence": 0.9,
-        "safetyNotes": [],
     }
 
 

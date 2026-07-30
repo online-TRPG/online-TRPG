@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.clients.google_ai_studio import GeneratedJsonResult
 from app.clients.google_ai_studio import GoogleAiStudioClient
 from app.core.config import Settings
@@ -8,6 +10,7 @@ from app.core.errors import AiClientError
 from app.core.response_logger import HarnessResponseLogger
 from app.schemas.harness import (
     ActorHarnessRequest,
+    CheckResultHarnessRequest,
     DirectorHarnessRequest,
     InterpreterHarnessRequest,
     NarratorHarnessRequest,
@@ -35,13 +38,13 @@ class FakeGoogleAiStudioClient:
         self.calls.append(kwargs)
         schema = kwargs["response_json_schema"]
         schema_properties = schema["properties"]
+        schema_title = schema.get("title")
         if "action" in schema_properties:
             return GeneratedJsonResult(
-                raw_text='{"action":{"type":"INVESTIGATE_OBJECT","actorCharacterId":"player-1","targetId":"stone-door","ability":null,"skill":"investigation","approach":"문 틈새를 조사한다.","confidence":0.88,"requiresRoll":true,"suggestedDifficulty":"medium"},"needsClarification":false,"clarificationQuestion":null,"safetyNotes":["상태 변경은 서버가 확정해야 함"]}',
+                raw_text='{"action":{"type":"INVESTIGATE_OBJECT","targetId":"stone-door","ability":null,"skill":"investigation","approach":"문 틈새를 조사한다.","confidence":0.88,"requiresRoll":true,"suggestedDifficulty":"medium"},"needsClarification":false,"clarificationQuestion":null}',
                 parsed_json={
                     "action": {
                         "type": "INVESTIGATE_OBJECT",
-                        "actorCharacterId": "player-1",
                         "targetId": "stone-door",
                         "ability": None,
                         "skill": "investigation",
@@ -54,10 +57,7 @@ class FakeGoogleAiStudioClient:
                     "clarificationQuestion": None,
                     "mentionedSpellId": None,
                     "mentionedItemId": None,
-                    "mentionedConditionIds": [],
                     "requiredRuleCheckIds": [],
-                    "rulesConfidence": None,
-                    "safetyNotes": ["상태 변경은 서버가 확정해야 함"],
                 },
                 model=kwargs["model"],
                 provider="google-ai-studio",
@@ -65,32 +65,29 @@ class FakeGoogleAiStudioClient:
                 finish_reason="STOP",
                 provider_request_id="req-interpreter-1",
             )
-        if "content" in schema_properties and "hintLevel" in schema_properties:
+        if schema_title == "DirectorProviderOutput":
+            parsed_json = {
+                "content": "문 주변에서 이미 확인한 흔적을 다시 엮어 보세요. 손잡이보다 틈새와 바닥의 변화를 비교하면 다음 시도가 보입니다.",
+            }
+            if "suggestions" in schema_properties:
+                parsed_json["suggestions"] = [
+                    "문틈을 더 자세히 살핀다.",
+                    "바닥 긁힌 자국과 손잡이를 비교한다.",
+                ]
             return GeneratedJsonResult(
-                raw_text='{"hintLevel":"NORMAL","content":"문 주변에서 이미 확인한 흔적을 다시 엮어 보세요. 손잡이보다 틈새와 바닥의 변화를 비교하면 다음 시도가 보입니다.","sourceScope":"mixed","spoilerLevel":"low","suggestions":["문틈을 더 자세히 살핀다.","바닥 긁힌 자국과 손잡이를 비교한다."],"safetyNotes":["새 단서를 확정하지 않음"]}',
-                parsed_json={
-                    "hintLevel": "NORMAL",
-                    "content": "문 주변에서 이미 확인한 흔적을 다시 엮어 보세요. 손잡이보다 틈새와 바닥의 변화를 비교하면 다음 시도가 보입니다.",
-                    "sourceScope": "mixed",
-                    "spoilerLevel": "low",
-                    "suggestions": ["문틈을 더 자세히 살핀다.", "바닥 긁힌 자국과 손잡이를 비교한다."],
-                    "safetyNotes": ["새 단서를 확정하지 않음"],
-                },
+                raw_text=json.dumps(parsed_json, ensure_ascii=False),
+                parsed_json=parsed_json,
                 model=kwargs["model"],
                 provider="google-ai-studio",
                 latency_ms=11,
                 finish_reason="STOP",
                 provider_request_id="req-director-1",
             )
-        if "summaryType" in schema_properties and "keyFacts" in schema_properties:
+        if schema_title == "SummarizerProviderOutput":
             return GeneratedJsonResult(
-                raw_text='{"summaryType":"player_visible","coveredTurnRange":"최근 2개 로그","content":"일행은 석문 앞에서 손잡이를 당겼지만 열지 못했고, 바닥의 긁힌 자국과 문틈의 먼지를 확인했다.","keyFacts":["석문은 아직 열리지 않았다.","바닥 긁힌 자국과 문틈의 먼지가 공개 단서다."],"safetyNotes":["새 사실 추가 없음"]}',
+                raw_text='{"content":"일행은 석문 앞에서 손잡이를 당겼지만 열지 못했고, 바닥의 긁힌 자국과 문틈의 먼지를 확인했다."}',
                 parsed_json={
-                    "summaryType": "player_visible",
-                    "coveredTurnRange": "최근 2개 로그",
                     "content": "일행은 석문 앞에서 손잡이를 당겼지만 열지 못했고, 바닥의 긁힌 자국과 문틈의 먼지를 확인했다.",
-                    "keyFacts": ["석문은 아직 열리지 않았다.", "바닥 긁힌 자국과 문틈의 먼지가 공개 단서다."],
-                    "safetyNotes": ["새 사실 추가 없음"],
                 },
                 model=kwargs["model"],
                 provider="google-ai-studio",
@@ -100,11 +97,9 @@ class FakeGoogleAiStudioClient:
             )
         if "selectedActionId" in schema_properties:
             return GeneratedJsonResult(
-                raw_text='{"selectedActionId":"goblin.shortbow","reason":"고블린은 거리를 유지하고 있어 원거리 공격 후보가 가장 자연스럽다.","safetyNotes":["허용된 행동 ID만 선택함"]}',
+                raw_text='{"selectedActionId":"goblin.shortbow"}',
                 parsed_json={
                     "selectedActionId": "goblin.shortbow",
-                    "reason": "고블린은 거리를 유지하고 있어 원거리 공격 후보가 가장 자연스럽다.",
-                    "safetyNotes": ["허용된 행동 ID만 선택함"],
                 },
                 model=kwargs["model"],
                 provider="google-ai-studio",
@@ -112,13 +107,11 @@ class FakeGoogleAiStudioClient:
                 finish_reason="STOP",
                 provider_request_id="req-actor-1",
             )
-        if "dialogue" in schema_properties and "tone" in schema_properties:
+        if schema_title == "NpcDialogueProviderOutput":
             return GeneratedJsonResult(
-                raw_text='{"dialogue":"흥, 가까이 오면 후회하게 될 거다.","tone":"hostile","safetyNotes":["대사만 생성하고 행동은 선택하지 않음"]}',
+                raw_text='{"dialogue":"흥, 가까이 오면 후회하게 될 거다."}',
                 parsed_json={
                     "dialogue": "흥, 가까이 오면 후회하게 될 거다.",
-                    "tone": "hostile",
-                    "safetyNotes": ["대사만 생성하고 행동은 선택하지 않음"],
                 },
                 model=kwargs["model"],
                 provider="google-ai-studio",
@@ -126,11 +119,22 @@ class FakeGoogleAiStudioClient:
                 finish_reason="STOP",
                 provider_request_id="req-npc-dialogue-1",
             )
+        if schema_title == "CheckResultProviderOutput":
+            return GeneratedJsonResult(
+                raw_text='{"narration":"경비병은 북문이 비어 있다는 사실을 공개할 수 있다."}',
+                parsed_json={
+                    "narration": "경비병은 북문이 비어 있다는 사실을 공개할 수 있다.",
+                },
+                model=kwargs["model"],
+                provider="google-ai-studio",
+                latency_ms=7,
+                finish_reason="STOP",
+                provider_request_id="req-check-result-1",
+            )
         return GeneratedJsonResult(
-            raw_text='{"narration":"당신은 문 틈새를 살피며 손잡이 주변의 마모 흔적을 발견한다.","visibleSummary":"문 주변을 조사했다."}',
+            raw_text='{"narration":"당신은 문 틈새를 살피며 손잡이 주변의 마모 흔적을 발견한다."}',
             parsed_json={
                 "narration": "당신은 문 틈새를 살피며 손잡이 주변의 마모 흔적을 발견한다.",
-                "visibleSummary": "문 주변을 조사했다.",
             },
             model=kwargs["model"],
             provider="google-ai-studio",
@@ -170,6 +174,30 @@ class AlwaysFailingGoogleAiStudioClient(FakeGoogleAiStudioClient):
             retryable=False,
             status_code=502,
             attempts=1,
+        )
+
+
+class ProviderRequestFailingGoogleAiStudioClient(FakeGoogleAiStudioClient):
+    def generate_json(self, **kwargs):
+        self.calls.append(kwargs)
+        raise AiClientError(
+            message="provider rejected generated request",
+            failure_type="provider_request",
+            retryable=False,
+            status_code=502,
+            attempts=1,
+        )
+
+
+class InvalidOutputGoogleAiStudioClient(FakeGoogleAiStudioClient):
+    def generate_json(self, **kwargs):
+        self.calls.append(kwargs)
+        return GeneratedJsonResult(
+            raw_text="{}",
+            parsed_json={},
+            model=kwargs["model"],
+            provider="google-ai-studio",
+            latency_ms=1,
         )
 
 
@@ -215,21 +243,85 @@ def test_interpreter_harness_returns_valid_structured_action():
 
     assert response.parsed.action.type == "INVESTIGATE_OBJECT"
     assert response.parsed.action.targetId == "stone-door"
-    assert response.model == "gemma-4-31b-it"
+    assert response.trace.model == "gemma-4-31b-it"
     assert fake_client.calls[0]["temperature"] == 0.1
     assert response.trace.attempts == 1
-    assert response.providerRequestId == "req-interpreter-1"
+    assert response.trace.providerRequestId == "req-interpreter-1"
     assert "sceneTransition" not in fake_client.calls[0]["response_json_schema"]["properties"]
-    assert response.logPaths is not None
-    latest_path = Path(response.logPaths["latest"])
+    assert not hasattr(response, "logPaths")
+    latest_path = TEST_LOG_DIR / "interpreter.latest.json"
     assert latest_path.exists()
     logged = json.loads(latest_path.read_text(encoding="utf-8"))
     assert logged["endpoint"] == "interpreter"
-    assert logged["response"]["parsed"]["action"]["type"] == "INVESTIGATE_OBJECT"
+    assert "parsed" not in logged["response"]
+    assert "rawOutput" not in logged["response"]
     assert logged["aiTrace"]["id"].startswith("trace-")
     assert logged["aiTrace"]["role"] == "interpreter"
     assert logged["aiTrace"]["status"] == "success"
-    assert logged["aiTrace"]["logPaths"]["latest"] == response.logPaths["latest"]
+    assert logged["aiTrace"]["diagnosticRef"] == (
+        f"harness_history.jsonl#{logged['aiTrace']['id']}"
+    )
+    assert "logPaths" not in logged
+
+
+def test_interpreter_rejects_unknown_selected_target_before_provider_call():
+    service, fake_client = build_service()
+
+    try:
+        service.run_interpreter(
+            InterpreterHarnessRequest(
+                rawText="보이지 않는 대상을 조사한다.",
+                availableTargets=["stone-door"],
+                targetId="hidden-target",
+            )
+        )
+    except AiClientError as exc:
+        assert exc.failure_type == "bad_request"
+        assert exc.status_code == 422
+        assert exc.attempts == 0
+    else:
+        raise AssertionError("Unknown selected target must be rejected")
+    assert fake_client.calls == []
+
+
+def test_interpreter_rejects_unsupported_fixed_intent_before_provider_call():
+    service, fake_client = build_service()
+
+    try:
+        service.run_interpreter(
+            InterpreterHarnessRequest(
+                rawText="지원되지 않는 고정 의도를 실행한다.",
+                requestIntent="UNSUPPORTED_FIXED_INTENT",
+            )
+        )
+    except AiClientError as exc:
+        assert exc.failure_type == "bad_request"
+        assert exc.status_code == 422
+        assert exc.attempts == 0
+    else:
+        raise AssertionError("Unsupported fixed intent must be rejected")
+
+    assert fake_client.calls == []
+
+
+def test_interpreter_rejects_unknown_canonical_magic_item_before_provider_call():
+    service, fake_client = build_service()
+
+    try:
+        service.run_interpreter(
+            InterpreterHarnessRequest(
+                rawText="선택한 마법 물품을 사용한다.",
+                requestIntent="USE_TOOL",
+                itemId="magic_item.not_in_catalog",
+            )
+        )
+    except AiClientError as exc:
+        assert exc.failure_type == "bad_request"
+        assert exc.status_code == 422
+        assert exc.attempts == 0
+    else:
+        raise AssertionError("Unknown canonical magic item must be rejected")
+    assert fake_client.calls == []
 
 
 def test_google_ai_studio_client_parses_fenced_json_text_fallback():
@@ -255,8 +347,8 @@ def test_interpreter_prompt_includes_retrieved_spell_context():
     assert "player declaration" in system_instruction
     assert "outcome narration" in system_instruction
     assert "stable IDs" in system_instruction
-    assert "availableTargets" in system_instruction
-    assert "required engine check" in system_instruction
+    assert "targets" in system_instruction
+    assert "copy only IDs from `relatedRules`" in system_instruction
 
 
 def test_interpreter_prompt_guides_natural_language_support_requests():
@@ -304,7 +396,7 @@ def test_interpreter_prompt_includes_retrieved_magic_item_and_class_feature_hook
     item_prompt = fake_client.calls[0]["prompt"]
 
     assert "magic_item.bag_of_holding" in item_prompt
-    assert "hook.item.bag_of_holding_capacity" in item_prompt
+    assert "hook.item.bag_of_holding_capacity" not in item_prompt
 
     fake_client.calls.clear()
     service.run_interpreter(
@@ -313,7 +405,7 @@ def test_interpreter_prompt_includes_retrieved_magic_item_and_class_feature_hook
     feature_prompt = fake_client.calls[0]["prompt"]
 
     assert "class.fighter" in feature_prompt
-    assert "hook.class.fighter.second_wind" in feature_prompt
+    assert "hook.class.fighter.second_wind" not in feature_prompt
     assert "class.fighter.feature.재기의_숨결" in feature_prompt
 
 
@@ -357,19 +449,22 @@ def test_narrator_harness_returns_valid_narration():
     )
 
     assert "문 틈새" in response.parsed.narration
-    assert response.parsed.visibleSummary == "문 주변을 조사했다."
+    assert set(response.parsed.model_dump()) == {"narration"}
     assert fake_client.calls[0]["temperature"] == 0.4
     assert response.trace.attempts == 1
-    assert response.providerRequestId == "req-narrator-1"
+    assert response.trace.providerRequestId == "req-narrator-1"
     prompt = fake_client.calls[0]["prompt"]
     system_instruction = fake_client.calls[0]["system_instruction"]
     assert '"checkRequest"' in prompt
     assert '"diceResult"' in prompt
     assert '"stateDiffSummary"' in prompt
-    assert '"noNewFacts": true' in prompt
-    assert "stateDiffSummary.summary" in system_instruction
+    assert '"maxLength":500' in prompt
+    assert "player-1" not in prompt
+    assert "stone-door" not in prompt
+    assert '"confidence"' not in prompt
+    assert "stateDiffSummary" in system_instruction
     assert "diceResult.success" in system_instruction
-    assert "visibleSummary" in system_instruction
+    assert "visibleSummary" not in system_instruction
     assert "hidden clues" in system_instruction
 
 
@@ -386,8 +481,29 @@ def test_narrator_rejects_requests_that_allow_new_facts():
     except AiClientError as exc:
         assert exc.failure_type == "schema_validation"
         assert exc.status_code == 400
+        assert exc.attempts == 0
     else:
         raise AssertionError("Narrator should reject noNewFacts=false")
+    assert _fake_client.calls == []
+
+
+def test_narrator_rejects_conflicting_explicit_scene_tones():
+    try:
+        NarratorHarnessRequest(
+            rawInput="문을 조사한다.",
+            scene={"summary": "석문 앞", "tone": "tense"},
+            sceneTone="calm",
+        )
+    except ValueError as exc:
+        assert "scene.tone and legacy sceneTone must match" in str(exc)
+    else:
+        raise AssertionError("Conflicting explicit scene tones must be rejected")
+
+
+def test_narrator_normalizes_legacy_scene_tone_when_scene_is_omitted():
+    request = NarratorHarnessRequest(rawInput="문을 조사한다.", sceneTone="tense")
+
+    assert request.scene.tone == "tense"
 
 
 def test_director_harness_returns_bounded_hint():
@@ -404,19 +520,17 @@ def test_director_harness_returns_bounded_hint():
         )
     )
 
-    assert response.parsed.hintLevel == "NORMAL"
-    assert response.parsed.spoilerLevel == "low"
-    assert response.providerRequestId == "req-director-1"
+    assert set(response.parsed.model_dump()) == {"content", "suggestions"}
+    assert response.trace.providerRequestId == "req-director-1"
     assert fake_client.calls[0]["temperature"] == 0.3
     prompt = fake_client.calls[0]["prompt"]
     system_instruction = fake_client.calls[0]["system_instruction"]
-    assert '"noHiddenFacts": true' in prompt
-    assert "sourceScope: scene, recent_logs, rules, or mixed" in system_instruction
-    assert "spoilerLevel: low, medium, or high" in system_instruction
+    assert "noHiddenFacts" not in prompt
+    assert "Return `content` only" in system_instruction
     assert "바닥 긁힌 자국" in prompt
 
 
-def test_director_normalizes_common_provider_enum_variants():
+def test_director_internal_output_omits_server_owned_fields():
     request = DirectorHarnessRequest(
         hintLevel="NORMAL",
         sceneSummary="public scene",
@@ -424,19 +538,35 @@ def test_director_normalizes_common_provider_enum_variants():
 
     normalized = DirectorService._normalize_provider_output(
         {
-            "hintLevel": "normal",
             "content": "주변을 다시 살펴보세요.",
-            "sourceScope": "sceneSummary",
-            "spoilerLevel": "LOW",
-            "suggestions": [],
-            "safetyNotes": [],
         },
         request,
     )
 
-    assert normalized["hintLevel"] == "NORMAL"
-    assert normalized["sourceScope"] == "scene"
-    assert normalized["spoilerLevel"] == "low"
+    assert normalized.model_dump() == {
+        "content": "주변을 다시 살펴보세요.",
+        "suggestions": [],
+    }
+
+
+def test_director_hint_rejects_uncontracted_suggestions():
+    request = DirectorHarnessRequest(
+        hintLevel="NORMAL",
+        sceneSummary="public scene",
+    )
+
+    try:
+        DirectorService._normalize_provider_output(
+            {
+                "content": "주변을 다시 살펴보세요.",
+                "suggestions": ["미계약 제안"],
+            },
+            request,
+        )
+    except ValueError as exc:
+        assert "excluded by the HINT contract" in str(exc)
+    else:
+        raise AssertionError("HINT output must reject suggestions")
 
 
 def test_summarizer_harness_returns_factual_summary():
@@ -448,19 +578,22 @@ def test_summarizer_harness_returns_factual_summary():
             rangeType="RECENT",
             lastLogCount=2,
             logs=[
+                "이 오래된 로그는 요청 범위 밖이다.",
                 "플레이어가 손잡이를 당겼지만 석문은 열리지 않았다.",
                 "플레이어가 바닥 긁힌 자국과 문틈의 먼지를 확인했다.",
             ],
         )
     )
 
-    assert response.parsed.summaryType == "player_visible"
+    assert set(response.parsed.model_dump()) == {"content"}
     assert "석문" in response.parsed.content
-    assert response.providerRequestId == "req-summarizer-1"
+    assert response.trace.providerRequestId == "req-summarizer-1"
     assert fake_client.calls[0]["temperature"] == 0.2
     prompt = fake_client.calls[0]["prompt"]
-    assert '"noNewFacts": true' in prompt
+    assert "noNewFacts" not in prompt
+    assert "rangeType" not in prompt
     assert "바닥 긁힌 자국" in prompt
+    assert "이 오래된 로그는 요청 범위 밖이다." not in prompt
 
 
 def test_actor_harness_selects_allowed_action_only():
@@ -481,10 +614,10 @@ def test_actor_harness_selects_allowed_action_only():
     )
 
     assert response.parsed.selectedActionId == "goblin.shortbow"
-    assert response.providerRequestId == "req-actor-1"
+    assert response.trace.providerRequestId == "req-actor-1"
     assert fake_client.calls[0]["temperature"] == 0.2
     prompt = fake_client.calls[0]["prompt"]
-    assert '"copyOnlyAllowedActionId": true' in prompt
+    assert "copyOnlyAllowedActionId" not in prompt
     assert "goblin.shortbow" in prompt
 
 
@@ -498,26 +631,163 @@ def test_npc_dialogue_harness_generates_dialogue_without_selecting_action():
             npcSummary="겁이 많지만 허세를 부리는 고블린.",
             disposition="hostile",
             sceneSummary="고블린은 플레이어와 거리를 두고 활을 겨누고 있다.",
-            recentContext=["Actor가 goblin.shortbow 행동 후보를 선택했다."],
-            selectedActionId="goblin.shortbow",
+            recentContext=["고블린은 원거리 공격 태세를 유지하고 있다."],
             dialogueIntent="위협하며 거리를 유지한다.",
-            audienceIds=["player-1"],
         )
     )
 
     assert response.parsed.dialogue == "흥, 가까이 오면 후회하게 될 거다."
-    assert response.providerRequestId == "req-npc-dialogue-1"
+    assert response.trace.providerRequestId == "req-npc-dialogue-1"
     assert response.trace.role == "npc_dialogue"
     assert fake_client.calls[0]["temperature"] == 0.4
     prompt = fake_client.calls[0]["prompt"]
     system_instruction = fake_client.calls[0]["system_instruction"]
-    assert '"noActionSelection": true' in prompt
-    assert '"directSpeechOnly": true' in prompt
-    assert "goblin.shortbow" in prompt
+    assert "noActionSelection" not in prompt
+    assert "directSpeechOnly" not in prompt
     assert "Do not choose NPC actions" in system_instruction
     assert "generic attempt to start conversation" in system_instruction
     assert "밀라에게 아침 인사를 건넨다" in system_instruction
     assert "Do not proactively explain scene clues" in system_instruction
+
+
+def test_check_result_sends_only_allowed_reward_facts():
+    service, fake_client = build_service()
+
+    response = service.run_check_result(
+        CheckResultHarnessRequest(
+            outcome="SUCCESS",
+            intent="SOCIAL_PERSUADE",
+            actionSummary="경비병을 설득하는 판정에 성공했다.",
+            targetName="경비병",
+            sceneSummary="성문 앞에서 대화 중이다.",
+            allowedRewardFacts=["경비병은 북문이 비어 있다는 사실을 공개할 수 있다."],
+            visibleEntities=["경비병"],
+            outputMode="NPC_REPLY",
+        )
+    )
+
+    prompt = fake_client.calls[0]["prompt"]
+    assert response.parsed.narration
+    assert "rewardInfo" not in response.parsed.model_dump()
+    assert "allowedRewardFacts" in prompt
+    assert "publicClues" not in prompt
+    assert "playerText" not in prompt
+    system_instruction = fake_client.calls[0]["system_instruction"]
+    assert "copy exactly one complete entry" in system_instruction
+    assert "intentionally omit target summaries" in system_instruction
+    assert fake_client.calls[0]["response_json_schema"]["required"] == ["narration"]
+
+
+def test_check_result_discards_model_claims_outside_selected_allowed_fact():
+    request = CheckResultHarnessRequest(
+        outcome="SUCCESS",
+        intent="READ_EMOTION",
+        targetName="경비병",
+        allowedRewardFacts=["경비병의 목소리에는 두려움이 묻어난다."],
+        outputMode="OBSERVATION",
+    )
+
+    parsed = CheckResultService._normalize_output(
+        {
+            "narration": (
+                "경비병의 목소리에는 두려움이 묻어난다. "
+                "그리고 숨겨진 열쇠가 지하실에 있다고 고백한다."
+            )
+        },
+        request,
+    )
+
+    assert parsed.narration == "경비병의 목소리에는 두려움이 묻어난다."
+
+
+def test_check_result_rejects_sensitive_success_without_an_exact_allowed_fact():
+    request = CheckResultHarnessRequest(
+        outcome="SUCCESS",
+        intent="SOCIAL_PERSUADE",
+        targetName="경비병",
+        allowedRewardFacts=["북문은 비어 있다."],
+        outputMode="NPC_REPLY",
+    )
+
+    with pytest.raises(ValueError, match="must copy one allowedRewardFacts entry exactly"):
+        CheckResultService._normalize_output(
+            {"narration": "경비병은 동문으로 가라고 귀띔한다."},
+            request,
+        )
+
+
+def test_npc_dialogue_fallback_respects_request_max_length():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "npc_max_length_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_npc_dialogue(
+        NpcDialogueHarnessRequest(
+            npcEntityId="npc-1",
+            npcName="매우 긴 이름을 가진 경계병",
+            npcSummary="경계 중인 인물",
+            sceneSummary="성문 앞",
+            dialogueIntent="짧게 답한다",
+            maxLength=20,
+        )
+    )
+
+    assert response.fallback is True
+    assert len(response.parsed.dialogue) <= 20
+
+
+def test_narrator_and_npc_dialogue_enforce_request_specific_output_boundaries():
+    narrator_request = NarratorHarnessRequest(
+        rawInput="결과를 서술한다.",
+        constraints={"maxLength": 80},
+    )
+    npc_request = NpcDialogueHarnessRequest(
+        npcEntityId="npc-1",
+        npcSummary="경계병",
+        sceneSummary="성문 앞",
+        dialogueIntent="짧게 답한다",
+        maxLength=20,
+    )
+
+    narrator = NarratorService._validate_output(
+        {"narration": "가" * 80},
+        narrator_request,
+    )
+    npc_dialogue = NpcDialogueService._validate_output(
+        {"dialogue": "나" * 20},
+        npc_request,
+    )
+
+    assert len(narrator.narration) == 80
+    assert len(npc_dialogue.dialogue) == 20
+
+    for validator, payload, request in (
+        (NarratorService._validate_output, {"narration": "가" * 81}, narrator_request),
+        (NpcDialogueService._validate_output, {"dialogue": "나" * 21}, npc_request),
+    ):
+        try:
+            validator(payload, request)
+            raise AssertionError("one-character-over output must be rejected")
+        except ValueError as error:
+            assert "maxLength" in str(error)
+
+
+def test_narrator_fallback_respects_request_max_length():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "narrator_max_length_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_narrator(
+        NarratorHarnessRequest(
+            rawInput="결과를 짧게 서술한다.",
+            constraints={"maxLength": 80},
+        )
+    )
+
+    assert response.fallback is True
+    assert len(response.parsed.narration) <= 80
 
 
 def test_trace_list_filters_history_by_role():
@@ -550,9 +820,12 @@ def test_trace_list_filters_history_by_role():
     assert response.items[0].id is not None
     assert response.items[0].role == "director"
     assert response.items[0].status == "success"
-    assert response.items[0].latencyMs == 11
+    assert response.items[0].latencyMs is not None
+    assert response.items[0].latencyMs >= 0
     assert response.items[0].attempts == 1
-    assert response.items[0].logPaths is not None
+    assert response.items[0].diagnosticRef == (
+        f"harness_history.jsonl#{response.items[0].id}"
+    )
 
 
 def test_interpreter_returns_logged_fallback_when_provider_fails():
@@ -571,12 +844,49 @@ def test_interpreter_returns_logged_fallback_when_provider_fails():
     assert response.trace.failureType == "upstream_error"
     assert response.parsed.needsClarification is True
     assert response.parsed.action.type == "OUT_OF_SCOPE"
-    assert response.logPaths is not None
+    assert not hasattr(response, "logPaths")
 
     traces = service.list_traces(status="fallback")
     assert traces.filtered == 1
     assert traces.items[0].role == "interpreter"
     assert traces.items[0].failureType == "upstream_error"
+
+
+def test_interpreter_provider_request_error_falls_back_without_retry():
+    fake_client = ProviderRequestFailingGoogleAiStudioClient()
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_provider_request_fallback",
+        fake_client,
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(rawText="문을 조사한다.")
+    )
+
+    assert response.fallback is True
+    assert response.fallbackReason == "provider_request"
+    assert response.trace.failureType == "provider_request"
+    assert response.trace.attempts == 1
+    assert len(fake_client.calls) == 1
+
+
+def test_interpreter_repeated_invalid_outputs_keep_fallback_trace_within_contract():
+    fake_client = InvalidOutputGoogleAiStudioClient()
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_invalid_output_fallback",
+        fake_client,
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(rawText="문을 조사한다.")
+    )
+
+    assert response.fallback is True
+    assert response.fallbackReason == "schema_validation"
+    assert response.trace.failureType == "schema_validation"
+    assert response.trace.attempts == 2
+    assert response.trace.schemaValidationRetries == 1
+    assert len(fake_client.calls) == 2
 
 
 def test_interpreter_fallback_routes_clear_general_gm_npc_dialogue():
@@ -602,7 +912,15 @@ def test_interpreter_fallback_routes_clear_general_gm_npc_dialogue():
     assert response.parsed.needsClarification is False
     assert response.parsed.action.type == "TALK_TO_NPC"
     assert response.parsed.action.targetId == "npc-mila"
-    assert response.parsed.safetyNotes == ["AI 해석 실패로 로컬 fallback 분류를 사용함", "게임 상태는 변경하지 않음"]
+    assert set(response.parsed.model_dump()) == {
+        "action",
+        "needsClarification",
+        "clarificationQuestion",
+        "mentionedSpellId",
+        "mentionedItemId",
+        "requiredRuleCheckIds",
+        "sceneTransition",
+    }
 
 
 def test_interpreter_fallback_routes_clear_general_gm_support_request():
@@ -681,6 +999,7 @@ def test_director_fallback_returns_scene_based_hint_without_ai_error_text():
             question="뭐하면 돼?",
             sceneSummary="마을 관리인 밀라가 우물 아래에서 이상한 소리가 난다고 말했다.",
             publicClues=["봉쇄된 우물을 조사한다"],
+            responseMode="HUMAN_GM_ASSIST",
         )
     )
 
@@ -726,7 +1045,6 @@ def test_npc_dialogue_fallback_returns_dialogue_only():
             npcSummary="궁지에 몰린 고블린.",
             disposition="hostile",
             sceneSummary="좁은 방 안에서 대치 중이다.",
-            selectedActionId="goblin.hide",
             dialogueIntent="겁을 숨기며 허세를 부린다.",
         )
     )
@@ -735,7 +1053,7 @@ def test_npc_dialogue_fallback_returns_dialogue_only():
     assert response.trace.role == "npc_dialogue"
     assert response.trace.failureType == "upstream_error"
     assert response.parsed.dialogue
-    assert response.parsed.safetyNotes == ["NPC 대사 fallback이며 행동 선택이나 상태 변경은 포함하지 않음"]
+    assert response.parsed.model_dump() == {"dialogue": response.parsed.dialogue}
 
 
 def test_interpreter_retries_once_on_retryable_client_error():

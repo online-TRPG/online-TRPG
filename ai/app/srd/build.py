@@ -2851,14 +2851,12 @@ def build_interpreter_backend_handoff_cases(
                 "needsClarification": False,
                 "mentionedSpellId": "spell.chill_touch",
                 "mentionedItemId": None,
-                "mentionedConditionIds": [],
                 "requiredRuleCheckIds": [
                     "rule.spellcasting.casting_time.action",
                     "rule.spellcasting.range",
                     "rule.spellcasting.spell_attack",
                     "rule.combat.attack_roll",
                 ],
-                "safetyNotes": ["명중, 피해, 치유 차단은 백엔드 엔진이 확정한다."],
             },
             "backendState": {
                 "sessionId": "session-demo-1",
@@ -2974,9 +2972,7 @@ def build_interpreter_backend_handoff_cases(
                 "needsClarification": False,
                 "mentionedSpellId": None,
                 "mentionedItemId": None,
-                "mentionedConditionIds": [],
                 "requiredRuleCheckIds": ["rule.combat.attack_roll"],
-                "safetyNotes": ["명중과 피해는 백엔드 엔진이 확정한다."],
             },
             "backendState": {
                 "sessionId": "session-demo-1",
@@ -3053,9 +3049,7 @@ def build_interpreter_backend_handoff_cases(
                 "needsClarification": False,
                 "mentionedSpellId": None,
                 "mentionedItemId": None,
-                "mentionedConditionIds": ["condition.prone"],
                 "requiredRuleCheckIds": ["rule.combat.attack_roll"],
-                "safetyNotes": ["넘어짐 보정과 명중 여부는 백엔드 엔진이 확정한다."],
             },
             "backendState": {
                 "sessionId": "session-demo-1",

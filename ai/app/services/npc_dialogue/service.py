@@ -1,13 +1,15 @@
 import json
-from pathlib import Path
-
-from pydantic import ValidationError
-
 from app.clients.google_ai_studio import GoogleAiStudioClient
 from app.core.config import Settings
-from app.core.errors import AiClientError
 from app.schemas.harness import NpcDialogueHarnessRequest, NpcDialogueHarnessResponse
-from app.schemas.npc_dialogue import NpcDialogueOutput
+from app.schemas.npc_dialogue import NpcDialogueOutput, NpcDialogueProviderOutput
+from app.services.provider_execution import (
+    attach_role_diagnostics,
+    build_role_response_metadata,
+    execute_provider_request,
+    load_role_prompt,
+    provider_output_schema,
+)
 
 
 class NpcDialogueService:
@@ -18,83 +20,58 @@ class NpcDialogueService:
         self._settings = settings
 
     def run(self, request: NpcDialogueHarnessRequest) -> NpcDialogueHarnessResponse:
-        prompt_path = Path(__file__).resolve().parents[2] / "prompts" / self.PROMPT_VERSION
-        system_prompt = prompt_path.read_text(encoding="utf-8")
+        system_prompt = load_role_prompt(self.PROMPT_VERSION)
         model = request.model or self._settings.model_for_role("npc_dialogue")
         user_prompt = self._build_prompt(request)
-        last_error: AiClientError | None = None
-        attempts = self._settings.ai_max_retries + 1
-        for attempt in range(1, attempts + 1):
-            try:
-                result = self._client.generate_json(
+        execution = execute_provider_request(
+            settings=self._settings,
+            request_once=lambda timeout_ms: self._client.generate_json(
                     model=model,
                     prompt=user_prompt,
-                    response_json_schema=NpcDialogueOutput.model_json_schema(),
+                    response_json_schema=provider_output_schema(NpcDialogueProviderOutput),
                     system_instruction=system_prompt,
                     temperature=self._settings.ai_temperature_npc_dialogue,
-                )
-                parsed = NpcDialogueOutput.model_validate(result.parsed_json)
-                break
-            except ValidationError as exc:
-                last_error = AiClientError(
-                    message=f"NpcDialogue schema validation failed: {exc}",
-                    failure_type="schema_validation",
-                    retryable=attempt < attempts,
-                    status_code=502,
-                    attempts=attempt,
-                )
-            except AiClientError as exc:
-                exc.attempts = attempt
-                last_error = exc
-                if not exc.retryable or attempt >= attempts:
-                    raise exc
-            if attempt >= attempts and last_error is not None:
-                raise last_error
-
-        return NpcDialogueHarnessResponse(
-            provider=result.provider,
-            model=result.model,
-            latencyMs=result.latency_ms,
-            promptVersion=self.PROMPT_VERSION,
-            rawOutput=result.raw_text,
-            finishReason=result.finish_reason,
-            providerRequestId=result.provider_request_id,
-            trace={
-                "role": "npc_dialogue",
-                "provider": result.provider,
-                "model": result.model,
-                "promptVersion": self.PROMPT_VERSION,
-                "latencyMs": result.latency_ms,
-                "attempts": attempt,
-                "failureType": None,
-                "finishReason": result.finish_reason,
-                "providerRequestId": result.provider_request_id,
-            },
-            parsed=parsed,
+                    timeout_ms=timeout_ms,
+                ),
+            parse_response=lambda result: self._validate_output(result.parsed_json, request),
+            validation_error_prefix="NpcDialogue schema validation failed",
         )
+        parsed = execution.parsed
+
+        return attach_role_diagnostics(
+            NpcDialogueHarnessResponse(
+                **build_role_response_metadata(
+                    execution=execution,
+                    role="npc_dialogue",
+                    prompt_version=self.PROMPT_VERSION,
+                ),
+                parsed=parsed,
+            ),
+            execution=execution,
+            settings=self._settings,
+        )
+
+    @staticmethod
+    def _validate_output(payload: dict, request: NpcDialogueHarnessRequest) -> NpcDialogueOutput:
+        provider_output = NpcDialogueProviderOutput.model_validate(payload)
+        if len(provider_output.dialogue) > request.maxLength:
+            raise ValueError(f"dialogue exceeds request.maxLength={request.maxLength}")
+        return NpcDialogueOutput(dialogue=provider_output.dialogue)
 
     @staticmethod
     def _build_prompt(request: NpcDialogueHarnessRequest) -> str:
         payload = {
-            "npcEntityId": request.npcEntityId,
             "npcName": request.npcName,
             "npcSummary": request.npcSummary,
             "disposition": request.disposition,
             "sceneSummary": request.sceneSummary,
             "recentContext": request.recentContext,
-            "selectedActionId": request.selectedActionId,
             "dialogueIntent": request.dialogueIntent,
-            "audienceIds": request.audienceIds,
-            "constraints": {
-                "language": "ko",
-                "maxLength": request.maxLength,
-                "noActionSelection": True,
-                "noStateChanges": True,
-                "directSpeechOnly": True,
-            },
+            "maxLength": request.maxLength,
         }
+        payload = {key: value for key, value in payload.items() if value not in (None, [], "")}
         return "NPC 대사 한 줄을 생성하라.\nJSON 입력:\n" + json.dumps(
             payload,
             ensure_ascii=False,
-            indent=2,
+            separators=(",", ":"),
         )
