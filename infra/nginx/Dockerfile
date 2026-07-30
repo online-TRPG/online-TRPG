@@ -22,6 +22,8 @@ RUN npm run build -w @trpg/shared-types
 # FE 정적 SRD asset 생성 후 fe 소스 빌드
 COPY scripts/sync-fe-static-srd.mjs ./scripts/sync-fe-static-srd.mjs
 COPY srd-data/ ./srd-data/
+# srd-data canonical generator가 규칙 카탈로그의 지원 ID를 검증할 때 참조한다.
+COPY be/src/modules/rules/rule-catalog.service.ts ./be/src/modules/rules/rule-catalog.service.ts
 COPY fe/ ./fe/
 RUN npm run sync:fe:srd
 RUN npm run build -w @trpg/fe
@@ -39,4 +41,5 @@ COPY --from=fe-builder /app/fe/dist /usr/share/nginx/html
 COPY infra/nginx/default.conf      /etc/nginx/templates/http-only.conf
 COPY infra/nginx/default-ssl.conf  /etc/nginx/templates/https.conf
 COPY infra/nginx/select-config.sh  /docker-entrypoint.d/40-select-config.sh
-RUN chmod +x /docker-entrypoint.d/40-select-config.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-select-config.sh \
+    && chmod +x /docker-entrypoint.d/40-select-config.sh

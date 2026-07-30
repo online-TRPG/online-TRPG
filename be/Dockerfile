@@ -18,6 +18,10 @@ RUN npm ci
 COPY shared-types/ ./shared-types/
 RUN npm run build -w @trpg/shared-types
 
+# backend build:test-deps 가 canonical SRD 생성·검증을 실행하므로
+# srd-data 소스와 scripts도 builder stage에 포함해야 한다.
+COPY srd-data/ ./srd-data/
+
 # backend 소스 복사
 COPY be/ ./be/
 
