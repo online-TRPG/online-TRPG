@@ -45,10 +45,12 @@ type EconomyStateView = {
 };
 
 interface SessionEconomyPanelProps {
+  isOpen: boolean;
   economy: EconomyStateView | null;
   characters: SessionCharacterResponseDto[];
   isBusy: boolean;
   feedback?: string | null;
+  onClose: () => void;
   onApply: (payload: ApplySessionEconomyActionDto) => Promise<void> | void;
 }
 
@@ -113,13 +115,14 @@ function readOptionalOptionId(value: string, allowedIds: readonly string[]): str
 }
 
 export function SessionEconomyPanel({
+  isOpen,
   economy,
   characters,
   isBusy,
   feedback,
+  onClose,
   onApply,
 }: SessionEconomyPanelProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const [actionType, setActionType] =
     useState<ApplySessionEconomyActionDto["actionType"]>("purchase");
   const [sessionCharacterId, setSessionCharacterId] = useState("");
@@ -198,22 +201,25 @@ export function SessionEconomyPanel({
     void onApply(payload);
   }
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <aside className={`session-economy-panel${collapsed ? " collapsed" : ""}`}>
+    <aside id="session-economy-panel" className="session-economy-panel" aria-label="캠페인 경제">
       <button
         type="button"
         className="session-economy-toggle"
-        onClick={() => setCollapsed((current) => !current)}
-        aria-expanded={!collapsed}
+        onClick={onClose}
+        aria-expanded="true"
       >
-        {collapsed ? "경제" : "경제 패널 접기"}
+        경제 패널 접기
       </button>
-      {!collapsed ? (
-        <div className="session-economy-body">
-          <header>
+      <div className="session-economy-body">
+          <div className="session-economy-heading">
             <strong>캠페인 경제</strong>
             <span>공동 자금과 아이템, 제작 진행 상황을 관리합니다.</span>
-          </header>
+          </div>
 
           <section className="session-economy-summary">
             <div>
@@ -428,8 +434,7 @@ export function SessionEconomyPanel({
             </button>
           </section>
           {feedback ? <p className="session-economy-feedback">{feedback}</p> : null}
-        </div>
-      ) : null}
+      </div>
     </aside>
   );
 }

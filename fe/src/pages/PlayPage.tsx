@@ -65,6 +65,10 @@ import {
 import { SessionBattleMap } from '../features/sessionPlay/components/SessionBattleMap';
 import { SessionCampaignCalendarPanel } from '../features/sessionPlay/components/SessionCampaignCalendarPanel';
 import { SessionEconomyPanel } from '../features/sessionPlay/components/SessionEconomyPanel';
+import {
+  SessionHeaderUtilities,
+  type SessionUtilityPanelId,
+} from '../features/sessionPlay/components/SessionHeaderUtilities';
 import { HumanGmQuickActions } from '../features/sessionPlay/components/HumanGmQuickActions';
 import { useActiveSessionScenarioProjection } from '../features/sessionPlay/hooks/useActiveSessionScenarioProjection';
 import { useDialogFocusTrap } from '../hooks/useDialogFocusTrap';
@@ -309,6 +313,8 @@ export function PlayPage({
   const [settingsNextSessionAt, setSettingsNextSessionAt] = useState('');
   const [mainCommandMode, setMainCommandMode] = useState<MainCommandMode>('GM_REQUEST');
   const [isCommandGuideOpen, setCommandGuideOpen] = useState(false);
+  const [activeSessionUtilityPanel, setActiveSessionUtilityPanel] =
+    useState<SessionUtilityPanelId | null>(null);
   const [activeMainHelperGroup, setActiveMainHelperGroup] =
     useState<MainCommandHelperGroup | null>(null);
   const [selectedMainCategory, setSelectedMainCategory] = useState<string | null>(null);
@@ -494,6 +500,17 @@ export function PlayPage({
     session,
     userId: user.id,
   });
+  useEffect(() => {
+    setActiveSessionUtilityPanel((current) => {
+      if (current === 'economy' && !canManageStartedSession) return null;
+      if (current === 'calendar' && !canUseCampaignCalendarPanel) return null;
+      if (isRecruiting || isSessionCompleted) return null;
+      return current;
+    });
+  }, [canManageStartedSession, canUseCampaignCalendarPanel, isRecruiting, isSessionCompleted]);
+  useEffect(() => {
+    setActiveSessionUtilityPanel(null);
+  }, [session?.id]);
   const {
     activeTab,
     setActiveTab,
@@ -1508,6 +1525,41 @@ export function PlayPage({
     bigBoxImage,
     smallBoxImage,
   });
+  const activeSessionUtilityPanelContent =
+    activeSessionUtilityPanel === 'economy' && canManageStartedSession ? (
+      <SessionEconomyPanel
+        isOpen
+        economy={economyState}
+        characters={sessionCharacters}
+        isBusy={isEconomyPending}
+        feedback={economyFeedback}
+        onClose={() => setActiveSessionUtilityPanel(null)}
+        onApply={handleEconomyAction}
+      />
+    ) : activeSessionUtilityPanel === 'calendar' && canUseCampaignCalendarPanel ? (
+      <SessionCampaignCalendarPanel
+        isOpen
+        calendar={campaignCalendarState}
+        characters={sessionCharacters}
+        canManageCampaign={canManageStartedSession}
+        isBusy={isCampaignCalendarPending}
+        feedback={campaignCalendarFeedback}
+        onClose={() => setActiveSessionUtilityPanel(null)}
+        onApply={handleCampaignCalendarAction}
+      />
+    ) : null;
+  const sessionHeaderUtilities =
+    canManageStartedSession || canUseCampaignCalendarPanel ? (
+      <SessionHeaderUtilities
+        showEconomy={canManageStartedSession}
+        showCalendar={canUseCampaignCalendarPanel}
+        activePanel={activeSessionUtilityPanel}
+        onTogglePanel={(panel) =>
+          setActiveSessionUtilityPanel((current) => (current === panel ? null : panel))
+        }
+        panel={activeSessionUtilityPanelContent}
+      />
+    ) : null;
 
   return (
     <main
@@ -1803,6 +1855,7 @@ export function PlayPage({
                   onGmAiAssistAccept={handleGmAiAssistAccept}
                   isGmAiAssistPending={isGmAiAssistPending}
                   recentGmAiAssistLogs={recentGmAiAssistLogs}
+                  headerUtilities={sessionHeaderUtilities}
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -1847,6 +1900,7 @@ export function PlayPage({
                   gmItemCatalogError={gmItemCatalogError}
                   isGmInventoryGrantPending={isGmInventoryGrantPending}
                   onGmGrantInventoryItem={handleGmGrantInventoryItem}
+                  headerUtilities={sessionHeaderUtilities}
                 />
               ) : isCombatNode ? (
                 <CombatNodeSurface
@@ -1897,6 +1951,7 @@ export function PlayPage({
                   recentGmAiAssistLogs={recentGmAiAssistLogs}
                   onEndCombat={handleEndCombat}
                   onEndTurn={handleEndCombatTurn}
+                  headerUtilities={sessionHeaderUtilities}
                 />
               ) : vttMap ? (
                 <SessionBattleMap
@@ -1913,25 +1968,6 @@ export function PlayPage({
                   <h1>{gameSurfaceFallbackTitle}</h1>
                 </div>
               )}
-              {canManageStartedSession ? (
-                  <SessionEconomyPanel
-                    economy={economyState}
-                    characters={sessionCharacters}
-                    isBusy={isEconomyPending}
-                    feedback={economyFeedback}
-                    onApply={handleEconomyAction}
-                  />
-              ) : null}
-              {canUseCampaignCalendarPanel ? (
-                  <SessionCampaignCalendarPanel
-                    calendar={campaignCalendarState}
-                    characters={sessionCharacters}
-                    canManageCampaign={canManageStartedSession}
-                    isBusy={isCampaignCalendarPending}
-                    feedback={campaignCalendarFeedback}
-                    onApply={handleCampaignCalendarAction}
-                  />
-              ) : null}
               {pendingCombatReactionBanner ? (
                 <section
                   className="session-combat-reaction-banner"

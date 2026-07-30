@@ -20,7 +20,7 @@ import {
   VTT_DOOR_STATES,
   VTT_MAP_INTERACTION_KINDS,
 } from '@trpg/shared-types/frontend';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { SessionBattleMap } from './SessionBattleMap';
 import type { BattleMapSelection } from './SessionBattleMap';
 import { GameIcon } from '../../../components/GameIcon';
@@ -175,6 +175,7 @@ interface ExplorationNodeSurfaceProps {
     item: ItemResponseDto,
     quantity: number
   ) => Promise<void> | void;
+  headerUtilities?: ReactNode;
 }
 
 export function ExplorationNodeSurface({
@@ -217,6 +218,7 @@ export function ExplorationNodeSurface({
   gmItemCatalogError = null,
   isGmInventoryGrantPending = false,
   onGmGrantInventoryItem,
+  headerUtilities,
 }: ExplorationNodeSurfaceProps) {
   const [isInventoryExpanded, setInventoryExpanded] = useState(false);
   const [mapSelection, setMapSelection] = useState<BattleMapSelection | null>(null);
@@ -582,6 +584,7 @@ export function ExplorationNodeSurface({
         >
           <span>{explorationPresentation.phaseLabel}</span>
           <span>{explorationPresentation.viewModeLabel}</span>
+          {headerUtilities}
         </div>
       </NodeHeaderScroll>
 

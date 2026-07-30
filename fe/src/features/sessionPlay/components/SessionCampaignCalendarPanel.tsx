@@ -49,11 +49,13 @@ type CampaignCalendarStateView = {
 };
 
 interface SessionCampaignCalendarPanelProps {
+  isOpen: boolean;
   calendar: CampaignCalendarStateView | null;
   characters: SessionCharacterResponseDto[];
   canManageCampaign: boolean;
   isBusy: boolean;
   feedback?: string | null;
+  onClose: () => void;
   onApply: (payload: ApplyCampaignCalendarActionDto) => Promise<void> | void;
 }
 
@@ -167,14 +169,15 @@ function readOptionalOptionId(value: string, allowedIds: readonly string[]): str
 }
 
 export function SessionCampaignCalendarPanel({
+  isOpen,
   calendar,
   characters,
   canManageCampaign,
   isBusy,
   feedback,
+  onClose,
   onApply,
 }: SessionCampaignCalendarPanelProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const [actionType, setActionType] =
     useState<ApplyCampaignCalendarActionDto["actionType"]>("propose_schedule");
   const [scheduleId, setScheduleId] = useState("");
@@ -264,22 +267,29 @@ export function SessionCampaignCalendarPanel({
     void onApply(payload);
   }
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <aside className={`session-campaign-calendar-panel${collapsed ? " collapsed" : ""}`}>
+    <aside
+      id="session-campaign-calendar-panel"
+      className="session-campaign-calendar-panel"
+      aria-label="캠페인 일정"
+    >
       <button
         type="button"
         className="session-campaign-calendar-toggle"
-        onClick={() => setCollapsed((current) => !current)}
-        aria-expanded={!collapsed}
+        onClick={onClose}
+        aria-expanded="true"
       >
-        {collapsed ? "캠페인 일정" : "캠페인 일정 접기"}
+        캠페인 일정 접기
       </button>
-      {!collapsed ? (
-        <div className="session-campaign-calendar-body">
-          <header>
+      <div className="session-campaign-calendar-body">
+          <div className="session-campaign-calendar-heading">
             <strong>캠페인 일정 · 휴식기 활동</strong>
             <span>다음 플레이 일정과 게임 안에서 흐른 시간을 함께 관리합니다.</span>
-          </header>
+          </div>
 
           <section className="session-campaign-calendar-summary">
             <div>
@@ -473,8 +483,7 @@ export function SessionCampaignCalendarPanel({
             </button>
           </section>
           {feedback ? <p className="session-campaign-calendar-feedback">{feedback}</p> : null}
-        </div>
-      ) : null}
+      </div>
     </aside>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import {
   type AiHumanGmAssistSuggestionRequestDto,
   type CreateHumanGmAiAssistSuggestionDto,
@@ -65,6 +65,7 @@ interface StoryNodeSurfaceProps {
   ) => Promise<void> | void;
   isGmAiAssistPending?: boolean;
   recentGmAiAssistLogs?: string[];
+  headerUtilities?: ReactNode;
 }
 
 type VisibleStoryRpUtterance = StoryRpUtterance & {
@@ -122,6 +123,7 @@ export function StoryNodeSurface({
   onGmAiAssistAccept,
   isGmAiAssistPending = false,
   recentGmAiAssistLogs = [],
+  headerUtilities,
 }: StoryNodeSurfaceProps) {
   const [shortRestHitDiceToSpend, setShortRestHitDiceToSpend] = useState(0);
   const [isGmNpcMessage, setGmNpcMessage] = useState(false);
@@ -290,6 +292,7 @@ export function StoryNodeSurface({
         <div className="story-node-status-row" aria-label={storyPresentation.statusRowAriaLabel}>
           <span>{storyPresentation.phaseLabel}</span>
           <span>{storyPresentation.viewModeLabel}</span>
+          {headerUtilities}
         </div>
       </NodeHeaderScroll>
 

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type {
   AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
@@ -199,6 +199,7 @@ interface CombatNodeSurfaceProps {
   recentGmAiAssistLogs?: string[];
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
+  headerUtilities?: ReactNode;
 }
 
 const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
@@ -297,6 +298,7 @@ export function CombatNodeSurface({
   recentGmAiAssistLogs = [],
   onEndCombat,
   onEndTurn,
+  headerUtilities,
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
   const [isInventoryExpanded, setInventoryExpanded] = useState(false);
@@ -1237,6 +1239,7 @@ export function CombatNodeSurface({
           </span>
           <span>현재 턴 {currentParticipant?.name ?? '-'}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
+          {headerUtilities}
         </div>
       </NodeHeaderScroll>
 
