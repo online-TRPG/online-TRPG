@@ -934,6 +934,7 @@ export function App() {
             user={currentUser}
             accessToken={auth.accessToken}
             snapshot={session.snapshot}
+            onApplySnapshot={session.applySnapshot}
             scenarios={scenarios}
             characters={session.myCharacters}
             races={races}

@@ -164,6 +164,7 @@ export interface CharacterPayload {
 
 export interface UseSessionReturn {
   snapshot: SessionSnapshot | null;
+  applySnapshot: (snapshot: SessionSnapshot) => void;
   sessionList: AvailableSessionListItem[];
   sessionListTotal: number;
   mySessionList: AvailableSessionListItem[];
@@ -2441,6 +2442,7 @@ export function useSession(
 
   return {
     snapshot,
+    applySnapshot: updateSnapshot,
     sessionList,
     sessionListTotal,
     mySessionList,

@@ -124,6 +124,10 @@ import { useSessionChatInput } from '../features/sessionPlay/hooks/useSessionCha
 import { useSessionSideActions } from '../features/sessionPlay/hooks/useSessionSideActions';
 import { useSessionLeaveConfirmation } from '../features/sessionPlay/hooks/useSessionLeaveConfirmation';
 import { useSessionCompletionPresentation } from '../features/sessionPlay/hooks/useSessionCompletionPresentation';
+import {
+  isCurrentNodeScenarioPending,
+  type PlayerScenarioLoadKey,
+} from '../features/sessionPlay/utils/sessionNodeTransition';
 import { useSessionLayoutPresentation } from '../features/sessionPlay/hooks/useSessionLayoutPresentation';
 import { useSessionLogAutoScroll } from '../features/sessionPlay/hooks/useSessionLogAutoScroll';
 import { useSessionRenderedLogs } from '../features/sessionPlay/hooks/useSessionRenderedLogs';
@@ -199,6 +203,7 @@ interface PlayPageProps {
   user: StoredUser;
   accessToken: string | null;
   snapshot: SessionSnapshot | null;
+  onApplySnapshot: (snapshot: SessionSnapshot) => void;
   scenarios: Scenario[];
   characters: PersistentCharacter[];
   races: RaceResponseDto[];
@@ -256,6 +261,7 @@ export function PlayPage({
   user,
   accessToken,
   snapshot,
+  onApplySnapshot,
   scenarios,
   characters,
   races,
@@ -349,6 +355,8 @@ export function PlayPage({
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   // optimistic map reconciliation ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
+  const playerScenarioLoadKeyRef = useRef<PlayerScenarioLoadKey | null>(null);
+  const nodeTransitionTargetIdRef = useRef<string | null>(null);
   const pendingOptimisticTokenMoveRef = useRef<PendingOptimisticTokenMove | null>(null);
   const autoCombatStartKeyRef = useRef<string | null>(null);
 
@@ -690,6 +698,9 @@ export function PlayPage({
     sessionId: session?.id ?? null,
     canUseHumanGmView,
     latestConfirmedMapRef,
+    playerScenarioLoadKeyRef,
+    nodeTransitionTargetIdRef,
+    onApplySnapshot,
     setVttMap,
     setPlayerScenario,
     setCombat,
@@ -863,8 +874,10 @@ export function PlayPage({
     selectedClass: selectedQuickCreateClass,
   });
   const currentNode = playerScenario?.currentNode ?? null;
-  const isCurrentNodePending = Boolean(
-    snapshot?.state.currentNodeId && !currentNode && !scenarioLoadError
+  const isCurrentNodePending = isCurrentNodeScenarioPending(
+    snapshot?.state.currentNodeId,
+    currentNode?.id,
+    scenarioLoadError,
   );
   const {
     gmNodeMoveOptions,
@@ -906,6 +919,8 @@ export function PlayPage({
     stateVersion: snapshot?.state.version,
     snapshotVttMap,
     latestConfirmedMapRef,
+    playerScenarioLoadKeyRef,
+    nodeTransitionTargetIdRef,
     setPlayerScenario,
     setMap: setVttMap,
     setMapIfChanged: setVttMapIfChanged,

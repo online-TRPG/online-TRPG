@@ -4,6 +4,11 @@ import type { VttMapStateDto } from '@trpg/shared-types';
 import type { PlayerScenarioView, StoredUser } from '../../../types/session';
 import { getPlayerScenario } from '../../../services/scenarioApi';
 import { getVttMap } from '../../../services/vttMapApi';
+import {
+  createPlayerScenarioLoadKey,
+  isSamePlayerScenarioLoadKey,
+  type PlayerScenarioLoadKey,
+} from '../utils/sessionNodeTransition';
 
 type UsePlayScenarioMapLoaderParams = {
   user: StoredUser;
@@ -13,6 +18,8 @@ type UsePlayScenarioMapLoaderParams = {
   stateVersion?: number;
   snapshotVttMap: VttMapStateDto | null;
   latestConfirmedMapRef: MutableRefObject<VttMapStateDto | null>;
+  playerScenarioLoadKeyRef: MutableRefObject<PlayerScenarioLoadKey | null>;
+  nodeTransitionTargetIdRef: MutableRefObject<string | null>;
   setPlayerScenario: Dispatch<SetStateAction<PlayerScenarioView | null>>;
   setMap: Dispatch<SetStateAction<VttMapStateDto | null>>;
   setMapIfChanged: (nextMap: VttMapStateDto, source: string) => void;
@@ -31,6 +38,8 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     stateVersion,
     snapshotVttMap,
     latestConfirmedMapRef,
+    playerScenarioLoadKeyRef,
+    nodeTransitionTargetIdRef,
     setPlayerScenario,
     setMap,
     setMapIfChanged,
@@ -56,17 +65,31 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
       setIsScenarioLoaded(false);
       setIsMapLoaded(false);
       latestConfirmedMapRef.current = null;
+      playerScenarioLoadKeyRef.current = null;
+      nodeTransitionTargetIdRef.current = null;
       resetMapSaveQueue();
       return;
     }
 
+    const loadKey = createPlayerScenarioLoadKey(sessionId, currentNodeId, stateVersion);
     let ignore = false;
     setScenarioLoadError(null);
+    if (
+      (
+        nodeTransitionTargetIdRef.current !== null
+        && nodeTransitionTargetIdRef.current === loadKey.currentNodeId
+      )
+      || isSamePlayerScenarioLoadKey(playerScenarioLoadKeyRef.current, loadKey)
+    ) {
+      setIsScenarioLoaded(true);
+      return;
+    }
     setIsScenarioLoaded(false);
 
     getPlayerScenario(user, sessionId)
       .then((scenario) => {
         if (!ignore) {
+          playerScenarioLoadKeyRef.current = loadKey;
           setPlayerScenario(scenario);
           setIsScenarioLoaded(true);
         }
@@ -88,6 +111,8 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     currentNodeId,
     isRecruiting,
     latestConfirmedMapRef,
+    nodeTransitionTargetIdRef,
+    playerScenarioLoadKeyRef,
     resetMapSaveQueue,
     sessionId,
     setMap,

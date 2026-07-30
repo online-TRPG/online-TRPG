@@ -133,6 +133,7 @@ export {
   decodeSessionParticipant,
   decodeSessionResponse,
   decodeSessionRevealResponse,
+  decodeSessionNodeTransitionResponse,
   decodeSessionSnapshot,
   decodeSessionSnapshotEvent,
   decodeStateDiffResponse,

@@ -1998,6 +1998,14 @@ export class UpdateSessionNodeDto {
   nodeId!: string;
 }
 
+export class SessionNodeTransitionResponseDto {
+  @ApiProperty({ type: SessionSnapshotDto })
+  snapshot!: SessionSnapshotDto;
+
+  @ApiProperty({ type: PlayerScenarioViewDto })
+  playerScenario!: PlayerScenarioViewDto;
+}
+
 export class HumanGmNodeMoveOptionDto {
   @ApiProperty()
   @IsString()

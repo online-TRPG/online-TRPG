@@ -3,9 +3,12 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { CombatResponseDto, VttMapStateDto } from '@trpg/shared-types';
 import type { PlayerScenarioView, SessionSnapshot, StoredUser } from '../../../types/session';
 import { createHumanGmMessage, updateHumanGmSessionNode } from '../../../services/humanGmApi';
-import { getPlayerScenario } from '../../../services/scenarioApi';
 import { getVttMap } from '../../../services/vttMapApi';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
+import {
+  createPlayerScenarioLoadKey,
+  type PlayerScenarioLoadKey,
+} from '../utils/sessionNodeTransition';
 import { readVttMapFromSessionFlags } from '../utils/sessionStateFlags';
 
 type GmMessagePayload = {
@@ -20,6 +23,9 @@ type UseHumanGmSceneActionsParams = {
   sessionId: string | null;
   canUseHumanGmView: boolean;
   latestConfirmedMapRef: MutableRefObject<VttMapStateDto | null>;
+  playerScenarioLoadKeyRef: MutableRefObject<PlayerScenarioLoadKey | null>;
+  nodeTransitionTargetIdRef: MutableRefObject<string | null>;
+  onApplySnapshot: (snapshot: SessionSnapshot) => void;
   setVttMap: Dispatch<SetStateAction<VttMapStateDto | null>>;
   setPlayerScenario: Dispatch<SetStateAction<PlayerScenarioView | null>>;
   setCombat: Dispatch<SetStateAction<CombatResponseDto | null>>;
@@ -42,6 +48,9 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
     sessionId,
     canUseHumanGmView,
     latestConfirmedMapRef,
+    playerScenarioLoadKeyRef,
+    nodeTransitionTargetIdRef,
+    onApplySnapshot,
     setVttMap,
     setPlayerScenario,
     setCombat,
@@ -117,26 +126,42 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
         throw new Error('HUMAN GM 노드 이동을 실행할 수 없는 세션 상태입니다.');
       }
 
-      const nextSnapshot = await updateHumanGmSessionNode(user, sessionId, nodeId);
-      const didApplyMap = applySnapshotMap(nextSnapshot);
-      if (!didApplyMap) {
-        const savedMap = await getVttMap(user, sessionId);
-        latestConfirmedMapRef.current = savedMap;
-        setVttMap(savedMap);
+      nodeTransitionTargetIdRef.current = nodeId;
+      try {
+        const transition = await updateHumanGmSessionNode(user, sessionId, nodeId);
+        const nextSnapshot = transition.snapshot;
+        playerScenarioLoadKeyRef.current = createPlayerScenarioLoadKey(
+          sessionId,
+          nextSnapshot.state.currentNodeId,
+          nextSnapshot.state.version,
+        );
+        onApplySnapshot(nextSnapshot);
+        const didApplyMap = applySnapshotMap(nextSnapshot);
+        setPlayerScenario(transition.playerScenario);
+        setCombat(null);
+        setCombatChecked(false);
+        setCombatError(null);
+        setSelectedExplorationMapSelection(null);
+        if (!didApplyMap) {
+          const savedMap = await getVttMap(user, sessionId);
+          latestConfirmedMapRef.current = savedMap;
+          setVttMap(savedMap);
+        }
+        onAction('GM 노드 이동');
+      } finally {
+        if (nodeTransitionTargetIdRef.current === nodeId) {
+          nodeTransitionTargetIdRef.current = null;
+        }
       }
-      const nextPlayerScenario = await getPlayerScenario(user, sessionId);
-      setPlayerScenario(nextPlayerScenario);
-      setCombat(null);
-      setCombatChecked(false);
-      setCombatError(null);
-      setSelectedExplorationMapSelection(null);
-      onAction('GM 노드 이동');
     },
     [
       applySnapshotMap,
       canUseHumanGmView,
       latestConfirmedMapRef,
+      nodeTransitionTargetIdRef,
       onAction,
+      onApplySnapshot,
+      playerScenarioLoadKeyRef,
       sessionId,
       setCombat,
       setCombatChecked,

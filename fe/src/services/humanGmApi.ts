@@ -14,6 +14,7 @@ import type {
   RemoveHumanGmInventoryItemDto,
   ReportHumanGmAiAssistApplicationFailureDto,
   RevealSessionContentDto,
+  SessionNodeTransitionResponseDto,
   SessionRevealResponseDto,
   SessionSnapshotDto,
   SetHumanGmDifficultyClassDto,
@@ -25,10 +26,12 @@ import {
   decodeHumanGmNodeMoveOptionArray,
   decodeHumanGmRevealOptionArray,
   decodeHumanGmPrivateNoteArray,
+  decodeSessionNodeTransitionResponse,
   decodeSessionSnapshot,
   decodeSessionRevealResponse,
 } from '@trpg/shared-types/frontend';
 import type {
+  PlayerScenarioView,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
@@ -40,17 +43,20 @@ export async function updateHumanGmSessionNode(
   sessionId: string,
   nodeId: string,
   accessToken?: string | null
-): Promise<SessionSnapshot> {
+): Promise<{ snapshot: SessionSnapshot; playerScenario: PlayerScenarioView }> {
   const payload: UpdateSessionNodeDto = { nodeId };
-  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/node`, {
+  const transition = await requestJson<SessionNodeTransitionResponseDto>(`/sessions/${sessionId}/gm/node`, {
     method: 'PATCH',
     user,
     accessToken,
     body: payload,
-    decode: decodeSessionSnapshot,
+    decode: decodeSessionNodeTransitionResponse,
   });
 
-  return normalizeSessionSnapshot(snapshot);
+  return {
+    snapshot: normalizeSessionSnapshot(transition.snapshot),
+    playerScenario: transition.playerScenario,
+  };
 }
 
 export async function createHumanGmMessage(

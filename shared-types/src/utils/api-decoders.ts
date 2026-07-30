@@ -93,6 +93,7 @@ import type {
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
   SessionRevealResponseDto,
+  SessionNodeTransitionResponseDto,
   SessionSnapshotDto,
   VttMapInteractionResponseDto,
   VttMapStateDto,
@@ -2266,6 +2267,14 @@ export function decodeSessionSnapshot(value: unknown): SessionSnapshotDto {
     sessionCharacters: readArray(record, "sessionCharacters", decodeSessionCharacter, "sessionSnapshot.sessionCharacters"),
     state: decodeGameStateResponse(record.state),
     ...(pendingRestApprovals ? { pendingRestApprovals } : {}),
+  };
+}
+
+export function decodeSessionNodeTransitionResponse(value: unknown): SessionNodeTransitionResponseDto {
+  const record = readRecord(value, "sessionNodeTransition");
+  return {
+    snapshot: decodeSessionSnapshot(record.snapshot),
+    playerScenario: decodePlayerScenarioView(record.playerScenario),
   };
 }
 

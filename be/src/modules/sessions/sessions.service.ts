@@ -82,6 +82,7 @@ import {
   SessionActivityStatus,
   SessionParticipantResponseDto,
   SessionRevealResponseDto,
+  SessionNodeTransitionResponseDto,
   SessionResponseDto,
   ScenarioNodeType,
   SessionSnapshotDto,
@@ -1959,8 +1960,19 @@ export class SessionsService {
     return this.humanGmRuntime.adjustHumanGmCombatHp(this.createHumanGmRuntime(), userId, sessionId, dto);
   }
 
-  async updateSessionNode(userId: string, sessionId: string, dto: UpdateSessionNodeDto): Promise<SessionSnapshotDto> {
-    return this.humanGmRuntime.updateSessionNode(this.createHumanGmRuntime(), userId, sessionId, dto);
+  async updateSessionNode(
+    userId: string,
+    sessionId: string,
+    dto: UpdateSessionNodeDto,
+  ): Promise<SessionNodeTransitionResponseDto> {
+    const snapshot = await this.humanGmRuntime.updateSessionNode(
+      this.createHumanGmRuntime(),
+      userId,
+      sessionId,
+      dto,
+    );
+    const playerScenario = await this.getPlayerScenarioForUser(userId, sessionId);
+    return { snapshot, playerScenario };
   }
 
   async listHumanGmNodeMoveOptions(userId: string, sessionId: string): Promise<HumanGmNodeMoveOptionDto[]> {

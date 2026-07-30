@@ -70,6 +70,7 @@ import {
   SessionListQueryDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
+  SessionNodeTransitionResponseDto,
   SessionSnapshotDto,
   UpdateParticipantReadyDto,
   UpdateSessionDto,
@@ -1032,12 +1033,12 @@ export class SessionsController {
   @Patch(":id/gm/node")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
-  @ApiOkResponse({ type: SessionSnapshotDto })
+  @ApiOkResponse({ type: SessionNodeTransitionResponseDto })
   async updateSessionNode(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: UpdateSessionNodeDto,
-  ): Promise<ApiResponse<SessionSnapshotDto>> {
+  ): Promise<ApiResponse<SessionNodeTransitionResponseDto>> {
     return apiResponse(
       "SESSION_200",
       "Session node updated.",

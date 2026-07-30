@@ -190,6 +190,47 @@ describe("HumanGmMessageDto validation", () => {
   });
 });
 
+describe("SessionsService node transition response", () => {
+  it("returns the committed snapshot and matching player scenario in one response", async () => {
+    const service = createSessionsService({} as never, {} as never, {} as never, {} as never);
+    const humanGmRuntime = (service as unknown as {
+      humanGmRuntime: HumanGmRuntimeService;
+    }).humanGmRuntime;
+    const snapshot = {
+      state: {
+        currentNodeId: "node-2",
+        version: 7,
+      },
+    } as never;
+    const playerScenario = {
+      currentNodeId: "node-2",
+      currentNode: {
+        id: "node-2",
+      },
+    } as never;
+    const updateNode = jest
+      .spyOn(humanGmRuntime, "updateSessionNode")
+      .mockResolvedValue(snapshot);
+    const getPlayerScenario = jest
+      .spyOn(service, "getPlayerScenarioForUser")
+      .mockResolvedValue(playerScenario);
+
+    await expect(
+      service.updateSessionNode("gm-1", "session-1", { nodeId: "node-2" }),
+    ).resolves.toEqual({
+      snapshot,
+      playerScenario,
+    });
+    expect(updateNode).toHaveBeenCalledWith(
+      expect.any(Object),
+      "gm-1",
+      "session-1",
+      { nodeId: "node-2" },
+    );
+    expect(getPlayerScenario).toHaveBeenCalledWith("gm-1", "session-1");
+  });
+});
+
 describe("CampaignArchiveRuntimeService scenario level policy", () => {
   function createService() {
     return new CampaignArchiveRuntimeService();
