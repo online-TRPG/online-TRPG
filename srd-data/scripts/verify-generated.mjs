@@ -101,6 +101,7 @@ const classFeatures = JSON.parse(
 const catalogFingerprint = JSON.parse(
   await readFile(path.join(generatedDir, 'catalog-fingerprint.json'), 'utf8'),
 );
+const rulebookExport = await readJson(path.join(generatedDir, 'rulebook.json'));
 const spellClassLists = await readJson(path.join(generatedDir, 'spell-class-lists.json'));
 const spellClassListsSource = await readJson(path.join(packageRoot, 'sources', 'spell-class-lists.json'));
 
@@ -119,6 +120,68 @@ if (classFeaturesMissingSummary.length) {
       .slice(0, 10)
       .map((feature) => feature.id)
       .join(', ')}`,
+  );
+}
+
+const invalidClassFeatureLevels = classFeatures.filter((feature) => {
+  const availableAtLevels = feature.availableAtLevels;
+  return (
+    !Number.isInteger(feature.level) ||
+    feature.level < 0 ||
+    feature.level > 20 ||
+    !Array.isArray(availableAtLevels) ||
+    !availableAtLevels.every(
+      (level) => Number.isInteger(level) && level >= 1 && level <= 20,
+    ) ||
+    (feature.level === 0 && availableAtLevels.length > 0)
+  );
+});
+if (invalidClassFeatureLevels.length) {
+  throw new Error(
+    `Generated class feature manifest contains invalid class levels: ${invalidClassFeatureLevels
+      .slice(0, 10)
+      .map((feature) => feature.id)
+      .join(', ')}`,
+  );
+}
+
+const rulebookContractErrors = [];
+if (!Array.isArray(rulebookExport.rulebooks) || rulebookExport.rulebooks.length === 0) {
+  rulebookContractErrors.push('rulebooks must be a non-empty array');
+} else {
+  for (const [rulebookIndex, rulebook] of rulebookExport.rulebooks.entries()) {
+    if (!isPlainObject(rulebook) || typeof rulebook.ruleSetId !== 'string') {
+      rulebookContractErrors.push(`rulebooks[${rulebookIndex}].ruleSetId must be a string`);
+      continue;
+    }
+    if (!Array.isArray(rulebook.documents) || rulebook.documents.length === 0) {
+      rulebookContractErrors.push(`rulebooks[${rulebookIndex}].documents must be a non-empty array`);
+      continue;
+    }
+    for (const [documentIndex, document] of rulebook.documents.entries()) {
+      if (!isPlainObject(document)) {
+        rulebookContractErrors.push(
+          `rulebooks[${rulebookIndex}].documents[${documentIndex}] must be an object`,
+        );
+        continue;
+      }
+      if (
+        document.ruleSetId !== undefined &&
+        document.ruleSetId !== rulebook.ruleSetId
+      ) {
+        rulebookContractErrors.push(
+          `rulebooks[${rulebookIndex}].documents[${documentIndex}].ruleSetId must match its rulebook`,
+        );
+      }
+    }
+  }
+}
+if (rulebookContractErrors.length) {
+  throw new Error(
+    `Generated rulebook export is invalid:\n${rulebookContractErrors
+      .slice(0, 20)
+      .map((error) => `  - ${error}`)
+      .join('\n')}`,
   );
 }
 

@@ -32,9 +32,21 @@ function readNullableStringField(record: Record<string, unknown>, key: string): 
   return value;
 }
 
-function decodeStaticRulebookDocument(value: unknown): RulebookDocumentResponseDto {
+function decodeStaticRulebookDocument(
+  value: unknown,
+  collectionRuleSetId: string,
+): RulebookDocumentResponseDto {
   if (!isRecord(value)) {
     throw new Error('rulebook document must be an object.');
+  }
+  const documentRuleSetId = value.ruleSetId;
+  if (documentRuleSetId !== undefined) {
+    if (typeof documentRuleSetId !== 'string') {
+      throw new Error('ruleSetId must be a string when provided.');
+    }
+    if (documentRuleSetId !== collectionRuleSetId) {
+      throw new Error('ruleSetId must match the containing rulebook.');
+    }
   }
   return {
     slug: readString(value, 'slug'),
@@ -42,7 +54,7 @@ function decodeStaticRulebookDocument(value: unknown): RulebookDocumentResponseD
     description: readNullableStringField(value, 'description'),
     category: readString(value, 'category'),
     updatedAt: readString(value, 'updatedAt'),
-    ruleSetId: readString(value, 'ruleSetId'),
+    ruleSetId: collectionRuleSetId,
     content: readString(value, 'content'),
   };
 }
@@ -51,17 +63,22 @@ function decodeStaticRulebookCollection(value: unknown): StaticRulebookCollectio
   if (!isRecord(value)) {
     throw new Error('rulebook collection must be an object.');
   }
+  const ruleSetId = readString(value, 'ruleSetId');
   return {
-    ruleSetId: readString(value, 'ruleSetId'),
+    ruleSetId,
     title: readString(value, 'title'),
     description: readNullableStringField(value, 'description'),
     attribution: readNullableStringField(value, 'attribution'),
     defaultDocumentSlug: readString(value, 'defaultDocumentSlug'),
-    documents: decodeArray(value.documents, decodeStaticRulebookDocument, 'rulebook.documents'),
+    documents: decodeArray(
+      value.documents,
+      (document) => decodeStaticRulebookDocument(document, ruleSetId),
+      'rulebook.documents',
+    ),
   };
 }
 
-function decodeStaticRulebookExport(value: unknown): StaticRulebookExport {
+export function decodeStaticRulebookExport(value: unknown): StaticRulebookExport {
   if (!isRecord(value)) {
     throw new Error('rulebook export must be an object.');
   }
