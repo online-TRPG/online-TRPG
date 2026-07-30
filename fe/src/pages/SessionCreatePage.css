@@ -10,7 +10,7 @@
 .session-create-bulletin {
   position: relative;
   width: min(1380px, 100%);
-  min-height: 782px;
+  min-height: 1080px;
   margin-top: -64px !important;
   padding: 0;
   background-repeat: no-repeat;
@@ -20,9 +20,9 @@
 
 .session-create-stage {
   position: absolute;
-  top: 148px !important;
+  top: 190px !important;
   right: 118px !important;
-  bottom: 134px !important;
+  bottom: 180px !important;
   left: 118px !important;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -439,8 +439,6 @@
 }
 
 .session-create-preview-meta {
-  display: flex;
-  flex-wrap: wrap;
   gap: 8px;
 }
 
