@@ -2,18 +2,32 @@ import { SessionVttMapPersistenceService } from "./session-vtt-map-persistence.s
 
 describe("SessionVttMapPersistenceService", () => {
   const prisma = {
-    gameState: {
-      update: jest.fn(),
-    },
+    $transaction: jest.fn(),
   };
   const realtimeEvents = {
     emitVttMapUpdated: jest.fn(),
     emitSessionSnapshot: jest.fn(),
   };
-  const service = new SessionVttMapPersistenceService(prisma as never, realtimeEvents as never);
+  const runtimeMaps = {
+    saveCurrentMap: jest.fn(),
+  };
+  const service = new SessionVttMapPersistenceService(
+    prisma as never,
+    realtimeEvents as never,
+    runtimeMaps as never,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(async (callback) =>
+      callback({ $executeRaw: jest.fn() }),
+    );
+    runtimeMaps.saveCurrentMap.mockImplementation(
+      async (_tx, params: { map: unknown }) => ({
+        map: params.map,
+        runtimeVersion: 2,
+      }),
+    );
   });
 
   it("builds VTT map flags while preserving existing flags", () => {
@@ -32,18 +46,19 @@ describe("SessionVttMapPersistenceService", () => {
       sessionScenarioId: "session-scenario-1",
       flags: { existing: true },
       map: map as never,
+      expectedStateVersion: 7,
     });
 
-    expect(prisma.gameState.update).toHaveBeenCalledWith({
-      where: { sessionScenarioId: "session-scenario-1" },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          existing: true,
-          vttMap: map,
-        }),
+    expect(runtimeMaps.saveCurrentMap).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        sessionScenarioId: "session-scenario-1",
+        fallbackFlags: { existing: true },
+        map,
+        expectedStateVersion: 7,
       },
-    });
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it("publishes host and player map payloads", () => {

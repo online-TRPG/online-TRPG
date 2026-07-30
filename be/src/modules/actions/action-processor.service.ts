@@ -492,8 +492,11 @@ export class ActionProcessorService {
       if (mutation.stateDiff) {
         this.realtimeEvents.emitStateDiffApplied(session.id, mutation.stateDiff);
       }
-      if (mutation.mapUpdate) {
+      if (mutation.mapUpdate && mutation.revealCount === 0) {
         this.realtimeEvents.emitVttMapUpdated(session.id, mutation.mapUpdate);
+      }
+      if (mutation.revealCount > 0) {
+        await this.sessionsService.publishCurrentVttMap(session.id);
       }
       if (mutation.runtimeSnapshotRequired || mutation.revealCount > 0) {
         const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
@@ -1090,25 +1093,12 @@ export class ActionProcessorService {
         nextMap,
         currentState?.currentNodeId ?? state.currentNodeId ?? null,
       );
-      const updatedState = await tx.gameState.updateMany({
-        where: {
-          sessionScenarioId: params.sessionScenarioId,
-          version: currentVersion,
-        },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: normalizedMap,
-          }),
-        },
+      await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: normalizedMap,
+        fallbackFlags: flags,
+        expectedStateVersion: currentVersion,
       });
-      if (updatedState.count !== 1) {
-        throw conflict("VTT_409", "다른 요청이 맵 상태를 먼저 변경했습니다.", {
-          reason: "MAP_STATE_VERSION_CONFLICT",
-          expectedVersion: currentVersion,
-        });
-      }
 
       for (const effect of effects) {
         if (effect.type === "SPEND_ACTION") {

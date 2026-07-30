@@ -431,10 +431,49 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       }),
       getVttMapBaseline: jest.fn().mockResolvedValue(options?.map ?? createBaseMap()),
       normalizeVttMap: jest.fn((map: VttMapStateDto) => map),
+      saveRuntimeVttMapInTransaction: jest.fn(
+        async (
+          client: typeof tx,
+          params: {
+            sessionScenarioId: string;
+            map: VttMapStateDto;
+            fallbackFlags?: Record<string, unknown>;
+            expectedStateVersion?: number;
+          },
+        ) => {
+          const updated = await client.gameState.updateMany({
+            where: {
+              sessionScenarioId: params.sessionScenarioId,
+              version: params.expectedStateVersion,
+            },
+            data: {
+              version: { increment: 1 },
+              flagsJson: JSON.stringify({
+                ...(params.fallbackFlags ?? {}),
+                vttMap: params.map,
+              }),
+            },
+          });
+          if (updated.count !== 1) {
+            const error = new Error("map state conflict") as Error & {
+              response: Record<string, unknown>;
+            };
+            error.response = {
+              code: "VTT_409",
+              data: {
+                reason: "MAP_STATE_VERSION_CONFLICT",
+                expectedVersion: params.expectedStateVersion,
+              },
+            };
+            throw error;
+          }
+        },
+      ),
       redactVttMapForPlayer: jest.fn((map: VttMapStateDto) => ({
         ...map,
         playerRedacted: true,
       })),
+      publishCurrentVttMap: jest.fn().mockResolvedValue({}),
     };
     const realtimeEvents = {
       emitVttMapUpdated: jest.fn(),

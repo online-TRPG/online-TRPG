@@ -65,6 +65,15 @@ export type SessionVttObjectRuntime = {
   ) => Promise<VttMapStateDto>;
   getVttMapForSessionScenario: (sessionId: string, sessionScenarioId: string) => Promise<VttMapStateDto>;
   normalizeVttMap: (map: VttMapStateDto, scenarioNodeId: string | null) => VttMapStateDto;
+  saveRuntimeVttMapInTransaction: (
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      map: VttMapStateDto;
+      fallbackFlags?: Record<string, unknown>;
+      expectedStateVersion?: number;
+    },
+  ) => Promise<unknown>;
   recordSessionReveal: (
     tx: Prisma.TransactionClient,
     params: RecordSessionRevealParams,
@@ -165,17 +174,16 @@ export class SessionVttObjectRuntimeRunner {
     map: VttMapStateDto;
     previousMap?: VttMapStateDto;
     publishSnapshot?: boolean;
+    expectedStateVersion?: number;
   }): Promise<void> {
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: params.sessionScenarioId },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...params.flags,
-          vttMap: params.map,
-        }),
-      },
-    });
+    await this.prisma.$transaction((tx) =>
+      this.runtime.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: params.map,
+        fallbackFlags: params.flags,
+        expectedStateVersion: params.expectedStateVersion,
+      }),
+    );
 
     await this.publishVttMapUpdate(
       params.sessionId,
@@ -283,7 +291,14 @@ export class SessionVttObjectRuntimeRunner {
             return {
               contentId: item.contentId,
               contentKind: "clue",
-              snapshot: this.toRecordSnapshot(clueSnapshots.get(item.contentId), item.contentId),
+              snapshot: {
+                ...this.toRecordSnapshot(
+                  clueSnapshots.get(item.contentId),
+                  item.contentId,
+                ),
+                sourceNodeId: params.nodeId,
+                sourceObjectId: objectCell.id,
+              },
             };
           }
           if (item.contentKind === "item") {
@@ -294,6 +309,7 @@ export class SessionVttObjectRuntimeRunner {
               snapshot: {
                 id: itemDefinition?.id ?? item.contentId,
                 name: itemDefinition?.name ?? item.contentId,
+                sourceNodeId: params.nodeId,
                 sourceObjectId: objectCell.id,
               },
             };
@@ -301,7 +317,11 @@ export class SessionVttObjectRuntimeRunner {
           return {
             contentId: item.contentId,
             contentKind: "event",
-            snapshot: { id: item.contentId, sourceObjectId: objectCell.id },
+            snapshot: {
+              id: item.contentId,
+              sourceNodeId: params.nodeId,
+              sourceObjectId: objectCell.id,
+            },
           };
         })
         .filter((item) => item.contentId.trim());
@@ -404,7 +424,7 @@ export class SessionVttObjectRuntimeRunner {
   }): Promise<{ count: number; objectNames: string[] }> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -464,6 +484,7 @@ export class SessionVttObjectRuntimeRunner {
       flags,
       map: nextMap,
       previousMap: map,
+      expectedStateVersion: state.version,
     });
 
     return { count: observableObjectIds.size, objectNames };
@@ -565,7 +586,7 @@ export class SessionVttObjectRuntimeRunner {
   }> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -626,6 +647,7 @@ export class SessionVttObjectRuntimeRunner {
           id: revealEvent.id,
           name: revealEvent.name ?? null,
           type: revealEvent.type,
+          sourceNodeId: state.currentNodeId ?? undefined,
           sourceObjectId: objectCell.id,
           sourceObjectName: objectCell.name ?? null,
           currentNodeId: state.currentNodeId,
@@ -633,15 +655,11 @@ export class SessionVttObjectRuntimeRunner {
           effect: revealEvent.effect,
         },
       });
-      await tx.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
+      await this.runtime.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: nextMap,
+        fallbackFlags: flags,
+        expectedStateVersion: state.version,
       });
     });
 
@@ -805,7 +823,7 @@ export class SessionVttObjectRuntimeRunner {
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1016,6 +1034,7 @@ export class SessionVttObjectRuntimeRunner {
               id: event.id,
               name: event.name ?? null,
               type: event.type,
+              sourceNodeId: params.currentNodeId ?? undefined,
               sourceObjectId: objectCell.id,
               sourceObjectName: objectCell.name ?? null,
               currentNodeId: params.currentNodeId,
@@ -1741,7 +1760,7 @@ export class SessionVttObjectRuntimeRunner {
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1770,6 +1789,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1796,7 +1816,7 @@ export class SessionVttObjectRuntimeRunner {
   ): Promise<{ status: MainCommandStatus; message: string } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1828,6 +1848,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1856,7 +1877,7 @@ export class SessionVttObjectRuntimeRunner {
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1888,6 +1909,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1914,7 +1936,7 @@ export class SessionVttObjectRuntimeRunner {
   ): Promise<{ status: MainCommandStatus; message: string } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1946,6 +1968,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1967,7 +1990,7 @@ export class SessionVttObjectRuntimeRunner {
   ): Promise<{ status: MainCommandStatus; message: string } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1999,6 +2022,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 

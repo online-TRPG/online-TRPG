@@ -166,6 +166,50 @@ describe("SessionVttMapNormalizationService", () => {
       wallCells: [],
       doorCells: [],
       objectCells: [],
+      updatedAt: "1970-01-01T00:00:00.000Z",
     });
+    expect(
+      service.toVttMapOrNull({
+        id: "map-1",
+        gridSize: 64,
+        width: 640,
+        height: 480,
+        tokens: [],
+        fogRects: [],
+      })?.updatedAt,
+    ).toBe(map?.updatedAt);
+  });
+
+  it("preserves updatedAt and starting slot while reading persisted maps", () => {
+    const updatedAt = "2026-07-02T00:00:00.000Z";
+    const map = service.toVttMapOrNull({
+      ...createMap({ updatedAt }),
+      tokens: [
+        {
+          id: "token-1",
+          npcId: null,
+          sessionCharacterId: "session-character-1",
+          startingPositionId: "start-1",
+          name: "Hero",
+          imageUrl: null,
+          x: 0,
+          y: 0,
+          size: 64,
+        },
+      ],
+    });
+
+    expect(map?.updatedAt).toBe(updatedAt);
+    expect(map?.tokens[0]?.startingPositionId).toBe("start-1");
+  });
+
+  it("changes updatedAt only for write normalization", () => {
+    const original = createMap();
+    expect(service.decodeAndSanitizeForRead(original, "node-1").updatedAt).toBe(
+      original.updatedAt,
+    );
+    expect(service.normalizeForWrite(original, "node-1").updatedAt).not.toBe(
+      original.updatedAt,
+    );
   });
 });

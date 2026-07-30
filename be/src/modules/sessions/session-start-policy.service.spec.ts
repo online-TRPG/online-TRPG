@@ -25,7 +25,7 @@ describe("SessionStartPolicyService", () => {
     recommendedEndLevel: 5,
   };
 
-  it("leaves participant readiness and character composition to the host", () => {
+  it("rejects a joined player without a session character", () => {
     expect(() =>
       service.ensureCanStart({
         session: createSession() as never,
@@ -35,6 +35,25 @@ describe("SessionStartPolicyService", () => {
             role: PrismaParticipantRole.PLAYER,
             isReady: false,
             sessionCharacter: null,
+          },
+        ],
+        scenario,
+      }),
+    ).toThrow("SESSION_CHARACTER_ASSIGNMENT_REQUIRED");
+  });
+
+  it("leaves participant readiness to the host after character selection", () => {
+    expect(() =>
+      service.ensureCanStart({
+        session: createSession() as never,
+        participants: [
+          {
+            userId: "player-user",
+            role: PrismaParticipantRole.PLAYER,
+            isReady: false,
+            sessionCharacter: {
+              character: { name: "Ari", level: 3 },
+            },
           },
         ],
         scenario,

@@ -28,6 +28,7 @@ export class MainCommandSceneTransitionResolutionService {
 
     await this.mainCommandSceneTransitionState.applySceneTransition(context, target.nodeId);
 
+    await this.sessionsService.publishCurrentVttMap(context.sessionId);
     const snapshot = await this.sessionsService.buildSnapshot(context.sessionId);
     this.realtimeEvents.emitSessionSnapshot(context.sessionId, snapshot);
 

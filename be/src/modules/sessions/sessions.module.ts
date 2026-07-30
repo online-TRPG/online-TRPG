@@ -41,6 +41,8 @@ import { SessionStartNodeService } from "./session-start-node.service";
 import { SessionStartPolicyService } from "./session-start-policy.service";
 import { SessionUpdatePolicyService } from "./session-update-policy.service";
 import { SessionVttDefaultMapReaderService } from "./session-vtt-default-map-reader.service";
+import { SessionNodeRuntimeMapService } from "./session-node-runtime-map.service";
+import { SessionNodeRuntimeTransitionService } from "./session-node-runtime-transition.service";
 import { SessionVttInteractionPointService } from "./session-vtt-interaction-point.service";
 import { SessionVttMapBootstrapService } from "./session-vtt-map-bootstrap.service";
 import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
@@ -99,6 +101,8 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
     SessionStartPolicyService,
     SessionUpdatePolicyService,
     SessionVttDefaultMapReaderService,
+    SessionNodeRuntimeMapService,
+    SessionNodeRuntimeTransitionService,
     SessionVttInteractionPointService,
     SessionVttMapBootstrapService,
     SessionVttMapNormalizationService,
@@ -117,6 +121,8 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
   exports: [
     SessionsService,
     SessionGmRuntimeParticipantAccessService,
+    SessionNodeRuntimeMapService,
+    SessionNodeRuntimeTransitionService,
     MapRuntimeService,
     VttMapInteractionRuntimeService,
     VttMapDoorRuntimeService,

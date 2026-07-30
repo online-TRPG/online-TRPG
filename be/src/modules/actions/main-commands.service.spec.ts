@@ -130,7 +130,10 @@ function createMainCommandsService(
   const interpreterRouter = new MainCommandInterpreterRouterService(validator, sceneEntity);
   const inventoryLabel = new MainCommandInventoryLabelService();
   const npcDialogue = new MainCommandNpcDialogueService(aiService, sceneEntity);
-  const persistence = new MainCommandPersistenceService(prisma, turnLogsService, realtimeEvents);
+  const persistence = new MainCommandPersistenceService(
+    turnLogsService,
+    realtimeEvents,
+  );
   const interpreterRouteResponse = new MainCommandInterpreterRouteResponseService(
     interpreterRouter,
     persistence,
@@ -138,7 +141,6 @@ function createMainCommandsService(
   const checkRevealSync = new MainCommandCheckRevealSyncService(
     sessionsService,
     realtimeEvents,
-    persistence,
   );
   const postActionReveal = new MainCommandPostActionRevealService(
     sessionsService,
@@ -153,7 +155,9 @@ function createMainCommandsService(
     transitionEvaluator,
   );
   const sceneTransitionState = overrides?.sceneTransitionState
-    ?? new MainCommandSceneTransitionStateService(prisma);
+    ?? new MainCommandSceneTransitionStateService({
+      transition: jest.fn().mockResolvedValue(undefined),
+    } as never);
   const sceneTransitionResponse = new MainCommandSceneTransitionResponseService();
   const sceneTransitionResolution = new MainCommandSceneTransitionResolutionService(
     sessionsService,
@@ -265,6 +269,7 @@ function createMainCommandHarness(options?: {
     revealCurrentNodeCluesAfterActionWithDetails: jest.fn().mockResolvedValue([]),
     completeSessionFromEndingNode: jest.fn().mockResolvedValue({}),
     buildSnapshot: jest.fn().mockResolvedValue({}),
+    publishCurrentVttMap: jest.fn().mockResolvedValue({}),
     describeVttObjectAtPoint: jest.fn().mockResolvedValue(null),
     getVttMapForSessionScenario: jest.fn().mockResolvedValue(
       options?.vttMap ?? {
@@ -1489,6 +1494,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
   const createService = () => {
     const sessionsService = {
       buildSnapshot: jest.fn().mockResolvedValue({ currentNodeId: "node-next" }),
+      publishCurrentVttMap: jest.fn().mockResolvedValue({}),
       completeSessionFromEndingNode: jest.fn().mockResolvedValue({ session: { status: "completed" } }),
     };
     const realtimeEvents = {
@@ -1619,7 +1625,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
   });
 
   it("auto-advances to the only branch whose condition is already satisfied", async () => {
-    const { service, sceneTransitionState } = createService();
+    const { service, sessionsService, sceneTransitionState } = createService();
     const internals = service as unknown as {
       handleSceneTransition: (
         requestId: string,
@@ -1649,6 +1655,9 @@ describe("MainCommandsService scene transition branch resolution", () => {
     expect(response.statePatch?.currentNodeId).toBe("node-right");
     expect(response.message).toContain("오른쪽 방");
     expect(sceneTransitionState.applySceneTransition).toHaveBeenCalledWith(context, "node-right");
+    expect(sessionsService.publishCurrentVttMap).toHaveBeenCalledWith(
+      "session-1",
+    );
   });
 
   it("asks for a destination when more than one branch is already satisfied", async () => {

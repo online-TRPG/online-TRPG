@@ -592,19 +592,32 @@ export class CombatService {
                 appliedAt: new Date().toISOString(),
               }
             : undefined;
-        await tx.gameState.update({
-          where: { sessionScenarioId: sessionScenario.id },
-          data: {
-            phase: PrismaGamePhase.COMBAT,
-            flagsJson: JSON.stringify({
-              ...flags,
-              ...(scalingResult.excludedTokenIds.length ? { vttMap: runtimeMap } : {}),
-              ...(encounterScalingApplied ? { encounterScalingApplied } : {}),
-              completedCombatNodeIds,
-            }),
-            version: state.version + 1,
-          },
-        });
+        const nextFlags = {
+          ...flags,
+          ...(encounterScalingApplied ? { encounterScalingApplied } : {}),
+          completedCombatNodeIds,
+        };
+        if (scalingResult.excludedTokenIds.length) {
+          await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
+            sessionScenarioId: sessionScenario.id,
+            map: runtimeMap,
+            fallbackFlags: nextFlags,
+            expectedStateVersion: state.version,
+          });
+          await tx.gameState.update({
+            where: { sessionScenarioId: sessionScenario.id },
+            data: { phase: PrismaGamePhase.COMBAT },
+          });
+        } else {
+          await tx.gameState.update({
+            where: { sessionScenarioId: sessionScenario.id },
+            data: {
+              phase: PrismaGamePhase.COMBAT,
+              flagsJson: JSON.stringify(nextFlags),
+              version: state.version + 1,
+            },
+          });
+        }
 
         return tx.combat.findUniqueOrThrow({
           where: { id: created.id },
@@ -621,6 +634,15 @@ export class CombatService {
       });
 
     const response = await this.mapCombat(combat);
+    if (scalingResult.excludedTokenIds.length) {
+      this.sessionsService.publishCommittedVttMapChange({
+        sessionId: session.id,
+        hostUserId: session.hostUserId,
+        previousHostMap: map,
+        previousPlayerMap: this.sessionsService.redactVttMapForPlayer(map),
+        hostMap: runtimeMap,
+      });
+    }
     this.logAutoMonsterTurn("startCombat created combat", {
       sessionId: session.id,
       combatId: combat.id,

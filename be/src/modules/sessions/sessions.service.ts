@@ -169,6 +169,8 @@ import { SessionUpdatePolicyService } from "./session-update-policy.service";
 import { SessionVttMapBootstrapService } from "./session-vtt-map-bootstrap.service";
 import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
 import { SessionVttMapPersistenceService } from "./session-vtt-map-persistence.service";
+import { SessionNodeRuntimeTransitionService } from "./session-node-runtime-transition.service";
+import { SessionNodeRuntimeMapService } from "./session-node-runtime-map.service";
 import { SessionVttMovementFramePublisherService } from "./session-vtt-movement-frame-publisher.service";
 import {
   SessionVttCombatMovementSpendService,
@@ -265,6 +267,8 @@ export class SessionsService {
     private readonly sessionVttCombatMovementSpend: SessionVttCombatMovementSpendService,
     private readonly sessionVttMovementPolicy: SessionVttMovementPolicyService,
     private readonly sessionVttPlayerMapUpdate: SessionVttPlayerMapUpdateService,
+    private readonly sessionNodeRuntimeMap: SessionNodeRuntimeMapService,
+    private readonly sessionNodeRuntimeTransition: SessionNodeRuntimeTransitionService,
   ) {}
 
   createHumanGmRuntime() {
@@ -289,9 +293,16 @@ export class SessionsService {
       extractVttMapFromCheckOptions: this.extractVttMapFromCheckOptions.bind(this),
       applyScenarioStartingPositions: this.applyScenarioStartingPositions.bind(this),
       normalizeVttMap: this.normalizeVttMap.bind(this),
+      saveRuntimeVttMapInTransaction:
+        this.saveRuntimeVttMapInTransaction.bind(this),
+      publishCurrentVttMap: this.publishCurrentVttMap.bind(this),
       lockSessionRuntime: this.lockSessionRuntime.bind(this),
       getStringProperty: this.getStringProperty.bind(this),
       transitionHumanGmCombat: this.transitionHumanGmCombat.bind(this),
+      transitionSessionNode:
+        this.sessionNodeRuntimeTransition.transition.bind(
+          this.sessionNodeRuntimeTransition,
+        ),
       getSessionEntityOrThrow: this.getSessionEntityOrThrow.bind(this),
       completeActiveCombatState: this.completeActiveCombatState.bind(this),
     };
@@ -312,6 +323,9 @@ export class SessionsService {
       findSessionScenarioRevealable: this.findSessionScenarioRevealable.bind(this),
       getStringProperty: this.getStringProperty.bind(this),
       extractChecksFromCheckOptions: this.extractChecksFromCheckOptions.bind(this),
+      saveRuntimeVttMapInTransaction:
+        this.saveRuntimeVttMapInTransaction.bind(this),
+      publishCurrentVttMap: this.publishCurrentVttMap.bind(this),
     };
   }
 
@@ -338,6 +352,8 @@ export class SessionsService {
       getVttMapBaseline: this.getVttMapBaseline.bind(this),
       getVttMapForSessionScenario: this.getVttMapForSessionScenario.bind(this),
       normalizeVttMap: this.normalizeVttMap.bind(this),
+      saveRuntimeVttMapInTransaction:
+        this.saveRuntimeVttMapInTransaction.bind(this),
       recordSessionReveal: this.recordSessionReveal.bind(this),
       rectsOverlap: this.rectsOverlap.bind(this),
       refreshSessionInventorySnapshot: this.refreshSessionInventorySnapshot.bind(this),
@@ -870,31 +886,12 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
-    const flags = this.parseRecordJson(state.flagsJson);
-    const existingMap = this.readRuntimeVttMapFromFlags(flags);
+    const map = await this.getVttMapBaseline(
+      resolvedSessionId,
+      sessionScenario.id,
+      state,
+    );
     const canSeeGmMap = this.canSeeGmOnlyRuntimeData(userId, session);
-
-    if (existingMap) {
-      const map = await this.applyScenarioStartingPositions(resolvedSessionId, existingMap);
-      if (JSON.stringify(map.tokens) !== JSON.stringify(existingMap.tokens)) {
-        await this.prisma.gameState.update({
-          where: { sessionScenarioId: sessionScenario.id },
-          data: {
-            flagsJson: JSON.stringify(this.sessionVttMapPersistence.buildMapFlags(flags, map)),
-          },
-        });
-      }
-      return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
-    }
-
-    const scenarioMap = await this.getScenarioDefaultVttMapForNode(sessionScenario.id, state.currentNodeId);
-    if (scenarioMap) {
-      const normalizedMap = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
-      const map = await this.applyScenarioStartingPositions(resolvedSessionId, normalizedMap);
-      return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
-    }
-
-    const map = await this.buildDefaultVttMap(resolvedSessionId, state.currentNodeId ?? null);
     return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
   }
 
@@ -931,6 +928,7 @@ export class SessionsService {
       flags,
       map: requestedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
     return session.hostUserId === userId ? result.map : result.playerMap;
   }
@@ -989,6 +987,7 @@ export class SessionsService {
       flags,
       map: changedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return session.hostUserId === userId ? result.map : result.playerMap;
@@ -1023,6 +1022,7 @@ export class SessionsService {
       flags,
       map,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return session.hostUserId === userId ? result.map : result.playerMap;
@@ -1051,14 +1051,6 @@ export class SessionsService {
       return { map: previousMap, moved: false, distanceMovedFt: 0 };
     }
 
-    await this.emitVttTokenMovementFrames({
-      sessionId: resolvedSessionId,
-      hostUserId: session.hostUserId,
-      map: previousMap,
-      sourceTokenId: params.sourceTokenId,
-      path: movement.path,
-    });
-
     const changedMap: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
@@ -1079,6 +1071,16 @@ export class SessionsService {
       flags,
       map: changedMap,
       previousMap,
+      expectedStateVersion: state.version,
+      publishMap: false,
+    });
+    await this.emitVttTokenMovementFrames({
+      sessionId: resolvedSessionId,
+      hostUserId: session.hostUserId,
+      map: previousMap,
+      sourceTokenId: params.sourceTokenId,
+      path: movement.path,
+      finalMap: result.map,
     });
 
     return { map: result.map, moved: true, distanceMovedFt: movement.distanceMovedFt };
@@ -1114,6 +1116,7 @@ export class SessionsService {
       flags,
       map: changedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return result.map;
@@ -1183,6 +1186,7 @@ export class SessionsService {
       flags,
       map: changedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return {
@@ -1575,21 +1579,19 @@ export class SessionsService {
       scenario: activeScenario.scenario,
     });
 
-    const state = activeScenario.gameState;
     await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
-    const currentNodeId = state?.currentNodeId ?? null;
-    const flags = this.parseRecordJson(state?.flagsJson);
-    const existingMap = this.readRuntimeVttMapFromFlags(flags);
-    const scenarioMap = currentNodeId ? await this.getScenarioDefaultVttMapForNode(activeScenario.id, currentNodeId) : null;
-    const runtimeMap = existingMap
-      ? await this.applyScenarioStartingPositions(resolvedSessionId, existingMap)
-      : scenarioMap
-        ? await this.applyScenarioStartingPositions(resolvedSessionId, this.normalizeVttMap(scenarioMap, currentNodeId))
-        : await this.buildDefaultVttMap(resolvedSessionId, currentNodeId);
 
-    await this.prisma.$transaction(async (tx) => {
+    const committedRuntimeMap = await this.prisma.$transaction(async (tx) => {
       await this.lockSessionRuntime(tx, resolvedSessionId);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${activeScenario.id}))`;
       await this.ensureSessionScenarioNodeSnapshot(tx, activeScenario.id, activeScenario.scenarioId);
+      const latestState = await tx.gameState.findUniqueOrThrow({
+        where: { sessionScenarioId: activeScenario.id },
+        select: {
+          currentNodeId: true,
+          flagsJson: true,
+        },
+      });
       await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
@@ -1621,21 +1623,69 @@ export class SessionsService {
           startedAt: activeScenario.startedAt ?? new Date(),
         },
       });
+      let runtimeMap: VttMapStateDto | null = null;
+      if (latestState.currentNodeId) {
+        const node = await tx.sessionScenarioNode.findUnique({
+          where: {
+            sessionScenarioId_nodeId: {
+              sessionScenarioId: activeScenario.id,
+              nodeId: latestState.currentNodeId,
+            },
+          },
+          select: {
+            id: true,
+            nodeId: true,
+            nodeType: true,
+            checkOptionsJson: true,
+          },
+        });
+        if (!node) {
+          throw new BadRequestException({
+            code: "SESSION_NODE_RUNTIME_MAP_INVALID",
+            reason: "CURRENT_NODE_MISSING",
+          });
+        }
+        runtimeMap = (
+          await this.sessionNodeRuntimeMap.loadOrInitialize(tx, {
+            sessionId: resolvedSessionId,
+            sessionScenarioId: activeScenario.id,
+            node,
+          })
+        ).map;
+      }
       await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: {
           phase: PrismaGamePhase.EXPLORATION,
-          flagsJson: JSON.stringify(this.sessionVttMapPersistence.buildMapFlags(flags, runtimeMap)),
+          version: { increment: 1 },
+          ...(runtimeMap
+            ? {
+                flagsJson: JSON.stringify(
+                  this.sessionVttMapPersistence.buildMapFlags(
+                    this.parseRecordJson(latestState.flagsJson),
+                    runtimeMap,
+                  ),
+                ),
+              }
+            : {}),
         },
       });
-      if (state?.currentNodeId) {
+      if (latestState.currentNodeId) {
         await this.recordNodeVisit(tx, {
           sessionScenarioId: activeScenario.id,
-          nodeId: state.currentNodeId,
+          nodeId: latestState.currentNodeId,
         });
       }
+      return runtimeMap;
     });
 
+    if (committedRuntimeMap) {
+      this.publishCommittedVttMapChange({
+        sessionId: resolvedSessionId,
+        hostUserId: session.hostUserId,
+        hostMap: committedRuntimeMap,
+      });
+    }
     const snapshot = await this.buildSnapshot(resolvedSessionId);
     this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, snapshot.session);
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
@@ -2000,7 +2050,7 @@ export class SessionsService {
       `[COMBAT_COMPLETE_STATE] sessionId=${resolvedSessionId} combatId=${combatId ?? "active"} currentNodeId=${currentNodeId ?? "null"} previousPhase=${state?.phase ?? "null"} nextCompletedCombatNodeIds=${JSON.stringify(combatCompletionFlags.completedCombatNodeIds)}`,
     );
 
-    await this.prisma.$transaction(async (tx) => {
+    const postCombatRevealCount = await this.prisma.$transaction(async (tx) => {
       await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
@@ -2029,15 +2079,20 @@ export class SessionsService {
         });
       }
       if (currentNodeId) {
-        await this.recordCurrentNodeCluesByPolicy(tx, {
+        const reveals = await this.recordCurrentNodeCluesByPolicy(tx, {
           sessionScenarioId: activeScenario.id,
           nodeId: currentNodeId,
           policyModes: ["POST_COMBAT"],
           revealedBy: "system",
           reason: "post_combat",
         });
+        return reveals.length;
       }
+      return 0;
     });
+    if (postCombatRevealCount > 0) {
+      await this.publishCurrentVttMap(resolvedSessionId);
+    }
   }
 
   async completeSessionAfterPartyDefeat(sessionId: string, combatId?: string): Promise<SessionSnapshotDto> {
@@ -2921,6 +2976,7 @@ export class SessionsService {
     targetId?: string | null;
     statePatch?: JsonObject | null;
     metadata?: JsonObject | null;
+    persistStateDiff?: boolean;
   }): Promise<HumanGmOverrideLogResult> {
     const resolution = this.gmOverrideService.resolveOverride({
       kind: params.kind,
@@ -2945,15 +3001,18 @@ export class SessionsService {
       select: { turnNumber: true },
     });
     const privateNote = params.privateNote?.trim() || null;
-    const state = resolution.stateDiff || privateNote
+    const shouldPersistStateDiff =
+      Boolean(resolution.stateDiff) && params.persistStateDiff !== false;
+    const state = shouldPersistStateDiff || privateNote
       ? await client.gameState.findUnique({
           where: { sessionScenarioId: params.sessionScenarioId },
           select: { version: true, flagsJson: true },
         })
       : null;
     const baseVersion = state?.version ?? 1;
-    const nextVersion = resolution.stateDiff ? baseVersion + 1 : baseVersion;
-    const stateDiff: StateDiffResponseDto | null = resolution.stateDiff
+    const nextVersion = shouldPersistStateDiff ? baseVersion + 1 : baseVersion;
+    const stateDiff: StateDiffResponseDto | null =
+      shouldPersistStateDiff && resolution.stateDiff
       ? decodeStateDiffResponse({
           baseVersion,
           nextVersion,
@@ -3091,7 +3150,7 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
 
-    await this.prisma.$transaction(async (tx) => {
+    const postCombatRevealCount = await this.prisma.$transaction(async (tx) => {
       if (session.status === PrismaSessionStatus.RECRUITING) {
         await this.ensureSessionScenarioNodeSnapshot(tx, activeScenario.id, activeScenario.scenarioId);
         if (activeScenario.gameState?.currentNodeId) {
@@ -3113,15 +3172,20 @@ export class SessionsService {
         data: { phase },
       });
       if (phase === PrismaGamePhase.EXPLORATION && activeScenario.gameState?.currentNodeId) {
-        await this.recordCurrentNodeCluesByPolicy(tx, {
+        const reveals = await this.recordCurrentNodeCluesByPolicy(tx, {
           sessionScenarioId: activeScenario.id,
           nodeId: activeScenario.gameState.currentNodeId,
           policyModes: ["POST_COMBAT"],
           revealedBy: "system",
           reason: "post_combat",
         });
+        return reveals.length;
       }
+      return 0;
     });
+    if (postCombatRevealCount > 0) {
+      await this.publishCurrentVttMap(resolvedSessionId);
+    }
   }
 
   private parseRecordJson(value: string | null | undefined): Record<string, unknown> {
@@ -3193,10 +3257,27 @@ export class SessionsService {
     sessionScenarioId: string,
     state: { currentNodeId: string | null; flagsJson: string | null },
   ): Promise<VttMapStateDto> {
+    if (state.currentNodeId) {
+      const runtime = await this.prisma.sessionScenarioNodeRuntimeState?.findUnique({
+        where: {
+          sessionScenarioId_nodeId: {
+            sessionScenarioId,
+            nodeId: state.currentNodeId,
+          },
+        },
+        select: { vttMapJson: true },
+      });
+      if (runtime) {
+        return this.sessionNodeRuntimeMap.decodeRuntimeMap(
+          runtime.vttMapJson,
+          state.currentNodeId,
+        );
+      }
+    }
     const flags = this.parseRecordJsonForRead(state.flagsJson);
     const existingMap = this.readRuntimeVttMapFromFlags(flags);
     if (existingMap) {
-      return this.applyScenarioStartingPositions(sessionId, existingMap);
+      return existingMap;
     }
 
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(sessionScenarioId, state.currentNodeId);
@@ -3257,6 +3338,8 @@ export class SessionsService {
     flags: Record<string, unknown>;
     map: VttMapStateDto;
     previousMap: VttMapStateDto;
+    expectedStateVersion?: number;
+    publishMap?: boolean;
   }): Promise<{
     map: VttMapStateDto;
     playerMap: VttMapStateDto;
@@ -3292,17 +3375,19 @@ export class SessionsService {
       sessionScenarioId: params.sessionScenarioId,
       flags: params.flags,
       map,
+      expectedStateVersion: params.expectedStateVersion,
     });
 
     const playerMap = this.redactVttMapForPlayer(map);
-    this.sessionVttMapPersistence.publishMapUpdated({
-      sessionId: params.session.id,
-      hostUserId: params.session.hostUserId,
-      previousHostMap: params.previousMap,
-      previousPlayerMap: this.redactVttMapForPlayer(params.previousMap),
-      hostMap: map,
-      playerMap,
-    });
+    if (params.publishMap !== false) {
+      this.publishCommittedVttMapChange({
+        sessionId: params.session.id,
+        hostUserId: params.session.hostUserId,
+        previousHostMap: params.previousMap,
+        previousPlayerMap: this.redactVttMapForPlayer(params.previousMap),
+        hostMap: map,
+      });
+    }
     const snapshotPublished = hazardTriggerResult.triggered || hazardDetectionChanged;
     if (snapshotPublished) {
       this.sessionVttMapPersistence.publishSnapshot(params.session.id, await this.buildSnapshot(params.session.id));
@@ -3315,6 +3400,38 @@ export class SessionsService {
       hazardDetectionChanged,
       snapshotPublished,
     };
+  }
+
+  publishCommittedVttMapChange(params: {
+    sessionId: string;
+    hostUserId: string;
+    hostMap: VttMapStateDto;
+    previousHostMap?: VttMapStateDto | null;
+    previousPlayerMap?: VttMapStateDto | null;
+  }): VttMapStateDto {
+    const playerMap = this.redactVttMapForPlayer(params.hostMap);
+    this.sessionVttMapPersistence.publishMapUpdated({
+      ...params,
+      playerMap,
+    });
+    return playerMap;
+  }
+
+  async publishCurrentVttMap(sessionId: string): Promise<VttMapStateDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const { sessionScenario, state } =
+      await this.getGameStateEntityOrThrow(session.id);
+    const map = await this.getVttMapBaseline(
+      session.id,
+      sessionScenario.id,
+      state,
+    );
+    this.publishCommittedVttMapChange({
+      sessionId: session.id,
+      hostUserId: session.hostUserId,
+      hostMap: map,
+    });
+    return map;
   }
 
   async resolveVttMapInteractionPoint(
@@ -3414,6 +3531,7 @@ export class SessionsService {
     map: VttMapStateDto;
     sourceTokenId: string;
     path: Array<{ x: number; y: number }>;
+    finalMap?: VttMapStateDto;
   }): Promise<void> {
     return this.sessionVttMovementFramePublisher.publish({
       ...params,
@@ -3579,6 +3697,18 @@ export class SessionsService {
 
   private async deleteSessionScenarioLinks(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
     return this.sessionScenarioLink.deleteLinks(tx, sessionId);
+  }
+
+  async saveRuntimeVttMapInTransaction(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      map: VttMapStateDto;
+      fallbackFlags?: Record<string, unknown>;
+      expectedStateVersion?: number;
+    },
+  ) {
+    return this.sessionNodeRuntimeMap.saveCurrentMap(tx, params);
   }
 
   private async disbandSession(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {

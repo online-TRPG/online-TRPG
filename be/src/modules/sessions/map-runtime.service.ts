@@ -62,6 +62,7 @@ export class MapRuntimeService {
       flags,
       map: requestedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
     return result.map;
   }
@@ -134,6 +135,7 @@ export class MapRuntimeService {
       flags,
       map: changedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return session.hostUserId === userId ? result.map : result.playerMap;
@@ -182,6 +184,7 @@ export class MapRuntimeService {
       flags,
       map,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return session.hostUserId === userId ? result.map : result.playerMap;
@@ -208,6 +211,7 @@ export class MapRuntimeService {
       flags,
       map: normalizedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return result.map;

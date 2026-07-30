@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { ActionOutcome, MainCommandResponseDto, MainCommandStatus, SubmitMainCommandDto, isRecord } from "@trpg/shared-types";
-import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import type { LoadedContext } from "./main-commands.service";
@@ -19,7 +18,6 @@ export type EffectiveMainCommandData = {
 @Injectable()
 export class MainCommandPersistenceService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly turnLogsService: TurnLogsService,
     private readonly realtimeEvents: RealtimeEventsService,
   ) {}
@@ -55,13 +53,6 @@ export class MainCommandPersistenceService {
 
     this.realtimeEvents.emitTurnLogCreated(context.sessionId, turnLog);
     return turnLog;
-  }
-
-  async markScenarioStateChanged(sessionScenarioId: string): Promise<void> {
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId },
-      data: { version: { increment: 1 } },
-    });
   }
 
   buildEffectiveMainCommandData(dto: SubmitMainCommandDto): EffectiveMainCommandData {

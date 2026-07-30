@@ -555,35 +555,14 @@ export class HumanGmRuntimeService {
     }
     const currentNode = await runtime.getSessionScenarioNodeEntityOrThrow(activeScenario.id, currentState.currentNodeId);
     this.ensureReachableSessionNodeTarget(runtime, currentNode, targetNode.nodeId);
-    const flags = parseJsonRecordOrThrow(currentState?.flagsJson, {}, "gameState.flagsJson");
-    const targetDefaultMap = runtime.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
-    const targetRuntimeMap = targetDefaultMap
-      ? await runtime.applyScenarioStartingPositions(resolvedSessionId, runtime.normalizeVttMap(targetDefaultMap, targetNode.nodeId))
-      : null;
-    const gmTurnLog = await runtime.prisma.$transaction(async (tx) => {
-      await runtime.lockSessionRuntime(tx, resolvedSessionId);
-      await tx.session.update({
-        where: { id: resolvedSessionId },
-        data: {
-          status: session.status === PrismaSessionStatus.RECRUITING ? PrismaSessionStatus.PLAYING : session.status,
-        },
-      });
-      await tx.gameState.update({
-        where: { sessionScenarioId: activeScenario.id },
-        data: {
-          currentNodeId: targetNode.nodeId,
-          phase: this.getPhaseForScenarioNodeType(targetNode.nodeType),
-          flagsJson: JSON.stringify({
-            ...flags,
-            ...(targetRuntimeMap ? { vttMap: targetRuntimeMap } : {}),
-          }),
-        },
-      });
-      await runtime.recordNodeVisit(tx, {
-        sessionScenarioId: activeScenario.id,
-        nodeId: targetNode.nodeId,
-      });
-      return runtime.createHumanGmOverrideTurnLog({
+    const transition = await runtime.transitionSessionNode({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: activeScenario.id,
+      targetNodeId: targetNode.nodeId,
+    });
+    await runtime.publishCurrentVttMap(resolvedSessionId);
+    const gmTurnLog = await runtime.prisma.$transaction((tx) =>
+      runtime.createHumanGmOverrideTurnLog({
         tx,
         kind: "node_move",
         sessionId: resolvedSessionId,
@@ -593,14 +572,15 @@ export class HumanGmRuntimeService {
         targetId: targetNode.nodeId,
         statePatch: {
           currentNodeId: targetNode.nodeId,
-          phase: this.getPhaseForScenarioNodeType(targetNode.nodeType),
-          vttMapChanged: Boolean(targetRuntimeMap),
+          phase: transition.phase,
+          vttMapChanged: true,
         },
+        persistStateDiff: false,
         metadata: {
           nodeTitle: targetNode.title,
         },
-      });
-    });
+      }),
+    );
 
     const snapshot = await runtime.buildSnapshot(resolvedSessionId);
     const emittedGmTurnLog = gmTurnLog;

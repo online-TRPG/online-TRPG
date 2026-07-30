@@ -158,6 +158,9 @@ describe("CombatService lifecycle", () => {
       }),
       getVttMapForUser: jest.fn().mockResolvedValue({ tokens: [] }),
       saveSystemVttMap: jest.fn(),
+      saveRuntimeVttMapInTransaction: jest.fn(),
+      publishCommittedVttMapChange: jest.fn(),
+      redactVttMapForPlayer: jest.fn((map) => map),
       hideVttToken: jest.fn(),
       hideVttTokenForSessionCharacter: jest.fn(),
       buildSnapshot: jest.fn(),
@@ -382,6 +385,7 @@ describe("CombatService lifecycle", () => {
       ruleEngine,
       srdEngine,
       monsterAbilities,
+      combatStats,
     };
   };
 
@@ -463,6 +467,172 @@ describe("CombatService lifecycle", () => {
       },
       update: {},
     });
+  });
+
+  it("persists encounter scaling through the node runtime map before publishing", async () => {
+    const {
+      service,
+      prisma,
+      sessionsService,
+      combatStats,
+    } = createService();
+    const player = createParticipant();
+    const monster = createParticipant({
+      id: "participant-monster",
+      entityType: PrismaCombatEntityType.MONSTER,
+      sessionCharacterId: null,
+      tokenId: "monster-1",
+      isHostile: true,
+      turnOrder: 2,
+    });
+    const tx = {
+      $executeRaw: jest.fn(),
+      combat: {
+        create: jest.fn().mockResolvedValue({ id: "combat-1" }),
+        update: jest.fn(),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: "combat-1",
+          sessionId: "session-1",
+          status: PrismaCombatStatus.ACTIVE,
+          roundNo: 1,
+          turnNo: 1,
+          currentParticipantId: player.id,
+          participants: [player, monster],
+        }),
+      },
+      combatParticipant: {
+        create: jest
+          .fn()
+          .mockResolvedValueOnce(player)
+          .mockResolvedValueOnce(monster),
+      },
+      combatTurnState: { upsert: jest.fn() },
+      gameState: { update: jest.fn() },
+    };
+    const map = {
+      id: "map-1",
+      scenarioNodeId: "node-1",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 480,
+      tokens: [
+        {
+          id: "player-1",
+          sessionCharacterId: "session-character-1",
+          name: "Hero",
+          imageUrl: null,
+          x: 0,
+          y: 0,
+          size: 64,
+          hidden: false,
+          isHostile: false,
+          monster: null,
+        },
+        {
+          id: "monster-1",
+          sessionCharacterId: null,
+          name: "Goblin",
+          imageUrl: null,
+          x: 64,
+          y: 0,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "goblin" },
+        },
+        {
+          id: "monster-2",
+          sessionCharacterId: null,
+          name: "Goblin",
+          imageUrl: null,
+          x: 128,
+          y: 0,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "goblin" },
+        },
+      ],
+      fogRects: [],
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.AI,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        version: 3,
+        currentNodeId: "node-1",
+        flagsJson: "{}",
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(null);
+    prisma.sessionCharacter.findMany.mockResolvedValue([
+      {
+        id: "session-character-1",
+        currentHp: 10,
+        conditionsJson: "[]",
+        character: {
+          name: "Hero",
+          abilitiesJson: "{}",
+          maxHp: 10,
+          armorClass: 14,
+          speed: 30,
+          className: "Fighter",
+          level: 1,
+        },
+      },
+    ]);
+    jest.spyOn(combatStats, "scaleMonsterTokensForParty").mockReturnValue({
+      monsterTokens: [map.tokens[1]] as never,
+      excludedTokenIds: ["monster-2"],
+      applied: true,
+    });
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+
+    await service.startCombat("user-1", "session-1", {
+      autoRollInitiative: false,
+    });
+
+    expect(
+      sessionsService.saveRuntimeVttMapInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        sessionScenarioId: "session-scenario-1",
+        expectedStateVersion: 3,
+        map: expect.objectContaining({
+          tokens: expect.arrayContaining([
+            expect.objectContaining({ id: "monster-2", hidden: true }),
+          ]),
+        }),
+      }),
+    );
+    expect(tx.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: { phase: "COMBAT" },
+    });
+    expect(
+      sessionsService.publishCommittedVttMapChange,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        hostMap: expect.objectContaining({
+          tokens: expect.arrayContaining([
+            expect.objectContaining({ id: "monster-2", hidden: true }),
+          ]),
+        }),
+      }),
+    );
   });
 
   it("rejects startCombat with COMBAT_409 on a node whose combat already completed", async () => {
