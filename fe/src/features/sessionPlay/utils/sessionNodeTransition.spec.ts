@@ -3,6 +3,7 @@ import {
   createPlayerScenarioLoadKey,
   isCurrentNodeScenarioPending,
   isSamePlayerScenarioLoadKey,
+  isVttMapForLoadKey,
 } from './sessionNodeTransition';
 
 describe('session node transition state', () => {
@@ -21,6 +22,13 @@ describe('session node transition state', () => {
       loaded,
       createPlayerScenarioLoadKey('session-1', 'node-3', 7),
     )).toBe(false);
+  });
+
+  it('accepts only a map belonging to the requested node', () => {
+    const key = createPlayerScenarioLoadKey('session-1', 'node-2', 7);
+    expect(isVttMapForLoadKey('node-2', key)).toBe(true);
+    expect(isVttMapForLoadKey('node-1', key)).toBe(false);
+    expect(isVttMapForLoadKey(null, key)).toBe(false);
   });
 
   it('keeps the surface loading while the loaded node belongs to the previous snapshot', () => {

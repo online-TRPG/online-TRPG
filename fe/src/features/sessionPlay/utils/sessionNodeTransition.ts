@@ -28,6 +28,13 @@ export function isSamePlayerScenarioLoadKey(
   );
 }
 
+export function isVttMapForLoadKey(
+  mapNodeId: string | null | undefined,
+  key: PlayerScenarioLoadKey,
+): boolean {
+  return key.currentNodeId === (mapNodeId ?? null);
+}
+
 export function isCurrentNodeScenarioPending(
   expectedNodeId: string | null | undefined,
   loadedNodeId: string | null | undefined,

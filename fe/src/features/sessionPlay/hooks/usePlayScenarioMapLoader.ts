@@ -7,6 +7,7 @@ import { getVttMap } from '../../../services/vttMapApi';
 import {
   createPlayerScenarioLoadKey,
   isSamePlayerScenarioLoadKey,
+  isVttMapForLoadKey,
   type PlayerScenarioLoadKey,
 } from '../utils/sessionNodeTransition';
 
@@ -51,6 +52,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
   const [, setIsScenarioLoaded] = useState(false);
   const [, setIsMapLoaded] = useState(false);
   const setMapIfChangedRef = useRef(setMapIfChanged);
+  const currentMapLoadKeyRef = useRef<PlayerScenarioLoadKey | null>(null);
 
   useEffect(() => {
     setMapIfChangedRef.current = setMapIfChanged;
@@ -124,10 +126,16 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
   ]);
 
   useEffect(() => {
-    if (!snapshotVttMap) return;
+    if (!snapshotVttMap || !sessionId) return;
+    const loadKey = createPlayerScenarioLoadKey(
+      sessionId,
+      currentNodeId,
+      stateVersion,
+    );
+    if (!isVttMapForLoadKey(snapshotVttMap.scenarioNodeId, loadKey)) return;
     setMapIfChangedRef.current(snapshotVttMap, 'snapshot');
     setIsMapLoaded(true);
-  }, [snapshotVttMap]);
+  }, [currentNodeId, sessionId, snapshotVttMap, stateVersion]);
 
   useEffect(() => {
     if (!sessionId || isRecruiting) {
@@ -135,11 +143,21 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     }
 
     let ignore = false;
+    const loadKey = createPlayerScenarioLoadKey(
+      sessionId,
+      currentNodeId,
+      stateVersion,
+    );
+    currentMapLoadKeyRef.current = loadKey;
     setMapLoadError(null);
 
     getVttMap(user, sessionId)
       .then((map) => {
-        if (!ignore) {
+        if (
+          !ignore
+          && isSamePlayerScenarioLoadKey(currentMapLoadKeyRef.current, loadKey)
+          && isVttMapForLoadKey(map.scenarioNodeId, loadKey)
+        ) {
           setMapIfChangedRef.current(map, 'load');
         }
       })
@@ -152,7 +170,14 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     return () => {
       ignore = true;
     };
-  }, [isRecruiting, sessionId, setMapLoadError, user]);
+  }, [
+    currentNodeId,
+    isRecruiting,
+    sessionId,
+    setMapLoadError,
+    stateVersion,
+    user,
+  ]);
 
   useEffect(() => {
     switchMapSaveSession(sessionId);

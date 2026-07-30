@@ -7,6 +7,7 @@ import { getVttMap } from '../../../services/vttMapApi';
 import type { BattleMapSelection } from '../components/SessionBattleMap';
 import {
   createPlayerScenarioLoadKey,
+  isVttMapForLoadKey,
   type PlayerScenarioLoadKey,
 } from '../utils/sessionNodeTransition';
 import { readVttMapFromSessionFlags } from '../utils/sessionStateFlags';
@@ -69,11 +70,17 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
     (snapshot: SessionSnapshot): boolean => {
       const nextMap = extractSnapshotMap(snapshot);
       if (!nextMap) return false;
+      const loadKey = createPlayerScenarioLoadKey(
+        sessionId ?? '',
+        snapshot.state.currentNodeId,
+        snapshot.state.version,
+      );
+      if (!isVttMapForLoadKey(nextMap.scenarioNodeId, loadKey)) return false;
       latestConfirmedMapRef.current = nextMap;
       setVttMap(nextMap);
       return true;
     },
-    [latestConfirmedMapRef, setVttMap],
+    [latestConfirmedMapRef, sessionId, setVttMap],
   );
 
   const executeGmMessage = useCallback(
@@ -144,6 +151,9 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
         setSelectedExplorationMapSelection(null);
         if (!didApplyMap) {
           const savedMap = await getVttMap(user, sessionId);
+          if (savedMap.scenarioNodeId !== nextSnapshot.state.currentNodeId) {
+            throw new Error('현재 노드와 다른 맵 응답을 받았습니다.');
+          }
           latestConfirmedMapRef.current = savedMap;
           setVttMap(savedMap);
         }

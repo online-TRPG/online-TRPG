@@ -110,4 +110,52 @@ describe('usePlayScenarioMapLoader', () => {
       expect(getPlayerScenario).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('ignores a slow map response after the current node changes', async () => {
+    const params = createParams();
+    params.isRecruiting = false;
+    vi.mocked(getPlayerScenario).mockResolvedValue({
+      currentNodeId: 'node-1',
+      currentNode: { id: 'node-1' },
+    } as PlayerScenarioView);
+    let resolveNodeOne!: (map: never) => void;
+    const nodeOneRequest = new Promise<never>((resolve) => {
+      resolveNodeOne = resolve;
+    });
+    vi.mocked(getVttMap)
+      .mockReturnValueOnce(nodeOneRequest)
+      .mockResolvedValueOnce({
+        id: 'map-node-2',
+        scenarioNodeId: 'node-2',
+        tokens: [],
+        fogRects: [],
+      } as never);
+
+    params.currentNodeId = 'node-1';
+    params.stateVersion = 7;
+    const { rerender } = renderHook(() => usePlayScenarioMapLoader(params));
+
+    params.currentNodeId = 'node-2';
+    params.stateVersion = 8;
+    rerender();
+    await waitFor(() => {
+      expect(params.setMapIfChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'map-node-2' }),
+        'load',
+      );
+    });
+
+    resolveNodeOne({
+      id: 'map-node-1',
+      scenarioNodeId: 'node-1',
+      tokens: [],
+      fogRects: [],
+    } as never);
+    await Promise.resolve();
+
+    expect(params.setMapIfChanged).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'map-node-1' }),
+      'load',
+    );
+  });
 });
