@@ -6,6 +6,7 @@
 
 - `completed/PLAN_IMPLEMENTATION_WORKFLOW.md`
 - `completed/PLAN_SCENARIO_ASSET_LIBRARY.md`
+- `completed/ai_server_reliability_remediation_plan.md`
 
 ## 1. 구현 워크플로 후속 작업
 
@@ -82,3 +83,24 @@
 - 전역 자산 라이브러리
 - 자산 폴더/태그
 - 이미지 크롭/버전 관리
+
+## 3. AI 서버 안정성·계약 개선 후속 작업
+
+출처: `ai_server_reliability_remediation_plan.md`
+
+### 공개 배포 재검증
+
+- 공개 배포 환경이 다시 준비되면 `/api/v1/health`가 정상 응답하는지 확인한다.
+- 공개 `/ai/`와 `/internal/ai/`가 404로 차단되는지 확인한다.
+- 공개 NestJS 경계에서 미인증 401, 비멤버 403과 거부 요청의 AI trace 미증가를 확인한다.
+
+### 운영 장애 재현
+
+- 실제 느린 provider 또는 네트워크 조건에서 total deadline과 fallback 횟수를 재확인한다.
+- 운영 trace에서 provider latency, token usage, schema retry율의 장기 표본을 축적한다.
+
+### fresh DB migration bootstrap
+
+- 현재 첫 migration이 기존 테이블을 전제로 해 빈 PostgreSQL에서 `prisma migrate deploy`가 실패하는 migration chain을 정리한다.
+- Jenkins의 `prisma db push` 배포 절차와 장기 migration 정책을 명시적으로 구분한다.
+- 빈 DB에서 migration만으로 schema 생성 후 BE seed·기동까지 성공하는 검증을 추가한다.
