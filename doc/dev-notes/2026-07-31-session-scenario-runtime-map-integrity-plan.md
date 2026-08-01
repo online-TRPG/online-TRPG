@@ -6,12 +6,13 @@
 
 이번 문제는 프론트 표시 오류 하나로 해결할 수 없다. 현재 구조는 시나리오 노드의 원본 맵과 세션 진행 중 변경되는 런타임 맵을 분리해 보관하지 않으며, AI GM과 Human GM의 노드 전환 구현도 서로 다르다.
 
-수정의 중심은 다음 네 가지다.
+수정의 중심은 다음 다섯 가지다.
 
 1. 노드별 런타임 맵을 DB에 독립적으로 영속화한다.
 2. AI GM과 Human GM이 같은 노드 전환 서비스를 사용하게 한다.
 3. 콘텐츠 공개와 해당 맵 오브젝트의 가시성 변경을 하나의 원자적 상태 전이로 묶는다.
 4. 세션-시나리오 링크가 원본 시나리오 삭제로 유실되지 않도록 삭제 정책과 데이터 무결성을 바꾼다.
+5. 서버 내부의 권위 맵과 사용자에게 반환하는 마스킹 맵을 타입과 API 수준에서 분리한다.
 
 `GameState.flagsJson.vttMap`은 즉시 제거하지 않고 호환용 현재 맵 미러로 한 차례 유지한다. 새 노드 런타임 테이블을 정본으로 사용하고, 마이그레이션 및 회귀 검증을 끝낸 뒤 별도 작업으로 미러 제거 여부를 결정한다.
 
@@ -548,3 +549,498 @@ npm run test:session-node-runtime-db -w @trpg/be
 - 관련 테스트, 빌드, 로컬 DB 통합 검증이 모두 통과한다.
 
 이 기준이 충족되기 전에는 단순히 현재 화면에 토큰이나 오브젝트가 보이는 것만으로 완료 처리하지 않는다.
+
+## 11. 2026-07-31 실제 N04 장애 포렌식 정정
+
+### 11.1 조사 대상 정정
+
+이전 조사에서 임시 캐릭터와 다른 세션을 실제 장애 대상으로 잘못 추정했다.
+수정 계획과 회귀 검증은 아래 실제 기록을 기준으로 한다.
+
+- 계정: `그냥웃음이난달까`
+- 캐릭터: `마우가`
+- 세션 public ID: `37321302`
+- 실제 진행 노드: N02 → N03 → N04
+- N04 전투: 쥐 2마리를 처치하고 탐험 상태로 복귀
+- 최종 플레이어 위치: 숨겨진 길 오브젝트로부터 2.5ft
+- 오브젝트 발동 거리: 5ft
+
+세션은 사용자가 정상 진행 불가를 확인한 뒤 종료했기 때문에 일반 조회에서는
+남아 있지 않았다. 삭제된 DB page를 읽기 전용 transaction에서 복구하여 다음
+사실을 확인했다.
+
+- `GameState` 버전 21~33은 N04 전투, 34~39는 N04 탐험 상태였다.
+- N04 전투와 노드 동기화 자체는 정상 완료됐다.
+- `마우가` 토큰은 마지막에 `(256, 384)`에 있었다.
+- `숨겨진 길` 오브젝트는 `(256, 320)`에 있었고 거리 조건을 충족했다.
+- 원본 시나리오에는 `REVEAL_FOG_ON_PROXIMITY` 이벤트가 존재했다.
+- 최종 런타임 맵의 같은 오브젝트에는 `events=[]`가 저장돼 있었다.
+- 최종 런타임 맵의 안개 13개는 하나도 제거되지 않았다.
+- 해당 세션에는 근접 이벤트 `SessionReveal` 기록이 생성되지 않았다.
+
+따라서 주원인은 거리 계산, R2 응답 속도, N04 노드 전환 실패가 아니다.
+전투 진입 과정에서 서버가 플레이어용으로 마스킹한 맵을 권위 런타임 맵에
+다시 저장하여 이벤트 정의를 소실한 것이 직접 원인이다.
+
+### 11.2 직접 원인 데이터 흐름
+
+현재 실패 흐름은 다음과 같다.
+
+1. `combat.service.ts`가 전투 맵의 내부 원본으로
+   `getVttMapForUser()`를 호출한다.
+2. AI GM 세션의 host는 `HUMAN` GM이 아니므로 접근 정책상 플레이어용
+   마스킹 맵을 받는다.
+3. 마스킹 단계가 오브젝트의 `events`, `revealChecks`, 숨김 ID,
+   시작 위치, 숨김 토큰과 문 열쇠 ID 등을 제거한다.
+4. N04의 몬스터 5개를 1인 플레이에 맞춰 2개로 축소하는 과정에서 이
+   마스킹 맵을 복사해 새 런타임 맵을 만든다.
+5. 전투 서비스가 새 맵을 권위 저장소에 저장하여 원본의 GM 전용 실행
+   메타데이터를 영구적으로 덮어쓴다.
+6. 이후 근접 이벤트 평가기는 후보 이벤트를 찾지 못해 아무 작업 없이
+   종료한다.
+
+사용자 응답에서 GM 전용 필드를 숨기는 정책은 옳다. 해결 방법은 AI host에게
+GM 필드를 노출하는 것이 아니라, 서버 내부 권위 데이터 조회와 사용자 응답
+생성을 완전히 분리하는 것이다.
+
+## 12. 추가 확인 문제와 우선순위
+
+### SSR-9. 내부 전투 로직이 플레이어용 마스킹 맵을 권위 데이터로 사용한다
+
+우선순위: P0
+
+- `getVttMapForUser()`는 사용자 응답용 보안 경계다.
+- 전투 서비스가 이 반환값을 내부 mutation 입력으로 사용한다.
+- 마스킹된 전체 맵을 저장하면 이벤트 실행에 필요한 필드가 복구 불가능하게
+  사라진다.
+- 현재 단위 테스트 94개가 통과하지만 이 교차 경로를 검증하지 않아 결함을
+  탐지하지 못한다.
+
+### SSR-10. 마스킹 DTO를 권위 저장소가 거부하지 않는다
+
+우선순위: P0
+
+- 저장 API가 권위 맵과 공개 맵을 같은 구조로 받아들인다.
+- 일부 필드가 없는 것이 정상 마스킹인지, 손상된 권위 데이터인지 구분하지
+  못한다.
+- 전체 맵 교체 방식이므로 몬스터 토큰 일부를 제거하는 작은 변경이 무관한
+  이벤트 메타데이터까지 삭제할 수 있다.
+
+### SSR-11. 근접 공개 기록과 안개 저장이 원자적이지 않다
+
+우선순위: P0
+
+- 근접 이벤트 처리 중 `SessionReveal`을 먼저 별도 transaction으로 기록한다.
+- 실제 안개가 제거된 맵은 이후 다른 저장 호출에서 기록한다.
+- 맵 저장이 충돌하거나 실패하면 `once=true` 공개 기록만 남아 재시도도
+  차단되고 안개는 영구적으로 유지될 수 있다.
+
+### SSR-12. 전투 이동 비용과 맵 좌표 저장이 원자적이지 않다
+
+우선순위: P1
+
+- 이동량을 먼저 소비한 뒤 맵을 저장한다.
+- 맵 저장 실패 시 캐릭터 위치는 그대로인데 이동량만 소모될 수 있다.
+- 재시도하면 이중 비용 또는 이동 불가로 이어진다.
+
+### SSR-13. 전체 flags 갱신이 동시 변경을 덮어쓸 수 있다
+
+우선순위: P1
+
+- 전투 종료 경로가 transaction 밖에서 읽은 `flagsJson`을 전체 교체한다.
+- 노드 런타임 맵은 별도 정본으로 완화됐지만 다른 flags는 여전히 stale
+  snapshot으로 유실될 수 있다.
+
+### SSR-14. 실시간 맵 이벤트에는 노드/버전 수용 기준이 부족하다
+
+우선순위: P1
+
+- 프론트 GET과 snapshot 경로에는 현재 노드 검증이 추가됐다.
+- `vtt_map_updated` 수신 경로는 node/version guard 없이 맵을 적용한다.
+- 이전 노드 또는 이전 버전 이벤트가 늦게 도착하면 최신 화면을 덮을 수 있다.
+
+### SSR-15. 세션 시작 캐릭터 정책과 종료 보존 정책이 불완전하다
+
+우선순위: P1
+
+- 시작 정책이 `PLAYER` 역할만 캐릭터 보유 대상으로 검사한다.
+- AI GM 세션에서 플레이어 역할도 수행하는 `HOST`는 캐릭터 없이 시작할 수
+  있다.
+- 세션 종료가 `SessionCharacter`, `SessionScenario`를 물리 삭제하고 cascade로
+  전투, 턴 로그, 공개, 노드 런타임 증거까지 제거한다.
+- 정상 종료와 영구 삭제의 의미가 분리돼 있지 않아 장애 조사와 플레이 기록
+  보존이 어렵다.
+
+### SSR-16. 숨겨진 트리거 오브젝트의 실행 계약이 불명확하다
+
+우선순위: P2
+
+- 현재 근접 평가기는 `visibleToPlayers=false`인 오브젝트를 건너뛴다.
+- “보이는 오브젝트에 접근하면 발동”과 “숨겨진 트리거 영역에 진입하면 발동”
+  중 어떤 기능을 지원하는지 계약이 명시돼 있지 않다.
+- 지원 범위를 확정하지 않고 조건만 제거하면 플레이어에게 숨겨야 할 이벤트가
+  의도치 않게 발동할 수 있다.
+
+## 13. 현재 구현 기준선
+
+아래 항목은 이번 계획에서 다시 구현하지 않고 회귀 기준으로 유지한다.
+
+| 상태 | 반영 내용 | 근거 |
+|---|---|---|
+| 완료 | 노드별 런타임 맵 정본과 DB backfill | `fcaa5941` |
+| 완료 | 공통 런타임 mutation, transition, CAS 경로 | `da8088a5` |
+| 완료 | 프론트 GET/snapshot의 현재 노드 수렴 | `f9b593aa` |
+| 완료 | 기본 세션 노드 전환 상태 보강 | `d6c0cfe2` |
+| 미완료 | 내부 권위 맵과 공개 마스킹 맵 분리 | SSR-9, SSR-10 |
+| 미완료 | 공개 기록·안개·이동 비용의 원자성 | SSR-11, SSR-12 |
+| 미완료 | WebSocket node/version 계약 | SSR-14 |
+| 미완료 | 종료 세션 기록 보존 | SSR-15 |
+
+기존 Phase 1~6의 완료 기능을 우회하거나 되돌리는 새 저장 경로를 만들지 않는다.
+이후 단계는 모두 `SessionScenarioNodeRuntimeState` 정본과 공통 CAS 저장 경로
+위에서 구현한다.
+
+## 14. 확장 구현 단계
+
+### Phase 8. 권위 맵과 공개 맵의 경계를 강제한다
+
+우선순위: P0
+
+변경 대상:
+
+- `be/src/modules/combat/combat.service.ts`
+- `be/src/modules/sessions/session-vtt-object-runtime.service.ts`
+- `be/src/modules/sessions/session-vtt-map-persistence.service.ts`
+- `be/src/modules/sessions/session-node-runtime-map.service.ts`
+- `be/src/modules/sessions/session-access-policy.service.ts`
+- 관련 DTO와 decoder
+
+작업:
+
+1. 서버 내부 전용 `getAuthoritativeVttMap(sessionId, tx?)` API를 추가한다.
+2. `getVttMapForUser()`는 controller/response 조립 경계에서만 사용한다.
+3. 전투 진입, 조우 축소, 전투 종료, AI action, 오브젝트 이벤트는 모두 권위
+   맵을 읽는다.
+4. 조우 축소는 공개 맵 전체를 다시 저장하지 않고 권위 맵에
+   `excludedTokenIds` 또는 토큰 삭제 delta만 적용한다.
+5. 권위 타입과 공개 타입을 명목상 구분하고 공개 타입은 저장 API 인자로 받을
+   수 없게 한다.
+6. 저장 전 현재 노드 원본에 실행 메타데이터가 있었는데 새 맵에서 일괄
+   소실되는 경우 `AUTHORITATIVE_MAP_METADATA_LOSS`로 거절한다.
+7. 사용자별 응답 마스킹은 commit된 권위 맵에서 매번 파생한다.
+
+보안 기준:
+
+- AI GM host의 브라우저 응답에 `events`, `revealChecks`, 숨김 ID를 추가하지
+  않는다.
+- 서버 내부 처리 권한과 사용자 조회 권한을 하나의 boolean으로 합치지 않는다.
+- 공개 DTO를 로그나 캐시에 저장했다가 권위 데이터로 재사용하지 않는다.
+
+완료 기준:
+
+- N04 조우가 5마리에서 2마리로 축소돼도 모든 오브젝트의 이벤트 메타데이터
+  checksum이 전투 전후 동일하다.
+- 플레이어 응답에는 기존과 동일하게 GM 전용 필드가 없다.
+- 코드 검색과 정적 테스트에서 내부 mutation 서비스의
+  `getVttMapForUser()` 호출이 0건이다.
+- 마스킹 맵을 저장하려는 테스트는 명시적 오류로 실패한다.
+
+### Phase 9. 근접 이벤트와 전투 mutation을 원자화한다
+
+우선순위: P0
+
+변경 대상:
+
+- `be/src/modules/sessions/session-vtt-object-runtime.service.ts`
+- `be/src/modules/sessions/session-node-runtime-map.service.ts`
+- `be/src/modules/sessions/session-reveal.service.ts`
+- `be/src/modules/combat/combat.service.ts`
+- `be/src/modules/sessions/sessions.service.ts`
+
+작업:
+
+1. 근접 평가기는 DB를 즉시 변경하지 않고 `mapPatch`, `revealRecords`,
+   `grants`, `events`로 구성된 effect를 반환한다.
+2. node runtime lock/CAS transaction 안에서 거리 재검증, 안개 patch,
+   `SessionReveal` 생성과 `once` 멱등 키 기록을 함께 commit한다.
+3. commit 이후에만 socket 이벤트와 turn log 파생 이벤트를 발행한다.
+4. 전투 이동은 이동 가능성 검사, 이동량 차감, 토큰 좌표 저장을 같은
+   transaction에 묶는다.
+5. 전투 종료는 transaction 안에서 최신 flags를 다시 읽고 필요한 key만
+   병합한다.
+6. CAS 실패 시 effect를 폐기하고 최신 상태에서 제한된 횟수만 재평가한다.
+
+실패 동작:
+
+- 맵 저장 실패: 공개 기록, 아이템 지급, 이동량 차감 모두 rollback한다.
+- 이미 처리한 `once` 이벤트: 성공한 no-op으로 반환한다.
+- 버전 충돌 후 조건 범위를 벗어남: 이벤트를 기록하지 않는다.
+- socket 발행 실패: DB 상태는 유지하고 outbox 또는 snapshot 재조회로
+  복구한다.
+
+완료 기준:
+
+- fault injection으로 맵 저장을 실패시켜도 `SessionReveal`만 남지 않는다.
+- 이동 저장 실패 시 이동량과 좌표가 모두 이전 값이다.
+- 동일 근접 이벤트를 동시에 두 번 요청해도 공개 기록은 정확히 1개다.
+- 성공한 transaction의 맵과 reveal이 하나의 state version으로 관찰된다.
+
+### Phase 10. 실시간 맵 이벤트 계약을 버전화한다
+
+우선순위: P1
+
+변경 대상:
+
+- backend socket event DTO 및 publisher
+- `fe/src/hooks/useSession.ts`
+- 프론트 세션 snapshot/map reducer
+- shared DTO와 decoder
+
+계약:
+
+```ts
+type VttMapUpdatedEvent = {
+  sessionId: string;
+  scenarioNodeId: string;
+  stateVersion: number;
+  runtimeVersion: number;
+  map: PublicVttMap;
+};
+```
+
+작업:
+
+1. backend가 commit된 node/runtime version을 이벤트 envelope에 담는다.
+2. 프론트는 session과 node가 현재 값과 같고 version이 더 최신일 때만 적용한다.
+3. 같은 version은 멱등 no-op, 낮은 version은 폐기한다.
+4. version 공백을 발견하면 이벤트를 추정 적용하지 않고 snapshot 또는 GET으로
+   재동기화한다.
+5. 배포 중 구버전 이벤트는 decoder에서 구분하고 안전한 GET fallback을
+   수행한다.
+
+완료 기준:
+
+- A 노드의 늦은 socket 이벤트가 B 노드 화면을 변경하지 않는다.
+- 같은 노드의 version 12 뒤에 도착한 version 11이 화면을 되돌리지 않는다.
+- 재연결 후 최종 화면과 DB 권위 맵의 node/version이 일치한다.
+
+### Phase 11. 참가 캐릭터와 세션 종료 수명 주기를 정비한다
+
+우선순위: P1
+
+변경 대상:
+
+- `be/src/modules/sessions/session-start-policy.service.ts`
+- `be/src/modules/sessions/sessions.service.ts`
+- `be/prisma/schema.prisma`
+- 세션 종료/삭제 API와 관련 화면
+
+작업:
+
+1. AI GM 세션에서는 `HOST`도 player-controlled participant로 분류해 활성
+   `SessionCharacter`를 요구한다.
+2. Human GM host는 캐릭터 필수 대상에서 제외한다.
+3. 시작 시 participant-character 매핑과 초기 토큰 생성 결과를 함께 검증한다.
+4. 일반 종료는 상태만 `COMPLETED` 또는 `DISBANDED`로 바꾸고 런타임 기록을
+   보존한다.
+5. 영구 purge는 별도 명령, 명시적 확인, 권한 검사와 보존 기간을 요구한다.
+6. 기존 cascade FK는 기록 보존 모델에 맞춰 `Restrict` 또는 archive 정책으로
+   변경한다.
+7. 기존 종료 세션은 복구 가능성, 이미 삭제됨, 정상 보존으로 분류하는
+   dry-run 진단을 제공한다.
+
+완료 기준:
+
+- 캐릭터 없는 AI host는 세션을 시작할 수 없고 해결 가능한 오류를 받는다.
+- `마우가`처럼 정상 연결된 캐릭터는 오탐으로 거절되지 않는다.
+- 일반 세션 종료 후에도 노드 런타임, 전투, 턴 로그, 공개 기록을 조회할 수
+  있다.
+- 영구 purge 외의 API에서 `SessionScenario` cascade 삭제가 발생하지 않는다.
+
+### Phase 12. 숨겨진 근접 트리거 계약을 확정한다
+
+우선순위: P2
+
+제품 규칙을 다음 중 하나로 명시한 뒤 구현한다.
+
+- 공개 소스 방식: 보이는 오브젝트만 근접 이벤트를 발동한다.
+- 숨김 트리거 방식: 오브젝트 가시성과 무관하게 서버가 근접 이벤트를
+  평가하되, 발동 전까지 위치와 이벤트 정의를 플레이어에게 숨긴다.
+
+권장안은 숨김 트리거 방식이다. 맵 제작자가 숨겨진 통로와 함정을 구성할 수
+있고, 보안은 이미 서버 권위 평가와 공개 DTO 마스킹으로 유지할 수 있다.
+
+완료 기준:
+
+- 시나리오 편집기의 설명과 runtime 조건이 동일하다.
+- 숨긴 트리거가 선택된 경우 player payload에는 위치와 이벤트 정의가 없지만
+  서버에서는 정상 발동한다.
+- 공개 오브젝트 전용 설정을 선택하면 숨겨진 상태에서는 발동하지 않는다.
+
+## 15. 필수 회귀 시나리오
+
+### 15.1 실제 N04 재현 테스트
+
+fixture는 실제 데이터 구조를 익명화하여 고정한다.
+
+1. AI GM 세션에 host 캐릭터 1명을 참가시킨다.
+2. N04 원본 맵에 쥐 토큰 5개와 `REVEAL_FOG_ON_PROXIMITY` 이벤트를 둔다.
+3. 1인 조우를 시작하여 활성 쥐 토큰이 2개로 축소되는지 확인한다.
+4. 쥐 2마리를 처치하고 탐험으로 복귀한다.
+5. 플레이어 토큰을 오브젝트 2.5ft 위치로 이동한다.
+6. 5ft 조건이 한 번 발동하는지 확인한다.
+
+성공 기준:
+
+- 전투 전후 권위 맵의 object `events`와 `revealChecks`가 동일하다.
+- 제외된 몬스터 토큰 외의 필드는 의미상 동일하다.
+- 반경 500ft 안개가 제거된다. 현재 N04 fixture에서는 안개 수가 13에서
+  0으로 감소한다.
+- 근접 이벤트 reveal 기록이 정확히 1개 생성된다.
+- 재이동과 재접속으로 중복 reveal이 생기지 않는다.
+- 플레이어가 받은 모든 payload에는 숨김 이벤트 정의가 없다.
+
+### 15.2 경계 및 실패 회귀
+
+| 시나리오 | 성공 기준 |
+|---|---|
+| 공개 맵으로 전투 시작 | 저장 API가 공개 DTO의 권위 저장을 거부 |
+| 조우 축소 후 전투 종료 | 비전투 object metadata가 모두 보존 |
+| reveal 기록 직후 저장 실패 | reveal, fog, grant가 모두 rollback |
+| 이동량 차감 직후 저장 실패 | 이동량과 토큰 좌표가 모두 rollback |
+| 동시 근접 요청 2개 | reveal 1개, map version 1회 유효 증가 |
+| 오래된 socket map 수신 | 현재 node/runtime version 유지 |
+| AI host 캐릭터 없음 | 시작 차단, 구체적 오류 반환 |
+| 세션 일반 종료 | 모든 런타임 및 감사 기록 보존 |
+| 플레이어 맵 조회 | GM 전용 field 노출 0건 |
+
+## 16. 실행 순서와 검증 게이트
+
+### 16.1 구현 순서
+
+1. N04 실패 fixture와 권위 데이터 보존 테스트를 먼저 추가한다.
+2. Phase 8 권위/공개 맵 경계를 적용한다.
+3. 기존 전투·세션 단위 테스트와 N04 회귀를 통과시킨다.
+4. Phase 9 transaction 원자성을 적용하고 fault injection을 통과시킨다.
+5. Phase 10 실시간 버전 계약을 backend와 frontend에 additive하게 배포한다.
+6. Phase 11 보존 정책용 migration과 dry-run 진단을 적용한다.
+7. Phase 12 제품 계약을 확정한 뒤 숨김 트리거 테스트를 추가한다.
+8. 로컬 DB와 `localhost:5173`에서 실제 사용자 흐름을 검증한다.
+
+### 16.2 자동 검증
+
+기존 94개 테스트 통과만으로 완료하지 않는다. 최소한 다음 테스트를 새로
+포함한다.
+
+- AI GM + player-redaction + encounter scaling 통합 테스트
+- authoritative map metadata preservation 계약 테스트
+- proximity reveal transaction fault-injection 테스트
+- combat movement transaction fault-injection 테스트
+- stale WebSocket node/version 프론트 테스트
+- AI host character start-policy 테스트
+- session end retention DB 통합 테스트
+
+품질 게이트:
+
+- shared types, backend, frontend build 통과
+- 관련 unit/integration 테스트 전부 통과
+- 로컬 DB migration dry-run/apply/re-run 통과
+- N04 E2E 재현 통과
+- 플레이어 payload 보안 snapshot 변경 없음
+- 전체 저장 경로에서 public DTO → authoritative persistence 호출 0건
+
+### 16.3 수동 검증
+
+로컬 `http://localhost:5173`에서 다음 순서로 확인한다.
+
+1. `마우가`와 동등한 실제 캐릭터로 AI GM 세션을 시작한다.
+2. N02와 N03을 거쳐 N04에 진입한다.
+3. 쥐 전투를 완료한다.
+4. 숨겨진 길의 발동 거리 안으로 이동한다.
+5. 안개 해제, 이벤트 로그, 맵 표시와 재접속 후 상태를 확인한다.
+6. 세션을 일반 종료하고 기록을 다시 조회한다.
+
+수동 검증에서도 브라우저 network payload에 GM 전용 이벤트/숨김 ID가 포함되지
+않는지 함께 확인한다.
+
+## 17. 관찰 지표와 최종 완료 정의
+
+추가 지표:
+
+- `vtt_authority_metadata_loss_rejected_total`
+- `vtt_public_map_persistence_rejected_total`
+- `vtt_proximity_event_committed_total`
+- `vtt_proximity_event_rolled_back_total`
+- `vtt_socket_stale_map_dropped_total`
+- `session_start_character_integrity_failed_total`
+- `session_end_runtime_retained_total`
+- `session_permanent_purge_total`
+
+최종 완료 조건:
+
+- 실제 N04 회귀에서 전투 축소 후에도 근접 안개 해제가 정상 작동한다.
+- 권위 맵의 GM 전용 실행 메타데이터가 모든 전투/이동/전환 경로에서 보존된다.
+- 사용자 응답에는 GM 전용 필드가 노출되지 않는다.
+- 근접 공개, 안개 변경, 지급과 이동 비용이 실패 시 부분 commit되지 않는다.
+- 오래된 실시간 이벤트가 현재 노드 맵을 덮지 않는다.
+- AI GM 세션의 host-character 무결성이 시작 전에 보장된다.
+- 정상 세션 종료가 조사와 재현에 필요한 런타임 기록을 삭제하지 않는다.
+- 새 회귀 테스트, 기존 테스트, 빌드, 로컬 DB 검증과 로컬 E2E가 모두
+  통과한다.
+
+이 확장 계획의 P0 완료 전에는 노드별 정본 저장이 도입됐다는 사실만으로
+문제를 해결했다고 판단하지 않는다. 권위 데이터가 공개 마스킹 경계를
+역방향으로 통과하지 않는 것이 이번 장애의 핵심 해결 기준이다.
+
+## 18. 2026-08-01 실행 및 검증 결과
+
+### 18.1 자동 검증
+
+- backend 전체 테스트: 139 suites, 1,223 tests 통과
+- frontend 테스트: 8 files, 20 tests 통과
+- shared-types, backend, frontend build 통과
+- 권위 맵 저장 경계 테스트에서 공개 DTO, 직렬화된 공개 DTO, 메타데이터가
+  빠진 맵, brand가 없는 맵의 저장을 모두 거부함
+- 근접 이벤트 저장 실패 fault injection에서 map, reveal, publish가 부분
+  commit되지 않음을 확인함
+- 동일 state version의 동시 근접 요청 2개 중 1개만 commit되고 reveal과
+  publish가 각각 1회만 실행됨을 확인함
+- 전투 이동 저장 실패 fault injection에서 이동량과 토큰 좌표가 함께
+  rollback됨을 확인함
+- stale WebSocket node/state/runtime version 이벤트가 현재 맵을 덮지 못함을
+  backend와 frontend 테스트로 확인함
+- AI GM host의 ACTIVE 캐릭터와 초기 플레이어 토큰이 없으면 시작이
+  차단되고, DEAD/LEFT 캐릭터도 거부됨을 확인함
+
+### 18.2 로컬 DB 검증
+
+- Prisma migration 11개 적용 상태에서 pending migration 0건
+- runtime backfill dry-run/apply/re-run 결과 신규 적용 0건, invalid source와
+  node mismatch 0건
+- PLAYING 세션 기준 누락 runtime 0건, node mismatch 0건, orphan session 0건
+- 일반 종료한 검증 세션에서 N01~N04 runtime row 4개, GameState, 전투 기록,
+  reveal 기록이 삭제되지 않음을 확인함
+
+### 18.3 localhost:5173 N04 E2E
+
+로컬 disposable 캐릭터 `N04 Regression Hero`와 AI GM 세션
+`N04 Runtime Integrity E2E`로 검증했다.
+
+1. N01에서 시작하여 N02, N03을 거쳐 N04로 이동했다.
+2. N03에서 `이어지는 수로` 단서를 DC 8 판정으로 공개했다.
+3. N04 원본 쥐 토큰 5개 중 3개가 제외 상태로 전환되고 활성 전투 참가자는
+   정확히 2개가 됐다.
+4. 활성 쥐 2마리를 실제 전투 UI로 처치한 뒤 EXPLORATION으로 복귀했다.
+5. 플레이어 토큰을 `(256, 384)`로 이동했다. 64px=5ft 기준 오브젝트와
+   32px, 즉 2.5ft 거리다.
+6. 안개가 13개에서 0개로 줄고 `vtt_object_proximity` event reveal이
+   정확히 1개 생성됐다.
+7. 위치를 벗어났다 다시 진입하고 페이지를 새로고침해도 event reveal은
+   1개로 유지됐다.
+8. 권위 맵의 이벤트 정의는 유지됐고 AI host 플레이어 화면에는 이벤트 ID,
+   trigger/effect, 숨김 ID가 표시되지 않았다.
+9. `진행 저장 후 닫기`로 일반 종료한 뒤에도 N04 runtime version 14,
+   플레이어 좌표 `(256, 384)`, fog 0개, event reveal 1개가 보존됐다.
+
+따라서 공개 맵의 권위 저장, 부분 commit, 오래된 socket 덮어쓰기, 일반 종료
+시 런타임 삭제는 검증 범위에서 모두 0건이다.
