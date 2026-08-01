@@ -3227,6 +3227,68 @@ describe("SessionsService legacy VTT map updates", () => {
     ]);
   });
 
+  it("keeps the authoritative map unredacted for server runtime rules", async () => {
+    const service = createSessionsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const authoritativeMap = {
+      id: "map-1",
+      scenarioNodeId: "node-exploration",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 640,
+      tokens: [],
+      fogRects: [],
+      objectCells: [
+        {
+          id: "secret-path",
+          x: 256,
+          y: 320,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          events: [
+            {
+              id: "reveal-fog",
+              type: "REVEAL_FOG_ON_PROXIMITY",
+              trigger: { distanceFeet: 5, once: true },
+              effect: { revealRadiusFeet: 500 },
+            },
+          ],
+        },
+      ],
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+
+    jest.spyOn(service, "getSessionEntityOrThrow").mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "AI",
+      gmUserId: null,
+    } as never);
+    jest.spyOn(service, "getGameStateEntityOrThrow").mockResolvedValue({
+      state: {
+        currentNodeId: "node-exploration",
+        flagsJson: "{}",
+      },
+      sessionScenario: { id: "session-scenario-1" },
+    } as never);
+    jest.spyOn(service, "getVttMapBaseline").mockResolvedValue(authoritativeMap as never);
+    const ensureMembership = jest
+      .spyOn(service, "ensureMembership")
+      .mockResolvedValue(undefined);
+
+    await expect(service.getAuthoritativeVttMap("session-1")).resolves.toBe(
+      authoritativeMap,
+    );
+    expect(ensureMembership).not.toHaveBeenCalled();
+  });
+
   it("ignores non-host whole-map writes and returns the canonical player map", async () => {
     const service = createSessionsService(
       {} as never,
@@ -3271,6 +3333,284 @@ describe("SessionsService legacy VTT map updates", () => {
         } as never,
       }),
     ).resolves.toBe(canonicalPlayerMap);
+  });
+
+  it("ignores AI host whole-map writes because its map is player-redacted", async () => {
+    const service = createSessionsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const canonicalPlayerMap = {
+      id: "canonical-map",
+      scenarioNodeId: "node-exploration",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 640,
+      tokens: [],
+      fogRects: [],
+      objectCells: [],
+      updatedAt: "2026-05-22T00:00:00.000Z",
+    };
+
+    jest.spyOn(service, "getSessionEntityOrThrow").mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "AI",
+      gmUserId: null,
+    } as never);
+    jest.spyOn(service, "ensureMembership").mockResolvedValue(undefined);
+    jest.spyOn(service, "getGameStateEntityOrThrow").mockResolvedValue({
+      state: {
+        currentNodeId: "node-exploration",
+        flagsJson: "{}",
+      },
+      sessionScenario: { id: "session-scenario-1" },
+    } as never);
+    jest.spyOn(service, "getVttMapForUser").mockResolvedValue(canonicalPlayerMap as never);
+    const finalize = jest.spyOn(service, "finalizeRuntimeVttMapChange");
+
+    await expect(
+      service.updateVttMap("host-user", "session-1", {
+        map: {
+          ...canonicalPlayerMap,
+          id: "redacted-ai-host-map",
+        } as never,
+      }),
+    ).resolves.toBe(canonicalPlayerMap);
+    expect(finalize).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionsService atomic VTT proximity persistence", () => {
+  it("does not record a once-only reveal when the runtime map save fails", async () => {
+    const tx = {};
+    const prisma = {
+      $transaction: jest.fn(async (callback) => callback(tx)),
+    };
+    const service = createSessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const map = {
+      id: "map-n04",
+      scenarioNodeId: "N04",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 1280,
+      height: 832,
+      tokens: [],
+      fogRects: [],
+      objectCells: [],
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+    const reveal = {
+      sessionScenarioId: "session-scenario-n04",
+      contentId: "event-reveal-fog",
+      contentKind: "event",
+      scope: "party",
+      revealedBy: "system",
+      reason: "vtt_object_proximity",
+      snapshot: {
+        id: "event-reveal-fog",
+        type: "REVEAL_FOG_ON_PROXIMITY",
+      },
+    };
+
+    jest.spyOn(service, "evaluateVttObjectProximityEvents").mockResolvedValue({
+      map: map as never,
+      reveals: [reveal as never],
+    });
+    jest.spyOn(service, "applyVttHazardTriggers").mockResolvedValue({
+      map: map as never,
+      triggered: false,
+    });
+    jest.spyOn(service, "applyVttHazardDetections").mockResolvedValue(
+      map as never,
+    );
+    jest
+      .spyOn(service, "saveRuntimeVttMapInTransaction")
+      .mockRejectedValue(new Error("injected map save failure"));
+    const recordSessionReveal = jest.fn();
+    (
+      service as unknown as {
+        recordSessionReveal: jest.Mock;
+      }
+    ).recordSessionReveal = recordSessionReveal;
+    const publish = jest.spyOn(service, "publishCommittedVttMapChange");
+
+    await expect(
+      service.finalizeRuntimeVttMapChange({
+        session: { id: "session-1", hostUserId: "host-1" },
+        sessionScenarioId: "session-scenario-n04",
+        currentNodeId: "N04",
+        flags: {},
+        map: map as never,
+        previousMap: map as never,
+        expectedStateVersion: 39,
+      }),
+    ).rejects.toThrow("injected map save failure");
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(recordSessionReveal).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("commits only one of two concurrent once-only proximity requests", async () => {
+    const tx = {};
+    const prisma = {
+      $transaction: jest.fn(async (callback) => callback(tx)),
+    };
+    const service = createSessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const map = {
+      id: "map-n04",
+      scenarioNodeId: "N04",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 1280,
+      height: 832,
+      tokens: [],
+      fogRects: [],
+      objectCells: [],
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+    const reveal = {
+      sessionScenarioId: "session-scenario-n04",
+      contentId: "event-reveal-fog",
+      contentKind: "event",
+      scope: "party",
+      revealedBy: "system",
+      reason: "vtt_object_proximity",
+      snapshot: {
+        id: "event-reveal-fog",
+        type: "REVEAL_FOG_ON_PROXIMITY",
+      },
+    };
+
+    jest.spyOn(service, "evaluateVttObjectProximityEvents").mockResolvedValue({
+      map: map as never,
+      reveals: [reveal as never],
+    });
+    jest.spyOn(service, "applyVttHazardTriggers").mockResolvedValue({
+      map: map as never,
+      triggered: false,
+    });
+    jest.spyOn(service, "applyVttHazardDetections").mockResolvedValue(
+      map as never,
+    );
+    jest
+      .spyOn(service, "saveRuntimeVttMapInTransaction")
+      .mockResolvedValueOnce({
+        map: map as never,
+        stateVersion: 40,
+        runtimeVersion: 2,
+      })
+      .mockRejectedValueOnce(new Error("MAP_STATE_VERSION_CONFLICT"));
+    const recordSessionReveal = jest.fn();
+    (
+      service as unknown as {
+        recordSessionReveal: jest.Mock;
+      }
+    ).recordSessionReveal = recordSessionReveal;
+    const publish = jest
+      .spyOn(service, "publishCommittedVttMapChange")
+      .mockReturnValue(map as never);
+    const request = () =>
+      service.finalizeRuntimeVttMapChange({
+        session: { id: "session-1", hostUserId: "host-1" },
+        sessionScenarioId: "session-scenario-n04",
+        currentNodeId: "N04",
+        flags: {},
+        map: map as never,
+        previousMap: map as never,
+        expectedStateVersion: 39,
+      });
+
+    const results = await Promise.allSettled([request(), request()]);
+
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(recordSessionReveal).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stateVersion: 40,
+        runtimeVersion: 2,
+      }),
+    );
+  });
+});
+
+describe("SessionsService disband retention", () => {
+  it("disbands a recruiting session without deleting runtime history", async () => {
+    const tx = {
+      sessionParticipant: {
+        findMany: jest.fn().mockResolvedValue([{ userId: "host-user" }]),
+        updateMany: jest.fn(),
+      },
+      sessionCharacter: {
+        deleteMany: jest.fn(),
+      },
+      sessionScenario: {
+        deleteMany: jest.fn(),
+      },
+      userActivePlay: {
+        deleteMany: jest.fn(),
+      },
+      sessionPlay: {
+        updateMany: jest.fn(),
+      },
+      session: {
+        update: jest.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(async (callback) => callback(tx)),
+    };
+    const realtimeEvents = {
+      evictUserFromSession: jest.fn(),
+    };
+    const service = createSessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    jest.spyOn(service, "getSessionEntityOrThrow").mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      status: "RECRUITING",
+    } as never);
+
+    await service.deleteSession("host-user", "session-1");
+
+    expect(tx.session.update).toHaveBeenCalledWith({
+      where: { id: "session-1" },
+      data: expect.objectContaining({
+        status: "DISBANDED",
+        activityStatus: "DISBANDED",
+      }),
+    });
+    expect(tx.sessionCharacter.deleteMany).not.toHaveBeenCalled();
+    expect(tx.sessionScenario.deleteMany).not.toHaveBeenCalled();
+    expect(realtimeEvents.evictUserFromSession).toHaveBeenCalledWith(
+      "session-1",
+      "host-user",
+    );
   });
 });
 

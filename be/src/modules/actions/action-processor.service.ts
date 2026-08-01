@@ -52,6 +52,7 @@ import {
   parseJsonRecordOrThrow,
 } from "../../common/utils/json-runtime";
 import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
+import { markAuthoritativeVttMap } from "../sessions/vtt-map-authority";
 
 type RuntimeTurnStateKey = {
   combatId: string;
@@ -675,6 +676,8 @@ export class ActionProcessorService {
       previousPlayerMap: VttMapStateDto;
       hostMap: VttMapStateDto;
       playerMap: VttMapStateDto;
+      stateVersion: number;
+      runtimeVersion: number;
     } | null;
   }> {
     let changed = false;
@@ -684,6 +687,8 @@ export class ActionProcessorService {
       previousPlayerMap: VttMapStateDto;
       hostMap: VttMapStateDto;
       playerMap: VttMapStateDto;
+      stateVersion: number;
+      runtimeVersion: number;
     } | null = null;
     const allEffects = resolution.runtimeEffects ?? [];
     let effects = allEffects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
@@ -1068,6 +1073,8 @@ export class ActionProcessorService {
     previousPlayerMap: VttMapStateDto;
     hostMap: VttMapStateDto;
     playerMap: VttMapStateDto;
+    stateVersion: number;
+    runtimeVersion: number;
   }> {
     const session = await this.sessionsService.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
@@ -1089,11 +1096,14 @@ export class ActionProcessorService {
       }
       const flags = parseJsonRecordOrThrow(currentState?.flagsJson, {}, "gameState.flagsJson");
       const currentVersion = currentState.version ?? state.version;
-      const normalizedMap = this.sessionsService.normalizeVttMap(
-        nextMap,
-        currentState?.currentNodeId ?? state.currentNodeId ?? null,
+      const normalizedMap = markAuthoritativeVttMap(
+        this.sessionsService.normalizeVttMap(
+          nextMap,
+          currentState?.currentNodeId ?? state.currentNodeId ?? null,
+        ),
       );
-      await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
+      const persisted =
+        await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
         sessionScenarioId: params.sessionScenarioId,
         map: normalizedMap,
         fallbackFlags: flags,
@@ -1113,15 +1123,19 @@ export class ActionProcessorService {
       }
 
       await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
-      return normalizedMap;
+      return { map: normalizedMap, persisted };
     };
-    const savedMap = client ? await mutate(client) : await this.prisma.$transaction(mutate);
+    const saved = client
+      ? await mutate(client)
+      : await this.prisma.$transaction(mutate);
     const mapUpdate = {
       hostUserId: session.hostUserId,
       previousHostMap: baselineMap,
       previousPlayerMap: this.sessionsService.redactVttMapForPlayer(baselineMap),
-      hostMap: savedMap,
-      playerMap: this.sessionsService.redactVttMapForPlayer(savedMap),
+      hostMap: saved.map,
+      playerMap: this.sessionsService.redactVttMapForPlayer(saved.map),
+      stateVersion: saved.persisted.stateVersion,
+      runtimeVersion: saved.persisted.runtimeVersion,
     };
     if (!client) {
       this.realtimeEvents.emitVttMapUpdated(params.sessionId, mapUpdate);

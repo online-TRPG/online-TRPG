@@ -21,6 +21,10 @@ import type { ConditionInstance } from "../rules/condition-runtime.service";
 import type { RuleCatalogEntry } from "../rules/rule-catalog.types";
 import type { SpellScalingResult } from "../rules/spell-scaling.service";
 import type { SessionsService } from "../sessions/sessions.service";
+import {
+  AuthoritativeVttMap,
+  markAuthoritativeVttMap,
+} from "../sessions/vtt-map-authority";
 import type { CombatService } from "./combat.service";
 import type {
   PendingScorchingRayContinuation,
@@ -116,7 +120,7 @@ export class CombatActionService {
     const spellDefinition = runtime.combatSpells.resolveCombatSpellDefinition(spellId);
     runtime.combatSpells.assertMvpSpellKnown(casterSessionCharacter, spellId);
 
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const casterToken = runtime.combatTargeting.findParticipantToken(map, caster);
     if (!casterToken) {
       throw conflict("COMBAT_409", "시전자 토큰을 찾을 수 없습니다.", {
@@ -292,7 +296,7 @@ export class CombatActionService {
     let message = "";
     let attackTotal: number | null = null;
     let damageTotal: number | null = null;
-    let responseMap: VttMapStateDto | null = null;
+    let responseMap: AuthoritativeVttMap | null = null;
     let spellScaling: SpellScalingResult | null = null;
     const diceResults: DiceRollResponseDto[] = [];
     const concentrationChecks: Array<CombatConcentrationCheckResult & { targetParticipantId: string }> = [];
@@ -2680,7 +2684,13 @@ export class CombatActionService {
       attackTotal,
       damageTotal,
       turnLogId: turnLog.turnLogId,
-      map: responseMap,
+      map: responseMap
+        ? runtime.sessionsService.projectVttMapForUser(
+            userId,
+            session,
+            responseMap,
+          )
+        : null,
       pendingReaction: readySpellCastTriggers.prompts[0] ?? null,
       pendingReactions: readySpellCastTriggers.prompts,
     };
@@ -3094,7 +3104,7 @@ export class CombatActionService {
 
     const attackerConditions = runtime.parseConditions(attacker.conditionsJson ?? "[]");
     const targetConditions = runtime.parseConditions(target.conditionsJson ?? "[]");
-    const vttMap = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const vttMap = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const targetHeavilyObscured = runtime.isParticipantInHeavilyObscuredTerrain(vttMap, target);
     const attackAdvantageState = runtime.resolveAttackAdvantageState({
       attackerConditions,
@@ -3449,7 +3459,7 @@ export class CombatActionService {
     }
 
     const weapon = await runtime.resolveEquippedWeaponProfile(attacker.sessionCharacterId);
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const attackerToken = attacker.tokenId
       ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
       : map.tokens.find((token) => token.sessionCharacterId === attacker.sessionCharacterId && token.hidden !== true);
@@ -3547,7 +3557,7 @@ export class CombatActionService {
       });
     }
 
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const attackerToken = runtime.combatTargeting.findParticipantToken(map, attacker);
     const targetToken = runtime.combatTargeting.findParticipantToken(map, target);
     if (!attackerToken || !targetToken) {
@@ -3653,7 +3663,7 @@ export class CombatActionService {
         reason: "OFFHAND_WEAPON_MUST_BE_DIFFERENT",
       });
     }
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const attackerToken = attacker.tokenId
       ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
       : map.tokens.find((token) => token.sessionCharacterId === attacker.sessionCharacterId && token.hidden !== true);
@@ -3978,7 +3988,7 @@ export class CombatActionService {
       !runtime.combatConditions.isCombatParticipantIncapacitated(actor)
     ) {
       await runtime.ensureActorCanAct(userId, session.id, combat, actor);
-      const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+      const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
       const actorToken = runtime.combatTargeting.findParticipantToken(map, actor);
       const monsterAction = runtime.combatMonsterActions.resolveMonsterActionForParticipant(actor, actorToken, dto.actionId);
       if (monsterAction.attackKind === "special") {

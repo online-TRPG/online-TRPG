@@ -27,6 +27,7 @@ import {
   parseJsonOrFallback,
 } from "../../common/utils/json-runtime";
 import type { SessionsService } from "./sessions.service";
+import { markAuthoritativeVttMap } from "./vtt-map-authority";
 
 type SessionRevealRuntime = ReturnType<SessionsService["createSessionRevealRuntime"]>;
 type HumanGmOverrideLogResult = Awaited<ReturnType<SessionRevealRuntime["createHumanGmOverrideTurnLog"]>>;
@@ -1055,7 +1056,7 @@ export class SessionRevealService {
       return { sourceObjectIds, mapChanged: false };
     }
 
-    const nextMap: VttMapStateDto = {
+    const nextMap = markAuthoritativeVttMap({
       ...map,
       objectCells: (map.objectCells ?? []).map((objectCell) =>
         objectIds.has(objectCell.id)
@@ -1072,7 +1073,7 @@ export class SessionRevealService {
           : objectCell,
       ),
       updatedAt: new Date().toISOString(),
-    };
+    });
     await runtime.saveRuntimeVttMapInTransaction(tx, {
       sessionScenarioId: params.sessionScenarioId,
       map: nextMap,

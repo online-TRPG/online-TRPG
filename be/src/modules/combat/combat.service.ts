@@ -71,6 +71,10 @@ import { SpellScalingService } from "../rules/spell-scaling.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { readCompletedCombatNodeIds } from "../sessions/session-completion-flag-store.service";
 import { SessionsService } from "../sessions/sessions.service";
+import {
+  AuthoritativeVttMap,
+  markAuthoritativeVttMap,
+} from "../sessions/vtt-map-authority";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { CombatActionService } from "./combat-action.service";
 import { CombatAutoMonsterTurnSchedulerService } from "./combat-auto-monster-turn-scheduler.service";
@@ -149,8 +153,8 @@ type ReadyActionMovementResult = {
 };
 
 type ForcedMovementEffectResult = {
-  savedMap: VttMapStateDto;
-  responseMap: VttMapStateDto;
+  savedMap: AuthoritativeVttMap;
+  responseMap: AuthoritativeVttMap;
   resolution: ForcedMovementResolution;
   terrainEffectApplication: CombatTerrainEffectApplication;
   triggeredReadyActions: ReadyActionMovementResult;
@@ -426,7 +430,7 @@ export class CombatService {
       }
     }
 
-    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
+    const map = await this.sessionsService.getAuthoritativeVttMap(session.id);
     const playerTokenIdBySessionCharacterId = new Map(
       (map.tokens ?? []).flatMap((token) =>
         typeof token.sessionCharacterId === "string" ? [[token.sessionCharacterId, token.id] as const] : [],
@@ -502,6 +506,9 @@ export class CombatService {
       });
     }
 
+    let committedMapVersion:
+      | { stateVersion: number; runtimeVersion: number }
+      | undefined;
     const combat = await this.prisma
       .$transaction(async (tx) => {
         await this.lockSessionRuntime(tx, session.id);
@@ -598,12 +605,13 @@ export class CombatService {
           completedCombatNodeIds,
         };
         if (scalingResult.excludedTokenIds.length) {
-          await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
-            sessionScenarioId: sessionScenario.id,
-            map: runtimeMap,
-            fallbackFlags: nextFlags,
-            expectedStateVersion: state.version,
-          });
+          committedMapVersion =
+            await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
+              sessionScenarioId: sessionScenario.id,
+              map: runtimeMap,
+              fallbackFlags: nextFlags,
+              expectedStateVersion: state.version,
+            });
           await tx.gameState.update({
             where: { sessionScenarioId: sessionScenario.id },
             data: { phase: PrismaGamePhase.COMBAT },
@@ -641,6 +649,12 @@ export class CombatService {
         previousHostMap: map,
         previousPlayerMap: this.sessionsService.redactVttMapForPlayer(map),
         hostMap: runtimeMap,
+        ...(committedMapVersion
+          ? {
+              stateVersion: committedMapVersion.stateVersion,
+              runtimeVersion: committedMapVersion.runtimeVersion,
+            }
+          : {}),
       });
     }
     this.logAutoMonsterTurn("startCombat created combat", {
@@ -805,7 +819,7 @@ export class CombatService {
     }
     await this.ensureActorCanAct(userId, session.id, combat, mover);
 
-    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
+    const map = await this.sessionsService.getAuthoritativeVttMap(session.id);
     const moverToken = this.combatTargeting.findParticipantToken(map, mover);
     if (!moverToken) {
       throw conflict("COMBAT_409", "이동할 토큰을 찾을 수 없습니다.", {
@@ -832,7 +846,7 @@ export class CombatService {
     await this.ensureHost(userId, session.id);
     const combat = await this.getActiveCombatEntity(session.id);
     const target = this.findCombatParticipantOrThrow(combat, dto.participantId);
-    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
+    const map = await this.sessionsService.getAuthoritativeVttMap(session.id);
     const movement = await this.resolveForcedMovementEffect({
       sessionId: session.id,
       combat,
@@ -898,7 +912,11 @@ export class CombatService {
     }
     return {
       combat: response,
-      map: responseMap,
+      map: this.sessionsService.projectVttMapForUser(
+        userId,
+        session,
+        responseMap,
+      ),
       message,
       pendingReaction: triggeredReadyActions.prompts[0] ?? null,
       pendingReactions: triggeredReadyActions.prompts,
@@ -910,7 +928,7 @@ export class CombatService {
     sessionId: string;
     combat: NonNullable<CombatWithParticipants>;
     target: CombatParticipantEntity;
-    map: VttMapStateDto;
+    map: AuthoritativeVttMap;
     mode: ReturnType<ForcedMovementService["normalizeMode"]>;
     origin: { x: number; y: number };
     distanceFt: number;
@@ -944,12 +962,15 @@ export class CombatService {
       x: this.clampNumber(resolution.destination.x * params.map.gridSize, 0, Math.max(0, params.map.width - targetToken.size)),
       y: this.clampNumber(resolution.destination.y * params.map.gridSize, 0, Math.max(0, params.map.height - targetToken.size)),
     };
-    const nextMap: VttMapStateDto = {
+    const nextMap: AuthoritativeVttMap = {
       ...params.map,
       tokens: params.map.tokens.map((token) => (token.id === targetToken.id ? { ...token, ...destination } : token)),
       updatedAt: new Date().toISOString(),
     };
-    const savedMap = await this.mapRuntimeService.saveSystemVttMap(params.sessionId, nextMap);
+    const savedMap = await this.mapRuntimeService.saveSystemVttMap(
+      params.sessionId,
+      markAuthoritativeVttMap(nextMap),
+    );
     const enteredTerrainEffectApplication = await this.applyEnteredTerrainEffects(
       params.combat,
       params.target,
@@ -970,10 +991,7 @@ export class CombatService {
     );
     const responseMap =
       terrainEffectApplication.damageRoll && !params.target.isAlive
-        ? await this.sessionsService.getVttMapForUser(
-            this.getGmRuntimeUserId(await this.sessionsService.getSessionEntityOrThrow(params.sessionId)),
-            params.sessionId,
-          )
+        ? await this.sessionsService.getAuthoritativeVttMap(params.sessionId)
         : savedMap;
     let triggeredReadyActions: ReadyActionMovementResult = { count: 0, prompts: [] };
     if (resolution.distanceMovedFt > 0) {
@@ -1033,7 +1051,11 @@ export class CombatService {
     if (movementDistanceFt <= 0) {
       return {
         combat: await this.mapCombat(params.combat),
-        map: params.map,
+        map: this.sessionsService.projectVttMapForUser(
+          params.userId,
+          params.session,
+          params.map,
+        ),
         message: "이동하지 않았습니다.",
         pendingReaction: null,
         movementDistanceFt: 0,
@@ -1089,7 +1111,11 @@ export class CombatService {
     if (opportunityAttack.prompt) {
       return {
         combat: await this.mapCombat(params.combat),
-        map: params.map,
+        map: this.sessionsService.projectVttMapForUser(
+          params.userId,
+          params.session,
+          params.map,
+        ),
         message: opportunityAttack.prompt.message,
         pendingReaction: opportunityAttack.prompt,
         pendingReactions: [opportunityAttack.prompt],
@@ -1103,10 +1129,15 @@ export class CombatService {
     if (!latestMover.isAlive) {
       const response = await this.completeCombatIfResolved(params.session.id, latestCombat);
       this.realtimeEvents.emitCombatUpdated(params.session.id, response);
-      const currentMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
+      const currentMap =
+        await this.sessionsService.getAuthoritativeVttMap(params.session.id);
       return {
         combat: response,
-        map: currentMap,
+        map: this.sessionsService.projectVttMapForUser(
+          params.userId,
+          params.session,
+          currentMap,
+        ),
         message:
           opportunityAttack.automaticMessages[opportunityAttack.automaticMessages.length - 1] ??
           `${params.mover.nameSnapshot}은(는) 기회공격으로 쓰러져 이동하지 못했습니다.`,
@@ -1140,10 +1171,15 @@ export class CombatService {
       const response = await this.completeCombatIfResolved(params.session.id, await this.getActiveCombatEntity(params.session.id));
       this.realtimeEvents.emitCombatUpdated(params.session.id, response);
       this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
-      const currentMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
+      const currentMap =
+        await this.sessionsService.getAuthoritativeVttMap(params.session.id);
       return {
         combat: response,
-        map: currentMap,
+        map: this.sessionsService.projectVttMapForUser(
+          params.userId,
+          params.session,
+          currentMap,
+        ),
         message: [
           `${params.mover.nameSnapshot} 이동: ${movementDistanceFt}ft`,
           this.combatTerrain.describeDamage(terrainEffectApplication),
@@ -1190,7 +1226,11 @@ export class CombatService {
       .join(" / ");
     return {
       combat: response,
-      map: savedMap,
+      map: this.sessionsService.projectVttMapForUser(
+        params.userId,
+        params.session,
+        savedMap,
+      ),
       message: resolvedMovementMessage,
       pendingReaction: triggeredReadyActions.prompts[0] ?? null,
       pendingReactions: triggeredReadyActions.prompts,
@@ -1257,7 +1297,7 @@ export class CombatService {
       savedMap = await this.commitCombatMove(session.id, latestCombat, latestMover, pending.map, pending.movementCostFt ?? pending.movementDistanceFt);
       message = `${message} 이동 완료: ${pending.movementDistanceFt}ft`;
     } else {
-      savedMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
+      savedMap = await this.sessionsService.getAuthoritativeVttMap(session.id);
       message = `${message} 이동 중단`;
     }
 
@@ -1278,7 +1318,16 @@ export class CombatService {
         await this.sessionsService.buildSnapshot(session.id),
       );
     }
-    return { combat: response, map: savedMap, message, pendingReaction: null };
+    return {
+      combat: response,
+      map: this.sessionsService.projectVttMapForUser(
+        userId,
+        session,
+        savedMap,
+      ),
+      message,
+      pendingReaction: null,
+    };
   }
 
   async declineReaction(userId: string, sessionId: string, dto: CombatReactionResponseDto): Promise<CombatMoveResultDto> {
@@ -1320,7 +1369,11 @@ export class CombatService {
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     return {
       combat: response,
-      map: savedMap,
+      map: this.sessionsService.projectVttMapForUser(
+        userId,
+        session,
+        savedMap,
+      ),
       message: "기회공격을 하지 않고 이동을 완료했습니다.",
       pendingReaction: null,
     };
@@ -1407,7 +1460,10 @@ export class CombatService {
       }
     }
 
-    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
+    const map = await this.getProjectedVttMap(
+      params.pending.continuation?.userId ?? params.session.hostUserId,
+      params.session,
+    );
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
     if (response.status !== CombatStatus.ACTIVE) {
       this.realtimeEvents.emitSessionSnapshot(
@@ -1756,9 +1812,7 @@ export class CombatService {
         await this.combatConditions.writeCombatConditionEntries(participant, filtered);
       }
     }
-    const session = await this.sessionsService.getSessionEntityOrThrow(combat.sessionId);
-    const map = await this.sessionsService.getVttMapForUser(
-      this.getGmRuntimeUserId(session),
+    const map = await this.sessionsService.getAuthoritativeVttMap(
       combat.sessionId,
     );
     const terrainCells = (map.terrainCells ?? []).filter((cell) => !linkedIds.has(cell.id));
@@ -2402,18 +2456,25 @@ export class CombatService {
       turnNo: combat.turnNo,
       sessionCharacterId: mover.sessionCharacterId,
     });
-    await this.prisma.combatTurnState.update({
-      where: {
-        combatId_roundNo_turnNo_combatParticipantId: {
-          combatId: combat.id,
-          roundNo: combat.roundNo,
-          turnNo: combat.turnNo,
-          combatParticipantId: mover.id,
-        },
+    return this.mapRuntimeService.saveSystemVttMap(
+      sessionId,
+      markAuthoritativeVttMap(map),
+      {
+      transactionEffect: async (tx) => {
+        await tx.combatTurnState.update({
+          where: {
+            combatId_roundNo_turnNo_combatParticipantId: {
+              combatId: combat.id,
+              roundNo: combat.roundNo,
+              turnNo: combat.turnNo,
+              combatParticipantId: mover.id,
+            },
+          },
+          data: { movementFtSpent: { increment: movementDistanceFt } },
+        });
       },
-      data: { movementFtSpent: { increment: movementDistanceFt } },
-    });
-    return this.mapRuntimeService.saveSystemVttMap(sessionId, map);
+      },
+    );
   }
 
   private async createOpportunityAttackPromptIfNeeded(params: {
@@ -2781,10 +2842,7 @@ export class CombatService {
       );
       return {
         combat: result.combat,
-        map: await this.sessionsService.getVttMapForUser(
-          this.getGmRuntimeUserId(session),
-          sessionId,
-        ),
+        map: await this.getProjectedVttMap(userId, session),
         message: `Counterspell을 사용하지 않았습니다. ${result.message}`,
         pendingReaction: result.pendingReaction ?? null,
         pendingReactions: result.pendingReactions ?? [],
@@ -2862,10 +2920,7 @@ export class CombatService {
     const response = await this.mapCombat(
       await this.getActiveCombatEntity(sessionId),
     );
-    const map = await this.sessionsService.getVttMapForUser(
-      this.getGmRuntimeUserId(session),
-      sessionId,
-    );
+    const map = await this.getProjectedVttMap(userId, session);
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(
@@ -2963,7 +3018,7 @@ export class CombatService {
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
-    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
+    const map = await this.sessionsService.getAuthoritativeVttMap(sessionId);
     if (pending.continuation && response.status === CombatStatus.ACTIVE) {
       const continuationResult =
         pending.continuation.type === "scorching_ray"
@@ -2983,13 +3038,18 @@ export class CombatService {
       const combinedPrompts = [...pendingReactions, ...continuationPrompts];
       return {
         ...continuationResult,
+        map: this.sessionsService.projectVttMapForUser(
+          userId,
+          session,
+          continuationResult.map,
+        ),
         pendingReaction: combinedPrompts[0] ?? null,
         pendingReactions: combinedPrompts,
       };
     }
     return {
       combat: response,
-      map,
+      map: this.sessionsService.projectVttMapForUser(userId, session, map),
       message,
       pendingReaction: pendingReactions[0] ?? null,
       pendingReactions,
@@ -3175,7 +3235,9 @@ export class CombatService {
     }
     return {
       combat: response,
-      map: await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id),
+      map: await this.sessionsService.getAuthoritativeVttMap(
+        params.session.id,
+      ),
       message: `${params.prefixMessage} / ${continuation.parentAction.label}: ${results.map((result) => result.message).join(" / ")}${
         this.combatReactionContinuations.getAutoEndTurnMessageSuffix({
           autoEndTurn: continuation.autoEndTurn !== false,
@@ -3197,7 +3259,7 @@ export class CombatService {
     const actor = this.findCombatParticipantOrThrow(combat, triggered.pending.actorParticipantId);
     if (!actor.isAlive || this.combatConditions.isCombatParticipantIncapacitated(actor)) {
       const response = await this.mapCombat(combat);
-      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
+      const map = await this.getProjectedVttMap(userId, session);
       const message = `${actor.nameSnapshot}은(는) 행동할 수 없어 준비행동이 취소되었습니다.`;
       this.realtimeEvents.emitCombatUpdated(sessionId, response);
       this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
@@ -3210,7 +3272,7 @@ export class CombatService {
     }
     if (!accepted) {
       const response = await this.mapCombat(combat);
-      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
+      const map = await this.getProjectedVttMap(userId, session);
       this.realtimeEvents.emitCombatUpdated(sessionId, response);
       this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
       return {
@@ -3246,7 +3308,7 @@ export class CombatService {
           reactionUserId: userId,
         },
       );
-      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
+      const map = await this.getProjectedVttMap(userId, session);
       return {
         combat: attackResult.combat,
         map,
@@ -3304,7 +3366,7 @@ export class CombatService {
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
-    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
+    const map = await this.getProjectedVttMap(userId, session);
     return { combat: response, map, message, pendingReaction: null };
   }
 
@@ -3326,7 +3388,9 @@ export class CombatService {
       });
     }
 
-    const map = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+    const map = await this.sessionsService.getAuthoritativeVttMap(
+      params.session.id,
+    );
     const actorToken = this.combatTargeting.findParticipantToken(map, params.actor);
     if (!actorToken) {
       throw conflict("COMBAT_409", "준비 이동 토큰을 찾을 수 없습니다.", {
@@ -3414,7 +3478,9 @@ export class CombatService {
       });
     }
 
-    const map = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+    const map = await this.sessionsService.getAuthoritativeVttMap(
+      params.session.id,
+    );
     const casterToken = this.combatTargeting.findParticipantToken(map, params.actor);
     if (!casterToken) {
       throw conflict("COMBAT_409", "준비 주문 시전자 토큰을 찾을 수 없습니다.", {
@@ -3445,10 +3511,16 @@ export class CombatService {
         reactionUserId: params.userId,
       },
     );
-    const latestMap = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+    const latestMap = await this.sessionsService.getAuthoritativeVttMap(
+      params.session.id,
+    );
     return {
       combat: attackResult.combat,
-      map: latestMap,
+      map: this.sessionsService.projectVttMapForUser(
+        params.userId,
+        params.session,
+        latestMap,
+      ),
       message: attackResult.message,
       pendingReaction: attackResult.pendingReaction ?? null,
     };
@@ -3474,7 +3546,9 @@ export class CombatService {
       });
     }
 
-    const map = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+    const map = await this.sessionsService.getAuthoritativeVttMap(
+      params.session.id,
+    );
     const casterToken = this.combatTargeting.findParticipantToken(map, params.actor);
     if (!casterToken) {
       throw conflict("COMBAT_409", "준비 주문 시전자 토큰을 찾을 수 없습니다.", {
@@ -3546,7 +3620,11 @@ export class CombatService {
 
     return {
       combat: response,
-      map,
+      map: this.sessionsService.projectVttMapForUser(
+        params.userId,
+        params.session,
+        map,
+      ),
       message,
       pendingReaction: null,
     };
@@ -3643,6 +3721,19 @@ export class CombatService {
 
   private getGmRuntimeUserId(session: { hostUserId: string; gmMode?: PrismaGmMode; gmUserId?: string | null }): string {
     return session.hostUserId;
+  }
+
+  private async getProjectedVttMap(
+    userId: string,
+    session: {
+      id: string;
+      hostUserId: string;
+      gmMode: PrismaGmMode;
+      gmUserId?: string | null;
+    },
+  ): Promise<VttMapStateDto> {
+    const map = await this.sessionsService.getAuthoritativeVttMap(session.id);
+    return this.sessionsService.projectVttMapForUser(userId, session, map);
   }
 
   private async lockSessionRuntime(tx: Pick<Prisma.TransactionClient, "$executeRaw">, sessionId: string): Promise<void> {

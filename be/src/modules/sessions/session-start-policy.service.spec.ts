@@ -1,6 +1,7 @@
 import {
   GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import { ConflictException } from "@nestjs/common";
@@ -42,6 +43,68 @@ describe("SessionStartPolicyService", () => {
     ).toThrow("SESSION_CHARACTER_ASSIGNMENT_REQUIRED");
   });
 
+  it("rejects an AI host without a session character", () => {
+    expect(() =>
+      service.ensureCanStart({
+        session: createSession() as never,
+        participants: [
+          {
+            userId: "host-user",
+            role: PrismaParticipantRole.HOST,
+            isReady: true,
+            sessionCharacter: null,
+          },
+        ],
+        scenario,
+      }),
+    ).toThrow("SESSION_CHARACTER_ASSIGNMENT_REQUIRED");
+  });
+
+  it("allows an AI host after assigning its session character", () => {
+    expect(() =>
+      service.ensureCanStart({
+        session: createSession() as never,
+        participants: [
+          {
+            userId: "host-user",
+            role: PrismaParticipantRole.HOST,
+            isReady: true,
+            sessionCharacter: {
+              id: "session-character-host",
+              status: PrismaSessionCharacterStatus.ACTIVE,
+              character: { name: "마우가", level: 1 },
+            },
+          },
+        ],
+        scenario,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    PrismaSessionCharacterStatus.DEAD,
+    PrismaSessionCharacterStatus.LEFT,
+  ])("rejects an AI host whose session character is %s", (status) => {
+    expect(() =>
+      service.ensureCanStart({
+        session: createSession() as never,
+        participants: [
+          {
+            userId: "host-user",
+            role: PrismaParticipantRole.HOST,
+            isReady: true,
+            sessionCharacter: {
+              id: "session-character-host",
+              status,
+              character: { name: "Retired Hero", level: 3 },
+            },
+          },
+        ],
+        scenario,
+      }),
+    ).toThrow("SESSION_CHARACTER_ASSIGNMENT_REQUIRED");
+  });
+
   it("leaves participant readiness to the host after character selection", () => {
     expect(() =>
       service.ensureCanStart({
@@ -52,6 +115,8 @@ describe("SessionStartPolicyService", () => {
             role: PrismaParticipantRole.PLAYER,
             isReady: false,
             sessionCharacter: {
+              id: "session-character-player",
+              status: PrismaSessionCharacterStatus.ACTIVE,
               character: { name: "Ari", level: 3 },
             },
           },
@@ -67,6 +132,61 @@ describe("SessionStartPolicyService", () => {
         session: createSession({ gmMode: PrismaGmMode.HUMAN, gmUserId: "gm-user" }) as never,
         participants: [],
         scenario,
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects start when an active AI host character has no visible player token", () => {
+    expect(() =>
+      service.ensurePlayerTokensCreated({
+        session: createSession() as never,
+        participants: [
+          {
+            userId: "host-user",
+            role: PrismaParticipantRole.HOST,
+            isReady: true,
+            sessionCharacter: {
+              id: "session-character-host",
+              status: PrismaSessionCharacterStatus.ACTIVE,
+              character: { name: "Ranger A", level: 1 },
+            },
+          },
+        ],
+        tokens: [],
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        response: expect.objectContaining({
+          code: "SESSION_CHARACTER_TOKEN_REQUIRED",
+          missingSessionCharacterIds: ["session-character-host"],
+        }),
+      }),
+    );
+  });
+
+  it("accepts start after every active player-controlled character gets a token", () => {
+    expect(() =>
+      service.ensurePlayerTokensCreated({
+        session: createSession() as never,
+        participants: [
+          {
+            userId: "host-user",
+            role: PrismaParticipantRole.HOST,
+            isReady: true,
+            sessionCharacter: {
+              id: "session-character-host",
+              status: PrismaSessionCharacterStatus.ACTIVE,
+              character: { name: "Ranger A", level: 1 },
+            },
+          },
+        ],
+        tokens: [
+          {
+            sessionCharacterId: "session-character-host",
+            hidden: false,
+            isHostile: false,
+          },
+        ],
       }),
     ).not.toThrow();
   });

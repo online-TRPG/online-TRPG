@@ -157,6 +157,10 @@ describe("CombatService lifecycle", () => {
         state: { flagsJson: "{}", currentNodeId: null },
       }),
       getVttMapForUser: jest.fn().mockResolvedValue({ tokens: [] }),
+      getAuthoritativeVttMap: jest.fn(),
+      projectVttMapForUser: jest.fn(
+        (_userId, _session, map) => map,
+      ),
       saveSystemVttMap: jest.fn(),
       saveRuntimeVttMapInTransaction: jest.fn(),
       publishCommittedVttMapChange: jest.fn(),
@@ -167,6 +171,9 @@ describe("CombatService lifecycle", () => {
       completeActiveCombatState: jest.fn(),
       completeSessionAfterPartyDefeat: jest.fn(),
     };
+    sessionsService.getAuthoritativeVttMap.mockImplementation((sessionId: string) =>
+      sessionsService.getVttMapForUser("__internal__", sessionId),
+    );
     const diceService = {
       roll: jest.fn(() => ({
         expression: "1d20",
@@ -469,7 +476,7 @@ describe("CombatService lifecycle", () => {
     });
   });
 
-  it("persists encounter scaling through the node runtime map before publishing", async () => {
+  it("preserves authoritative object events while persisting encounter scaling", async () => {
     const {
       service,
       prisma,
@@ -556,6 +563,26 @@ describe("CombatService lifecycle", () => {
         },
       ],
       fogRects: [],
+      objectCells: [
+        {
+          id: "object-secret-path",
+          name: "숨겨진 길",
+          x: 256,
+          y: 320,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          events: [
+            {
+              id: "event-reveal-fog",
+              name: "숨겨진 공간 발견",
+              type: "REVEAL_FOG_ON_PROXIMITY",
+              trigger: { distanceFeet: 5, once: true },
+              effect: { revealRadiusFeet: 500 },
+            },
+          ],
+        },
+      ],
       updatedAt: "2026-07-31T00:00:00.000Z",
     };
 
@@ -573,7 +600,11 @@ describe("CombatService lifecycle", () => {
         flagsJson: "{}",
       },
     });
-    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      ...map,
+      objectCells: map.objectCells.map(({ events: _events, ...objectCell }) => objectCell),
+    });
+    sessionsService.getAuthoritativeVttMap.mockResolvedValue(map);
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(null);
     prisma.sessionCharacter.findMany.mockResolvedValue([
@@ -597,6 +628,11 @@ describe("CombatService lifecycle", () => {
       excludedTokenIds: ["monster-2"],
       applied: true,
     });
+    sessionsService.saveRuntimeVttMapInTransaction.mockResolvedValue({
+      map,
+      stateVersion: 4,
+      runtimeVersion: 2,
+    });
     prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     await service.startCombat("user-1", "session-1", {
@@ -614,9 +650,21 @@ describe("CombatService lifecycle", () => {
           tokens: expect.arrayContaining([
             expect.objectContaining({ id: "monster-2", hidden: true }),
           ]),
+          objectCells: [
+            expect.objectContaining({
+              id: "object-secret-path",
+              events: [
+                expect.objectContaining({
+                  id: "event-reveal-fog",
+                  type: "REVEAL_FOG_ON_PROXIMITY",
+                }),
+              ],
+            }),
+          ],
         }),
       }),
     );
+    expect(sessionsService.getAuthoritativeVttMap).toHaveBeenCalledWith("session-1");
     expect(tx.gameState.update).toHaveBeenCalledWith({
       where: { sessionScenarioId: "session-scenario-1" },
       data: { phase: "COMBAT" },
@@ -631,6 +679,8 @@ describe("CombatService lifecycle", () => {
             expect.objectContaining({ id: "monster-2", hidden: true }),
           ]),
         }),
+        stateVersion: 4,
+        runtimeVersion: 2,
       }),
     );
   });
@@ -1233,7 +1283,10 @@ describe("CombatService lifecycle", () => {
       hostUserId: "host-user",
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -1361,7 +1414,10 @@ describe("CombatService lifecycle", () => {
       },
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -1463,7 +1519,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.HUMAN,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findUnique.mockResolvedValue({
@@ -1534,7 +1593,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findUnique.mockResolvedValue({
       id: "session-character-1",
@@ -1555,6 +1617,73 @@ describe("CombatService lifecycle", () => {
         data: { movementFtSpent: { increment: 10 } },
       }),
     );
+  });
+
+  it("does not spend combat movement when the runtime map save fails", async () => {
+    const { service, prisma, sessionsService, actionEconomy } = createService();
+    const mover = createParticipant({
+      id: "participant-mover",
+      sessionCharacterId: "session-character-1",
+      tokenId: "token-mover",
+      nameSnapshot: "Scout",
+      speedFt: 30,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: mover.id,
+      participants: [mover],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 300,
+      height: 300,
+      tokens: [
+        {
+          id: "token-mover",
+          sessionCharacterId: "session-character-1",
+          x: 0,
+          y: 0,
+          size: 50,
+          hidden: false,
+        },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.AI,
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.saveSystemVttMap.mockRejectedValue(
+      new Error("injected runtime map failure"),
+    );
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      userId: "user-1",
+      character: { ownerUserId: "user-1", speed: 30 },
+    });
+    actionEconomy.getOrCreateTurnState.mockResolvedValue({
+      movementFtSpent: 0,
+    });
+
+    await expect(
+      service.moveParticipant("user-1", "session-1", {
+        participantId: mover.id,
+        to: { x: 50, y: 0 },
+      }),
+    ).rejects.toThrow("injected runtime map failure");
+
+    expect(prisma.combatTurnState.update).not.toHaveBeenCalled();
   });
 
   it("charges extra movement when terrain effect is stored in the terrainEffectId field", async () => {
@@ -1604,7 +1733,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findUnique.mockResolvedValue({
       id: "session-character-1",
@@ -1665,7 +1797,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -1785,7 +1920,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -1898,7 +2036,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -2000,7 +2141,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -2109,7 +2253,10 @@ describe("CombatService lifecycle", () => {
       hostUserId: "host-user",
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);
@@ -3231,7 +3378,10 @@ describe("CombatService lifecycle", () => {
       },
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findMany.mockResolvedValue([]);
@@ -3255,6 +3405,9 @@ describe("CombatService lifecycle", () => {
         tokens: expect.arrayContaining([
           expect.objectContaining({ id: "token-1", x: 100, y: 0 }),
         ]),
+      }),
+      expect.objectContaining({
+        transactionEffect: expect.any(Function),
       }),
     );
     expect(prisma.combatTurnState.update).toHaveBeenCalledWith(
@@ -5214,7 +5367,10 @@ describe("CombatService lifecycle", () => {
       },
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findUnique.mockResolvedValue({
@@ -5316,7 +5472,10 @@ describe("CombatService lifecycle", () => {
       gmMode: PrismaGmMode.AI,
     });
     sessionsService.getVttMapForUser.mockResolvedValue(map);
-    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap, options = {}) => {
+      await options.transactionEffect?.(prisma);
+      return nextMap;
+    });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
     prisma.combat.findFirst.mockResolvedValue(combat);

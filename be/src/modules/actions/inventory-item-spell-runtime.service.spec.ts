@@ -43,7 +43,7 @@ describe("InventoryItemSpellRuntimeService", () => {
     },
   };
   const sessionsService = {
-    getVttMapForUser: jest.fn(() => map),
+    getAuthoritativeVttMap: jest.fn(() => map),
   };
   const mapRuntimeService = {
     saveSystemVttMap: jest.fn(),

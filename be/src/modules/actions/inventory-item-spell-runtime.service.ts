@@ -7,6 +7,7 @@ import { DiceService } from "../rules/dice.service";
 import { ExecutableItemDefinition } from "../rules/p3-item-manifest";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { AuthoritativeVttMap } from "../sessions/vtt-map-authority";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import {
   buildFireballItemSpellLogModel,
@@ -70,8 +71,7 @@ export class InventoryItemSpellRuntimeService {
         reason: "ITEM_ACTOR_PARTICIPANT_NOT_FOUND",
       });
     }
-    const map = await this.sessionsService.getVttMapForUser(
-      params.userId,
+    const map = await this.sessionsService.getAuthoritativeVttMap(
       params.sessionId,
     );
     const actorToken = map.tokens.find(
@@ -333,7 +333,7 @@ export class InventoryItemSpellRuntimeService {
 
   private async deployPointTerrainEffect(params: {
     sessionId: string;
-    map: Awaited<ReturnType<SessionsService["getVttMapForUser"]>>;
+    map: AuthoritativeVttMap;
     point: { x: number; y: number };
     itemEntryId: string;
     itemName: string;

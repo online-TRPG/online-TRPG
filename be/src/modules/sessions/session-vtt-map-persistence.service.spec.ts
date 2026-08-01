@@ -70,12 +70,16 @@ describe("SessionVttMapPersistenceService", () => {
       hostUserId: "host-1",
       hostMap: hostMap as never,
       playerMap: playerMap as never,
+      stateVersion: 12,
+      runtimeVersion: 4,
     });
 
     expect(realtimeEvents.emitVttMapUpdated).toHaveBeenCalledWith("session-1", {
       hostUserId: "host-1",
       hostMap,
       playerMap,
+      stateVersion: 12,
+      runtimeVersion: 4,
     });
   });
 

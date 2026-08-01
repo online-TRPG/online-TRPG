@@ -183,6 +183,12 @@ import {
   type SessionVttObjectRuntime,
 } from "./session-vtt-object-runtime.service";
 import { SessionVttPlayerMapUpdateService } from "./session-vtt-player-map-update.service";
+import {
+  AuthoritativeVttMap,
+  markAuthoritativeVttMap,
+  markPublicVttMap,
+  PublicVttMap,
+} from "./vtt-map-authority";
 
 export type SessionPageParams = {
   query?: string;
@@ -699,10 +705,13 @@ export class SessionsService {
         },
       });
 
-      await tx.sessionCharacter.deleteMany({
+      await tx.sessionCharacter.updateMany({
         where: {
           sessionId: resolvedSessionId,
           userId,
+        },
+        data: {
+          status: PrismaSessionCharacterStatus.LEFT,
         },
       });
       await tx.userActivePlay.deleteMany({ where: { userId, sessionId: resolvedSessionId } });
@@ -881,7 +890,7 @@ export class SessionsService {
     return mapGameState(state, resolvedSessionId);
   }
 
-  async getVttMapForUser(userId: string, sessionId: string): Promise<VttMapStateDto> {
+  async getVttMapForUser(userId: string, sessionId: string): Promise<PublicVttMap> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
@@ -891,8 +900,34 @@ export class SessionsService {
       sessionScenario.id,
       state,
     );
-    const canSeeGmMap = this.canSeeGmOnlyRuntimeData(userId, session);
-    return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
+    return this.projectVttMapForUser(userId, session, map);
+  }
+
+  /**
+   * Returns the committed server-authoritative map for runtime rules.
+   *
+   * This method must never be used to build a user response directly. User-facing
+   * callers must go through getVttMapForUser so GM-only triggers and hidden map
+   * metadata remain behind the access-policy boundary.
+   */
+  async getAuthoritativeVttMap(sessionId: string): Promise<AuthoritativeVttMap> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
+    return this.getVttMapBaseline(session.id, sessionScenario.id, state);
+  }
+
+  projectVttMapForUser(
+    userId: string,
+    session: {
+      hostUserId: string;
+      gmMode: PrismaGmMode;
+      gmUserId?: string | null;
+    },
+    map: VttMapStateDto,
+  ): PublicVttMap {
+    return this.canSeeGmOnlyRuntimeData(userId, session)
+      ? markPublicVttMap({ ...map })
+      : this.redactVttMapForPlayer(map);
   }
 
   async updateVttMap(userId: string, sessionId: string, dto: UpdateVttMapDto): Promise<VttMapStateDto> {
@@ -900,14 +935,16 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
-    if (session.hostUserId !== userId) {
-      this.logger.debug(`[VTT_LEGACY_PLAYER_MAP_UPDATE_IGNORED] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"}`);
+    if (!this.canSeeGmOnlyRuntimeData(userId, session)) {
+      this.logger.debug(`[VTT_LEGACY_PUBLIC_MAP_UPDATE_IGNORED] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"}`);
       return this.getVttMapForUser(userId, resolvedSessionId);
     }
 
     const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
-    const requestedMap = this.normalizeInputVttMap(dto.map, state.currentNodeId ?? null, "vttMap");
+    const requestedMap = markAuthoritativeVttMap(
+      this.normalizeInputVttMap(dto.map, state.currentNodeId ?? null, "vttMap"),
+    );
     const hasActiveCombat = Boolean(
       await this.prisma.combat.findFirst({
         where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
@@ -975,7 +1012,7 @@ export class SessionsService {
     };
     this.ensureTokenPathIsReachable(previousMap, token, requestedToken);
 
-    const changedMap: VttMapStateDto = {
+    const changedMap: AuthoritativeVttMap = {
       ...previousMap,
       tokens: previousMap.tokens.map((candidate) => (candidate.id === token.id ? requestedToken : candidate)),
       updatedAt: new Date().toISOString(),
@@ -1001,7 +1038,7 @@ export class SessionsService {
     const flags = this.parseRecordJson(state.flagsJson);
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const now = Date.now();
-    const map: VttMapStateDto = {
+    const map: AuthoritativeVttMap = {
       ...previousMap,
       pings: [
         ...(previousMap.pings ?? []).filter((ping) => Date.parse(ping.expiresAt) > now).slice(-4),
@@ -1051,7 +1088,7 @@ export class SessionsService {
       return { map: previousMap, moved: false, distanceMovedFt: 0 };
     }
 
-    const changedMap: VttMapStateDto = {
+    const changedMap: AuthoritativeVttMap = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
         token.id === params.sourceTokenId
@@ -1096,7 +1133,7 @@ export class SessionsService {
       return targetToken ? previousMap : null;
     }
 
-    const changedMap: VttMapStateDto = {
+    const changedMap: AuthoritativeVttMap = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
         token.id === tokenId
@@ -1174,7 +1211,7 @@ export class SessionsService {
       };
     }
 
-    const changedMap: VttMapStateDto = {
+    const changedMap: AuthoritativeVttMap = {
       ...previousMap,
       tokens: previousMap.tokens.map((candidate) => (candidate.id === token.id ? requestedToken : candidate)),
       updatedAt: new Date().toISOString(),
@@ -1623,7 +1660,7 @@ export class SessionsService {
           startedAt: activeScenario.startedAt ?? new Date(),
         },
       });
-      let runtimeMap: VttMapStateDto | null = null;
+      let runtimeMap: AuthoritativeVttMap | null = null;
       if (latestState.currentNodeId) {
         const node = await tx.sessionScenarioNode.findUnique({
           where: {
@@ -1653,6 +1690,11 @@ export class SessionsService {
           })
         ).map;
       }
+      this.sessionStartPolicy.ensurePlayerTokensCreated({
+        session,
+        participants,
+        tokens: runtimeMap?.tokens ?? [],
+      });
       await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: {
@@ -3256,7 +3298,7 @@ export class SessionsService {
     sessionId: string,
     sessionScenarioId: string,
     state: { currentNodeId: string | null; flagsJson: string | null },
-  ): Promise<VttMapStateDto> {
+  ): Promise<AuthoritativeVttMap> {
     if (state.currentNodeId) {
       const runtime = await this.prisma.sessionScenarioNodeRuntimeState?.findUnique({
         where: {
@@ -3277,19 +3319,23 @@ export class SessionsService {
     const flags = this.parseRecordJsonForRead(state.flagsJson);
     const existingMap = this.readRuntimeVttMapFromFlags(flags);
     if (existingMap) {
-      return existingMap;
+      return markAuthoritativeVttMap(existingMap);
     }
 
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(sessionScenarioId, state.currentNodeId);
     if (scenarioMap) {
       const normalizedMap = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
-      return this.applyScenarioStartingPositions(sessionId, normalizedMap);
+      return markAuthoritativeVttMap(
+        await this.applyScenarioStartingPositions(sessionId, normalizedMap),
+      );
     }
 
-    return this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null);
+    return markAuthoritativeVttMap(
+      await this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null),
+    );
   }
 
-  async getVttMapForSessionScenario(sessionId: string, sessionScenarioId: string): Promise<VttMapStateDto> {
+  async getVttMapForSessionScenario(sessionId: string, sessionScenarioId: string): Promise<AuthoritativeVttMap> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId },
       select: { currentNodeId: true, flagsJson: true },
@@ -3303,6 +3349,16 @@ export class SessionsService {
 
   async applyVttObjectProximityEvents(params: { sessionScenarioId: string; currentNodeId: string | null; map: VttMapStateDto }): Promise<VttMapStateDto> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).applyVttObjectProximityEvents(params);
+  }
+
+  async evaluateVttObjectProximityEvents(params: {
+    sessionScenarioId: string;
+    currentNodeId: string | null;
+    map: VttMapStateDto;
+  }) {
+    return this.sessionVttObjectRuntime
+      .create(this.createSessionVttObjectRuntime())
+      .evaluateVttObjectProximityEvents(params);
   }
 
   async applyVttHazardDetections(params: {
@@ -3325,7 +3381,7 @@ export class SessionsService {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).applyVttHazardTriggers(params);
   }
 
-  redactVttMapForPlayer(map: VttMapStateDto): VttMapStateDto {
+  redactVttMapForPlayer(map: VttMapStateDto): PublicVttMap {
     return (this.sessionVttObjectRuntime ?? new SessionVttObjectRuntimeService())
       .create(this.createSessionVttObjectRuntime())
       .redactVttMapForPlayer(map);
@@ -3336,46 +3392,59 @@ export class SessionsService {
     sessionScenarioId: string;
     currentNodeId: string | null;
     flags: Record<string, unknown>;
-    map: VttMapStateDto;
-    previousMap: VttMapStateDto;
+    map: AuthoritativeVttMap;
+    previousMap: AuthoritativeVttMap;
     expectedStateVersion?: number;
     publishMap?: boolean;
+    transactionEffect?: (tx: Prisma.TransactionClient) => Promise<void>;
   }): Promise<{
-    map: VttMapStateDto;
-    playerMap: VttMapStateDto;
+    map: AuthoritativeVttMap;
+    playerMap: PublicVttMap;
     hazardTriggered: boolean;
     hazardDetectionChanged: boolean;
     snapshotPublished: boolean;
   }> {
     // Keep VTT mutations in one sequence: proximity events, hazard triggers,
     // hazard discovery, persistence, redacted publish, then optional snapshot.
-    let map = await this.applyVttObjectProximityEvents({
+    const proximityEffect = await this.evaluateVttObjectProximityEvents({
       sessionScenarioId: params.sessionScenarioId,
       currentNodeId: params.currentNodeId,
       map: params.map,
     });
+    let map = markAuthoritativeVttMap(proximityEffect.map);
     const hazardTriggerResult = await this.applyVttHazardTriggers({
       sessionId: params.session.id,
       sessionScenarioId: params.sessionScenarioId,
       map,
       previousMap: params.previousMap,
     });
-    map = hazardTriggerResult.map;
+    map = markAuthoritativeVttMap(hazardTriggerResult.map);
     const beforeHazardDetectionMap = map;
-    map = await this.applyVttHazardDetections({
-      sessionId: params.session.id,
-      sessionScenarioId: params.sessionScenarioId,
-      currentNodeId: params.currentNodeId,
-      map,
-      previousMap: params.previousMap,
-    });
+    map = markAuthoritativeVttMap(
+      await this.applyVttHazardDetections({
+        sessionId: params.session.id,
+        sessionScenarioId: params.sessionScenarioId,
+        currentNodeId: params.currentNodeId,
+        map,
+        previousMap: params.previousMap,
+      }),
+    );
     const hazardDetectionChanged = beforeHazardDetectionMap !== map;
 
-    await this.sessionVttMapPersistence.saveMap({
-      sessionScenarioId: params.sessionScenarioId,
-      flags: params.flags,
-      map,
-      expectedStateVersion: params.expectedStateVersion,
+    const persisted = await this.prisma.$transaction(async (tx) => {
+      const saved = await this.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map,
+        fallbackFlags: params.flags,
+        expectedStateVersion: params.expectedStateVersion,
+      });
+      await params.transactionEffect?.(tx);
+      await Promise.all(
+        proximityEffect.reveals.map((reveal) =>
+          this.recordSessionReveal(tx, reveal),
+        ),
+      );
+      return saved;
     });
 
     const playerMap = this.redactVttMapForPlayer(map);
@@ -3386,6 +3455,8 @@ export class SessionsService {
         previousHostMap: params.previousMap,
         previousPlayerMap: this.redactVttMapForPlayer(params.previousMap),
         hostMap: map,
+        stateVersion: persisted.stateVersion,
+        runtimeVersion: persisted.runtimeVersion,
       });
     }
     const snapshotPublished = hazardTriggerResult.triggered || hazardDetectionChanged;
@@ -3407,8 +3478,10 @@ export class SessionsService {
     hostUserId: string;
     hostMap: VttMapStateDto;
     previousHostMap?: VttMapStateDto | null;
-    previousPlayerMap?: VttMapStateDto | null;
-  }): VttMapStateDto {
+    previousPlayerMap?: PublicVttMap | null;
+    stateVersion?: number;
+    runtimeVersion?: number;
+  }): PublicVttMap {
     const playerMap = this.redactVttMapForPlayer(params.hostMap);
     this.sessionVttMapPersistence.publishMapUpdated({
       ...params,
@@ -3695,15 +3768,11 @@ export class SessionsService {
     return this.sessionScenarioLink.getActiveEntityOrThrow(resolvedSessionId);
   }
 
-  private async deleteSessionScenarioLinks(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
-    return this.sessionScenarioLink.deleteLinks(tx, sessionId);
-  }
-
   async saveRuntimeVttMapInTransaction(
     tx: Prisma.TransactionClient,
     params: {
       sessionScenarioId: string;
-      map: VttMapStateDto;
+      map: AuthoritativeVttMap;
       fallbackFlags?: Record<string, unknown>;
       expectedStateVersion?: number;
     },
@@ -3714,8 +3783,6 @@ export class SessionsService {
   private async disbandSession(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
     const disbandedAt = new Date();
 
-    await tx.sessionCharacter.deleteMany({ where: { sessionId } });
-    await this.deleteSessionScenarioLinks(tx, sessionId);
     await tx.userActivePlay.deleteMany({ where: { sessionId } });
     await tx.sessionPlay.updateMany({
       where: {

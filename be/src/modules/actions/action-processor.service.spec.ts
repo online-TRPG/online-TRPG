@@ -467,6 +467,11 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
             };
             throw error;
           }
+          return {
+            map: params.map,
+            stateVersion: (params.expectedStateVersion ?? 0) + 1,
+            runtimeVersion: 2,
+          };
         },
       ),
       redactVttMapForPlayer: jest.fn((map: VttMapStateDto) => ({
@@ -568,6 +573,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       "session-1",
       expect.objectContaining({
         hostUserId: "host-user-1",
+        stateVersion: 8,
+        runtimeVersion: 2,
         hostMap: expect.objectContaining({
           objectCells: [
             expect.objectContaining({
@@ -608,6 +615,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
         hostUserId: "host-user-1",
         hostMap: expect.any(Object),
         playerMap: expect.any(Object),
+        stateVersion: 8,
+        runtimeVersion: 2,
       }),
     );
   });

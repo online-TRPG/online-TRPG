@@ -141,7 +141,7 @@ export class CombatMapperService {
         )
       : 0;
     const currentTurnOrder = currentParticipant?.turnOrder ?? Number.MAX_SAFE_INTEGER;
-    const map = await this.sessionsService.getVttMapForUser(options.gmRuntimeUserId, combat.sessionId);
+    const map = await this.sessionsService.getAuthoritativeVttMap(combat.sessionId);
     const pendingReactions = this.mapTriggeredReadyActionPrompts(
       flags,
       combat.participants,

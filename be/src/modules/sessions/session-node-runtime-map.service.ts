@@ -11,6 +11,12 @@ import {
 import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { SessionVttMapBootstrapService } from "./session-vtt-map-bootstrap.service";
 import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
+import {
+  AuthoritativeVttMap,
+  isAuthoritativeVttMap,
+  isPlayerRedactedVttMap,
+  markAuthoritativeVttMap,
+} from "./vtt-map-authority";
 
 type RuntimeMapClient = Pick<
   Prisma.TransactionClient,
@@ -38,7 +44,7 @@ export class SessionNodeRuntimeMapService {
         checkOptionsJson: string;
       };
     },
-  ): Promise<{ map: VttMapStateDto; version: number; initialized: boolean }> {
+  ): Promise<{ map: AuthoritativeVttMap; version: number; initialized: boolean }> {
     const existing = await tx.sessionScenarioNodeRuntimeState.findUnique({
       where: {
         sessionScenarioId_nodeId: {
@@ -62,9 +68,11 @@ export class SessionNodeRuntimeMapService {
         JSON.stringify(reconciledMap.tokens) !==
         JSON.stringify(persistedMap.tokens)
       ) {
-        const map = this.normalization.normalizeForWrite(
-          reconciledMap,
-          params.node.nodeId,
+        const map = markAuthoritativeVttMap(
+          this.normalization.normalizeForWrite(
+            reconciledMap,
+            params.node.nodeId,
+          ),
         );
         const updated =
           await tx.sessionScenarioNodeRuntimeState.update({
@@ -86,7 +94,7 @@ export class SessionNodeRuntimeMapService {
         };
       }
       return {
-        map: persistedMap,
+        map: markAuthoritativeVttMap(persistedMap),
         version: existing.version,
         initialized: false,
       };
@@ -112,9 +120,11 @@ export class SessionNodeRuntimeMapService {
       sourceMap,
       tx,
     );
-    const map = this.normalization.normalizeForWrite(
-      withPlayers,
-      params.node.nodeId,
+    const map = markAuthoritativeVttMap(
+      this.normalization.normalizeForWrite(
+        withPlayers,
+        params.node.nodeId,
+      ),
     );
     this.assertNodeIdentity(map, params.node.nodeId);
 
@@ -132,11 +142,21 @@ export class SessionNodeRuntimeMapService {
     tx: RuntimeMapClient,
     params: {
       sessionScenarioId: string;
-      map: VttMapStateDto;
+      map: AuthoritativeVttMap;
       fallbackFlags?: Record<string, unknown>;
       expectedStateVersion?: number;
     },
-  ): Promise<{ map: VttMapStateDto; runtimeVersion: number }> {
+  ): Promise<{
+    map: AuthoritativeVttMap;
+    runtimeVersion: number;
+    stateVersion: number;
+  }> {
+    if (isPlayerRedactedVttMap(params.map)) {
+      throw this.invalidMap("PLAYER_REDACTED_MAP_PERSISTENCE_FORBIDDEN");
+    }
+    if (!isAuthoritativeVttMap(params.map)) {
+      throw this.invalidMap("UNBRANDED_MAP_PERSISTENCE_FORBIDDEN");
+    }
     const link = await tx.sessionScenario.findUnique({
       where: { id: params.sessionScenarioId },
       select: { sessionId: true },
@@ -155,14 +175,17 @@ export class SessionNodeRuntimeMapService {
     }
     this.assertNodeIdentity(params.map, state.currentNodeId);
 
-    const map = this.normalization.normalizeForWrite(
-      params.map,
-      state.currentNodeId,
+    const map = markAuthoritativeVttMap(
+      this.normalization.normalizeForWrite(
+        params.map,
+        state.currentNodeId,
+      ),
     );
     const flags = this.parseFlags(
       state.flagsJson,
       params.fallbackFlags ?? {},
     );
+    this.assertAuthoritativeMetadataPreserved(flags.vttMap, map);
     const runtime = await tx.sessionScenarioNodeRuntimeState.upsert({
       where: {
         sessionScenarioId_nodeId: {
@@ -199,10 +222,24 @@ export class SessionNodeRuntimeMapService {
         expectedVersion: params.expectedStateVersion,
       });
     }
-    return { map, runtimeVersion: runtime.version };
+    const committedState = await tx.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { version: true },
+    });
+    if (!committedState) {
+      throw this.invalidMap("GAME_STATE_MISSING_AFTER_SAVE");
+    }
+    return {
+      map,
+      runtimeVersion: runtime.version,
+      stateVersion: committedState.version,
+    };
   }
 
-  decodeRuntimeMap(value: string, expectedNodeId: string): VttMapStateDto {
+  decodeRuntimeMap(
+    value: string,
+    expectedNodeId: string,
+  ): AuthoritativeVttMap {
     let parsed: unknown;
     try {
       parsed = JSON.parse(value);
@@ -214,7 +251,7 @@ export class SessionNodeRuntimeMapService {
       throw this.invalidMap("INVALID_CONTRACT");
     }
     this.assertNodeIdentity(map, expectedNodeId);
-    return map;
+    return markAuthoritativeVttMap(map);
   }
 
   private assertNodeIdentity(map: VttMapStateDto, nodeId: string): void {
@@ -236,6 +273,44 @@ export class SessionNodeRuntimeMapService {
     } catch {
       return fallback;
     }
+  }
+
+  private assertAuthoritativeMetadataPreserved(
+    previousValue: unknown,
+    nextMap: VttMapStateDto,
+  ): void {
+    const previousMap = this.normalization.toVttMapOrNull(previousValue);
+    if (!previousMap) {
+      return;
+    }
+    const nextObjects = new Map(
+      (nextMap.objectCells ?? []).map((object) => [object.id, object]),
+    );
+    for (const previousObject of previousMap.objectCells ?? []) {
+      if (!this.hasPrivateExecutionMetadata(previousObject)) {
+        continue;
+      }
+      const nextObject = nextObjects.get(previousObject.id);
+      if (
+        !nextObject ||
+        !this.hasPrivateExecutionMetadata(nextObject)
+      ) {
+        throw this.invalidMap("AUTHORITATIVE_MAP_METADATA_LOSS");
+      }
+    }
+  }
+
+  private hasPrivateExecutionMetadata(
+    object: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): boolean {
+    return Boolean(
+      object.events?.length ||
+        object.revealChecks?.length ||
+        object.hiddenClueIds?.length ||
+        object.hiddenItemIds?.length ||
+        object.hiddenEventIds?.length ||
+        object.hazard?.linkedClueIds?.length,
+    );
   }
 
   private invalidMap(reason: string): BadRequestException {

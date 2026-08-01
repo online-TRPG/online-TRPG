@@ -12,7 +12,7 @@ describe("InventoryItemMapRuntimeService", () => {
     terrainCells: [{ id: "existing-terrain" }],
   };
   const sessionsService = {
-    getVttMapForUser: jest.fn(() => map),
+    getAuthoritativeVttMap: jest.fn(() => map),
   };
   const mapRuntimeService = {
     saveSystemVttMap: jest.fn(),
