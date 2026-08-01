@@ -11,7 +11,7 @@ import {
   type SystemMessageEventDto,
   type TurnLogResponseDto,
   type VttMapDeltaDto,
-  type VttMapStateDto,
+  type VttMapUpdatedEventDto,
 } from "@trpg/shared-types";
 import {
   decodeActionAcceptedEvent,
@@ -40,7 +40,7 @@ export interface RealtimeHandlers {
   onSystemMessage(message: SystemMessageEventDto): void;
   onDiceRolled(diceResult: DiceRollResponseDto): void;
   onStateDiffApplied(stateDiff: StateDiffResponseDto): boolean;
-  onVttMapUpdated(map: VttMapStateDto): void;
+  onVttMapUpdated(event: VttMapUpdatedEventDto): boolean;
   onVttMapDelta(delta: VttMapDeltaDto): boolean;
   onCombatUpdated(combat: CombatResponseDto): void;
   onStatusChange(connected: boolean): void;
@@ -141,9 +141,16 @@ export function connectSessionSocket(
   }, handlers);
 
   safeSocketOn(socket, "vtt.map.updated", decodeVttMapUpdatedPayload, (payload) => {
-    mapResyncRequested = false;
-    handlers.onVttMapUpdated(payload.map);
-    handlers.onLog("Map updated", "The tabletop map changed.");
+    if (handlers.onVttMapUpdated(payload)) {
+      mapResyncRequested = false;
+      handlers.onLog("Map updated", "The tabletop map changed.");
+      return;
+    }
+    if (!mapResyncRequested) {
+      mapResyncRequested = true;
+      socket.emit("session.resync", { sessionId });
+      handlers.onLog("Map resync requested", "The map event was ahead of the local session state.");
+    }
   }, handlers);
 
   socket.on("vtt.map.delta.v2", (payload: { delta: VttMapDeltaDto }) => {
@@ -244,7 +251,7 @@ function decodeStateDiffPayload(value: unknown): { stateDiff: StateDiffResponseD
   return decodeStateDiffAppliedEvent(value);
 }
 
-function decodeVttMapUpdatedPayload(value: unknown): { map: VttMapStateDto } {
+function decodeVttMapUpdatedPayload(value: unknown): VttMapUpdatedEventDto {
   return decodeVttMapUpdatedEvent(value);
 }
 

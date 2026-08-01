@@ -2013,8 +2013,41 @@ export function decodeStateDiffAppliedEvent(value: unknown): StateDiffAppliedEve
 
 export function decodeVttMapUpdatedEvent(value: unknown): VttMapUpdatedEventDto {
   const record = readRecord(value, "vtt.map.updated payload");
+  const scenarioNodeId =
+    record.scenarioNodeId === null
+      ? null
+      : readOptionalString(
+          record,
+          "scenarioNodeId",
+          "vtt.map.updated.scenarioNodeId",
+        );
+  const stateVersion = readOptionalNumber(
+    record,
+    "stateVersion",
+    "vtt.map.updated.stateVersion",
+  );
+  const runtimeVersion = readOptionalNumber(
+    record,
+    "runtimeVersion",
+    "vtt.map.updated.runtimeVersion",
+  );
+  if (
+    stateVersion !== undefined &&
+    (!Number.isInteger(stateVersion) || stateVersion < 0)
+  ) {
+    throw new Error("vtt.map.updated.stateVersion must be a non-negative integer.");
+  }
+  if (
+    runtimeVersion !== undefined &&
+    (!Number.isInteger(runtimeVersion) || runtimeVersion < 0)
+  ) {
+    throw new Error("vtt.map.updated.runtimeVersion must be a non-negative integer.");
+  }
   return {
     sessionId: readString(record, "sessionId", "vtt.map.updated.sessionId"),
+    ...(scenarioNodeId === undefined ? {} : { scenarioNodeId }),
+    ...(stateVersion === undefined ? {} : { stateVersion }),
+    ...(runtimeVersion === undefined ? {} : { runtimeVersion }),
     map: decodeVttMapState(record.map),
   };
 }

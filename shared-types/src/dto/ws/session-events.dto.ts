@@ -197,6 +197,15 @@ export class VttMapUpdatedEventDto {
   @ApiProperty()
   sessionId!: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  scenarioNodeId?: string | null;
+
+  @ApiPropertyOptional()
+  stateVersion?: number;
+
+  @ApiPropertyOptional()
+  runtimeVersion?: number;
+
   @ApiProperty({ type: VttMapStateDto })
   map!: VttMapStateDto;
 }

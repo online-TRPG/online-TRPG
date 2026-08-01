@@ -15,6 +15,7 @@ import type {
   UpdatePreparedSpellsDto,
   VttMapDeltaDto,
   VttMapStateDto,
+  VttMapUpdatedEventDto,
   ActivePlayResponseDto,
   SessionPlayResponseDto,
   SessionScheduleVersionAcknowledgementDto,
@@ -84,6 +85,7 @@ import type { CreateSessionInput, UpdateSessionInput } from '../services/session
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
 import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from '../services/storage';
 import { readVttMapFromSessionFlags } from '../features/sessionPlay/utils/sessionStateFlags';
+import { decideVttMapEventDisposition } from '../features/sessionPlay/utils/vttMapEventGuard';
 import type {
   AvailableSessionListItem,
   Character,
@@ -733,6 +735,7 @@ export function useSession(
   const socketRef = useRef<Socket | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
+  const vttRuntimeVersionByNodeRef = useRef<Map<string, number>>(new Map());
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
   const pendingMainCommandLogsRef = useRef<PendingMainCommandLog[]>([]);
   const pendingMainCommandCheckLogsRef = useRef<PendingMainCommandCheckLog[]>([]);
@@ -817,6 +820,7 @@ export function useSession(
     socketRef.current?.disconnect();
     socketRef.current = null;
     seenTurnLogIdsRef.current.clear();
+    vttRuntimeVersionByNodeRef.current.clear();
     loadedTurnLogSessionIdRef.current = null;
     pendingMainCommandLogsRef.current.forEach((entry) => {
       if (entry.timeoutId !== undefined) {
@@ -839,6 +843,7 @@ export function useSession(
   const updateSnapshot = useCallback((next: SessionSnapshot) => {
     if (snapshotRef.current?.session.id !== next.session.id) {
       seenTurnLogIdsRef.current.clear();
+      vttRuntimeVersionByNodeRef.current.clear();
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
       setIsLoadingTurnLogs(false);
@@ -1293,14 +1298,44 @@ export function useSession(
         appendLog('socket', '상태 변화', formatStateDiffMessage(stateDiff));
         return true;
       },
-      onVttMapUpdated: (map: VttMapStateDto) => {
+      onVttMapUpdated: (event: VttMapUpdatedEventDto) => {
         const current = snapshotRef.current;
-        if (!current) return;
+        if (!current) return false;
+        const nodeId =
+          event.scenarioNodeId ?? event.map.scenarioNodeId ?? null;
+        const runtimeVersionKey = `${event.sessionId}:${nodeId ?? 'none'}`;
+        const disposition = decideVttMapEventDisposition({
+          currentSessionId: current.session.id,
+          currentNodeId: current.state.currentNodeId,
+          currentStateVersion: current.state.version,
+          currentRuntimeVersion:
+            vttRuntimeVersionByNodeRef.current.get(runtimeVersionKey),
+          event,
+        });
+        if (disposition === 'stale') {
+          return true;
+        }
+        if (disposition === 'resync') {
+          return false;
+        }
+        const map = event.map;
         const currentMap = readVttMapFromSessionFlags(current.state.flags);
         if (getVttMapSocketSignature(currentMap) === getVttMapSocketSignature(map)) {
-          return;
+          if (event.runtimeVersion !== undefined) {
+            vttRuntimeVersionByNodeRef.current.set(
+              runtimeVersionKey,
+              event.runtimeVersion,
+            );
+          }
+          return true;
         }
 
+        if (event.runtimeVersion !== undefined) {
+          vttRuntimeVersionByNodeRef.current.set(
+            runtimeVersionKey,
+            event.runtimeVersion,
+          );
+        }
         updateSnapshot({
           ...current,
           state: {
@@ -1315,6 +1350,7 @@ export function useSession(
             },
           },
         });
+        return true;
       },
       onVttMapDelta: (delta: VttMapDeltaDto) => {
         const current = snapshotRef.current;

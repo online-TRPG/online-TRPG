@@ -267,14 +267,33 @@ export class RealtimeEventsService {
       playerMap: VttMapStateDto;
       previousHostMap?: VttMapStateDto | null;
       previousPlayerMap?: VttMapStateDto | null;
+      stateVersion?: number;
+      runtimeVersion?: number;
     },
   ): void {
     if (!this.server) {
       return;
     }
 
-    const playerPayload: VttMapUpdatedEventDto = { sessionId, map: params.playerMap };
-    const hostPayload: VttMapUpdatedEventDto = { sessionId, map: params.hostMap };
+    const envelope = {
+      sessionId,
+      scenarioNodeId:
+        params.hostMap.scenarioNodeId ?? params.playerMap.scenarioNodeId ?? null,
+      ...(params.stateVersion === undefined
+        ? {}
+        : { stateVersion: params.stateVersion }),
+      ...(params.runtimeVersion === undefined
+        ? {}
+        : { runtimeVersion: params.runtimeVersion }),
+    };
+    const playerPayload: VttMapUpdatedEventDto = {
+      ...envelope,
+      map: params.playerMap,
+    };
+    const hostPayload: VttMapUpdatedEventDto = {
+      ...envelope,
+      map: params.hostMap,
+    };
     const hostRoomName = this.getUserRoomName(sessionId, params.hostUserId);
     const deltaRoomName = this.getVttDeltaRoomName(sessionId);
     const hostDeltaRoomName = this.getUserVttDeltaRoomName(sessionId, params.hostUserId);
