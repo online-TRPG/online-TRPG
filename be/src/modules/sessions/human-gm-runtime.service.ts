@@ -958,6 +958,7 @@ export class HumanGmRuntimeService {
           isHostile: participant.isHostile ?? false,
           hasActedThisRound: participant.isAlive !== false && participant.id !== combat.currentParticipantId && (participant.turnOrder ?? 0) < currentTurnOrder,
           conditions: this.toHumanGmCombatConditionTags(conditionEntries),
+          conditionStates: runtime.combatConditions.combatConditionViews(conditionEntries),
           concentration: this.toHumanGmCombatConcentration(runtime, conditionEntries),
           actionResources: {
             actionAvailable: participant.id === combat.currentParticipantId,

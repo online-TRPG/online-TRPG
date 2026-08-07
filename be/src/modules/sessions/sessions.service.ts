@@ -123,6 +123,8 @@ import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { GmOverrideKind, GmOverrideService } from "../rules/gm-override.service";
 import { ConcentrationRuntimeService } from "../rules/concentration-runtime.service";
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
+import { CombatPresentationService } from "../combat/combat-presentation.service";
+import { CombatConditionService } from "../combat/combat-condition.service";
 import { EconomyStateRuntimeService } from "../rules/economy-state-runtime.service";
 import { CampaignCalendarRuntimeService } from "../rules/campaign-calendar-runtime.service";
 import { ScenariosService } from "../scenarios/scenarios.service";
@@ -220,6 +222,8 @@ export class SessionsService {
   private readonly gmOverrideService = new GmOverrideService();
   private readonly conditionRuntime = new ConditionRuntimeService();
   private readonly concentrationRuntime = new ConcentrationRuntimeService();
+  private readonly combatPresentation = new CombatPresentationService();
+  private readonly combatConditions: CombatConditionService;
   private static readonly CHARACTER_VAULT_MAX_RESULTS = 100;
 
   constructor(
@@ -275,7 +279,12 @@ export class SessionsService {
     private readonly sessionVttPlayerMapUpdate: SessionVttPlayerMapUpdateService,
     private readonly sessionNodeRuntimeMap: SessionNodeRuntimeMapService,
     private readonly sessionNodeRuntimeTransition: SessionNodeRuntimeTransitionService,
-  ) {}
+  ) {
+    this.combatConditions = new CombatConditionService(
+      this.prisma,
+      this.conditionRuntime,
+    );
+  }
 
   createHumanGmRuntime() {
     return {
@@ -295,6 +304,7 @@ export class SessionsService {
       refreshSessionInventorySnapshot: this.refreshSessionInventorySnapshot.bind(this),
       conditionRuntime: this.conditionRuntime,
       concentrationRuntime: this.concentrationRuntime,
+      combatConditions: this.combatConditions,
       clampNumber: this.clampNumber.bind(this),
       extractVttMapFromCheckOptions: this.extractVttMapFromCheckOptions.bind(this),
       applyScenarioStartingPositions: this.applyScenarioStartingPositions.bind(this),
@@ -3063,6 +3073,10 @@ export class SessionsService {
         })
       : null;
 
+    const structuredAction = this.combatPresentation.attachToStructuredAction(
+      resolution.turnLog.structuredAction,
+      { outcome: ActionOutcome.SUCCESS, diceResult: null },
+    );
     const created = await client.turnLog.create({
       data: {
         sessionId: resolution.turnLog.sessionId,
@@ -3070,7 +3084,7 @@ export class SessionsService {
         actorUserId: resolution.turnLog.actorUserId,
         turnNumber: (latest?.turnNumber ?? 0) + 1,
         rawInput: resolution.turnLog.rawInput,
-        structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction(resolution.turnLog.structuredAction)),
+        structuredActionJson: JSON.stringify(decodeTurnLogStructuredAction(structuredAction)),
         stateDiffJson: stateDiff ? JSON.stringify(decodeTurnLogStateDiff(stateDiff)) : null,
         outcome: PrismaActionOutcome.SUCCESS,
         narration: resolution.turnLog.narration,

@@ -1302,6 +1302,7 @@ export class CombatTurnService {
       rawInput: null,
       structuredAction: {
         type: "monster_special",
+        actorParticipantId: params.actor.id,
         actionId: params.action.actionId,
         monsterId: params.action.monsterId,
         label: params.action.label,
@@ -1396,6 +1397,7 @@ export class CombatTurnService {
       });
     }
     const applied: string[] = [];
+    const affectedTargetIds: string[] = [];
     const saveRolls: DiceRollResponseDto[] = [];
     for (const target of targets) {
       const profile = await runtime.resolveParticipantSavingThrowProfile(
@@ -1449,6 +1451,7 @@ export class CombatTurnService {
         );
       }
       applied.push(target.nameSnapshot);
+      affectedTargetIds.push(target.id);
     }
     let updated = await runtime.getActiveCombatEntity(params.session.id);
     if (
@@ -1475,10 +1478,12 @@ export class CombatTurnService {
       rawInput: null,
       structuredAction: {
         type: "monster_area_control",
+        actorParticipantId: params.actor.id,
         monsterId: params.action.monsterId,
         actionId: params.action.actionId,
         save: params.action.save,
         targetIds: targets.map((target) => target.id),
+        affectedTargetIds,
         affectedTargetNames: applied,
         conditionRiders,
       },
@@ -1713,12 +1718,14 @@ export class CombatTurnService {
       rawInput: null,
       structuredAction: {
         type: "monster_area_attack",
+        actorParticipantId: params.actor.id,
         actionId: params.action.actionId,
         monsterId: params.action.monsterId,
         label: params.action.label,
         shape,
         sizeFt,
         direction,
+        damageType,
         save: params.action.save ?? null,
         recharge: params.action.recharge ?? null,
         usage: params.action.usage ?? null,

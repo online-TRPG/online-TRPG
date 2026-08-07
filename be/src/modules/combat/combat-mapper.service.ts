@@ -254,6 +254,8 @@ export class CombatMapperService {
               !tag.startsWith("attack_action:") &&
               !tag.startsWith("haste_action:used:"),
           ),
+          conditionStates:
+            this.combatConditions.combatConditionViews(conditionEntries),
           concentration: concentrationState
             ? {
                 spellId: concentrationState.spellId,

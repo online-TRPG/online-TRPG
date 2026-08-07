@@ -18,6 +18,7 @@ import {
 import { PrismaService } from "../../database/prisma.service";
 import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { SessionsService } from "../sessions/sessions.service";
+import { CombatPresentationService } from "../combat/combat-presentation.service";
 
 type TurnLogDbClient = Pick<Prisma.TransactionClient, "turnLog">;
 
@@ -26,6 +27,7 @@ export class TurnLogsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly combatPresentation: CombatPresentationService = new CombatPresentationService(),
   ) {}
 
   async createTurnLog(params: {
@@ -38,6 +40,7 @@ export class TurnLogsService {
     structuredAction?: unknown;
     diceResult?: unknown;
     stateDiff?: unknown;
+    presentationContext?: { sourceParticipantId?: string | null };
     outcome: ActionOutcome;
     narration?: string | null;
   }, client: TurnLogDbClient = this.prisma): Promise<TurnLogResponseDto> {
@@ -51,7 +54,16 @@ export class TurnLogsService {
         sessionCharacterId: params.sessionCharacterId ?? null,
         turnNumber,
         rawInput: params.rawInput ?? null,
-        structuredActionJson: this.stringifyStructuredAction(params.structuredAction),
+        structuredActionJson: this.stringifyStructuredAction(
+          this.combatPresentation.attachToStructuredAction(
+            params.structuredAction,
+            {
+              outcome: params.outcome,
+              diceResult: params.diceResult,
+              sourceParticipantId: params.presentationContext?.sourceParticipantId,
+            },
+          ),
+        ),
         diceResultJson: this.stringifyTurnLogDiceResult(params.diceResult),
         stateDiffJson: this.stringifyTurnLogStateDiff(params.stateDiff),
         outcome: this.toPrismaOutcome(params.outcome),
