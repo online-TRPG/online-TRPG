@@ -30,14 +30,32 @@ import {
   SessionScenarioStatus,
   DiceAdvantageState,
 } from "../constants/enums";
+import {
+  COMBAT_CONDITION_POLARITIES,
+  COMBAT_PRESENTATION_CONDITION_OPERATIONS,
+  COMBAT_PRESENTATION_DAMAGE_MODIFIERS,
+  COMBAT_PRESENTATION_DELIVERIES,
+  COMBAT_PRESENTATION_HEALING_KINDS,
+  COMBAT_PRESENTATION_MAX_CONDITION_CHANGES,
+  COMBAT_PRESENTATION_MAX_DAMAGE_PACKETS,
+  COMBAT_PRESENTATION_MAX_HEALING_PACKETS,
+  COMBAT_PRESENTATION_MAX_IMPACTS,
+  COMBAT_PRESENTATION_OUTCOMES,
+} from "../constants/combat-presentation";
 import type {
   ClassDefinitionResponseDto,
   ItemResponseDto,
 } from "../dto/api/classes.dto";
 import type {
   CombatActionResultDto,
+  CombatConditionViewDto,
   CombatMoveResultDto,
   CombatParticipantResponseDto,
+  CombatPresentationConditionChangeV1,
+  CombatPresentationDamagePacketV1,
+  CombatPresentationHealingPacketV1,
+  CombatPresentationImpactV1,
+  CombatPresentationV1,
   CombatReactionPromptDto,
   CombatResponseDto,
   ActionAcceptedResponseDto,
@@ -1707,6 +1725,212 @@ export function decodeTurnLogDiceResult(value: unknown): NonNullable<TurnLogResp
   };
 }
 
+function decodeBoundedArray<T>(
+  value: unknown,
+  decoder: (entry: unknown, label: string) => T,
+  maximum: number,
+  label: string,
+): T[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array.`);
+  }
+  if (value.length > maximum) {
+    throw new Error(`${label} must contain at most ${maximum} entries.`);
+  }
+  return value.map((entry, index) => decoder(entry, `${label}[${index}]`));
+}
+
+const COMBAT_PRESENTATION_MAX_AMOUNT = 1_000_000_000;
+const COMBAT_PRESENTATION_MAX_COORDINATE = 100_000;
+
+function readCombatPresentationAmount(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): number {
+  const value = readNonNegativeInteger(record, key, label);
+  if (value > COMBAT_PRESENTATION_MAX_AMOUNT) {
+    throw new Error(`${label} exceeds the supported maximum.`);
+  }
+  return value;
+}
+
+function readNullableCombatPresentationAmount(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): number | null {
+  const value = readNullableNonNegativeInteger(record, key, label);
+  if (value !== null && value > COMBAT_PRESENTATION_MAX_AMOUNT) {
+    throw new Error(`${label} exceeds the supported maximum.`);
+  }
+  return value;
+}
+
+function decodeCombatPresentationDamagePacketV1(
+  value: unknown,
+  label: string,
+): CombatPresentationDamagePacketV1 {
+  const record = readRecord(value, label);
+  const damageType = readString(record, "damageType", `${label}.damageType`).trim();
+  if (!damageType) {
+    throw new Error(`${label}.damageType must not be empty.`);
+  }
+  if (damageType.length > 80) {
+    throw new Error(`${label}.damageType is too long.`);
+  }
+  return {
+    damageType,
+    rolledAmount: readCombatPresentationAmount(record, "rolledAmount", `${label}.rolledAmount`),
+    appliedAmount: readCombatPresentationAmount(record, "appliedAmount", `${label}.appliedAmount`),
+    modifiers: decodeBoundedArray(
+      record.modifiers,
+      (entry, entryLabel) => {
+        if (
+          typeof entry !== "string" ||
+          !COMBAT_PRESENTATION_DAMAGE_MODIFIERS.includes(
+            entry as (typeof COMBAT_PRESENTATION_DAMAGE_MODIFIERS)[number],
+          )
+        ) {
+          throw new Error(`${entryLabel} is invalid.`);
+        }
+        return entry as CombatPresentationDamagePacketV1["modifiers"][number];
+      },
+      COMBAT_PRESENTATION_DAMAGE_MODIFIERS.length,
+      `${label}.modifiers`,
+    ),
+  };
+}
+
+function decodeCombatPresentationHealingPacketV1(
+  value: unknown,
+  label: string,
+): CombatPresentationHealingPacketV1 {
+  const record = readRecord(value, label);
+  return {
+    kind: readStringEnum(
+      record,
+      "kind",
+      COMBAT_PRESENTATION_HEALING_KINDS,
+      `${label}.kind`,
+    ),
+    rolledAmount: readNullableCombatPresentationAmount(record, "rolledAmount", `${label}.rolledAmount`),
+    appliedAmount: readCombatPresentationAmount(record, "appliedAmount", `${label}.appliedAmount`),
+  };
+}
+
+function decodeCombatPresentationConditionChangeV1(
+  value: unknown,
+  label: string,
+): CombatPresentationConditionChangeV1 {
+  const record = readRecord(value, label);
+  const conditionId = readString(record, "conditionId", `${label}.conditionId`).trim();
+  if (!conditionId) {
+    throw new Error(`${label}.conditionId must not be empty.`);
+  }
+  if (conditionId.length > 160) {
+    throw new Error(`${label}.conditionId is too long.`);
+  }
+  return {
+    operation: readStringEnum(
+      record,
+      "operation",
+      COMBAT_PRESENTATION_CONDITION_OPERATIONS,
+      `${label}.operation`,
+    ),
+    conditionId,
+  };
+}
+
+function decodeCombatPresentationImpactV1(
+  value: unknown,
+  label: string,
+): CombatPresentationImpactV1 {
+  const record = readRecord(value, label);
+  return {
+    targetParticipantId: readNullableString(
+      record,
+      "targetParticipantId",
+      `${label}.targetParticipantId`,
+    ),
+    outcome: readStringEnum(
+      record,
+      "outcome",
+      COMBAT_PRESENTATION_OUTCOMES,
+      `${label}.outcome`,
+    ),
+    damagePackets: decodeBoundedArray(
+      record.damagePackets,
+      decodeCombatPresentationDamagePacketV1,
+      COMBAT_PRESENTATION_MAX_DAMAGE_PACKETS,
+      `${label}.damagePackets`,
+    ),
+    healingPackets: decodeBoundedArray(
+      record.healingPackets,
+      decodeCombatPresentationHealingPacketV1,
+      COMBAT_PRESENTATION_MAX_HEALING_PACKETS,
+      `${label}.healingPackets`,
+    ),
+    conditionChanges: decodeBoundedArray(
+      record.conditionChanges,
+      decodeCombatPresentationConditionChangeV1,
+      COMBAT_PRESENTATION_MAX_CONDITION_CHANGES,
+      `${label}.conditionChanges`,
+    ),
+  };
+}
+
+export function decodeCombatPresentationV1(value: unknown): CombatPresentationV1 {
+  const record = readRecord(value, "combatPresentationV1");
+  const schemaVersion = readInteger(record, "schemaVersion", "combatPresentationV1.schemaVersion");
+  if (schemaVersion !== 1) {
+    throw new Error("combatPresentationV1.schemaVersion must be 1.");
+  }
+  const presetId = readString(record, "presetId", "combatPresentationV1.presetId").trim();
+  if (!presetId) {
+    throw new Error("combatPresentationV1.presetId must not be empty.");
+  }
+  if (presetId.length > 160) {
+    throw new Error("combatPresentationV1.presetId is too long.");
+  }
+  const publicPoint = record.publicPoint === undefined
+    ? undefined
+    : (() => {
+        const point = readRecord(record.publicPoint, "combatPresentationV1.publicPoint");
+        const x = readNumber(point, "x", "combatPresentationV1.publicPoint.x");
+        const y = readNumber(point, "y", "combatPresentationV1.publicPoint.y");
+        if (
+          Math.abs(x) > COMBAT_PRESENTATION_MAX_COORDINATE ||
+          Math.abs(y) > COMBAT_PRESENTATION_MAX_COORDINATE
+        ) {
+          throw new Error("combatPresentationV1.publicPoint is outside the supported range.");
+        }
+        return { x, y };
+      })();
+  return {
+    schemaVersion: 1,
+    sourceParticipantId: readNullableString(
+      record,
+      "sourceParticipantId",
+      "combatPresentationV1.sourceParticipantId",
+    ),
+    delivery: readStringEnum(
+      record,
+      "delivery",
+      COMBAT_PRESENTATION_DELIVERIES,
+      "combatPresentationV1.delivery",
+    ),
+    presetId,
+    ...(publicPoint ? { publicPoint } : {}),
+    impacts: decodeBoundedArray(
+      record.impacts,
+      decodeCombatPresentationImpactV1,
+      COMBAT_PRESENTATION_MAX_IMPACTS,
+      "combatPresentationV1.impacts",
+    ),
+  };
+}
+
 export function decodeStateDiffResponse(value: unknown): StateDiffResponseDto {
   const record = readRecord(value, "stateDiff");
   return {
@@ -1722,6 +1946,13 @@ export function decodeTurnLogStructuredAction(value: unknown): NonNullable<TurnL
   const decoded: NonNullable<TurnLogResponseDto["structuredAction"]> = {};
   for (const [key, entry] of Object.entries(record)) {
     decoded[key] = decodeJsonCompatibleValue(entry, `turnLog.structuredAction.${key}`);
+  }
+  if (record.presentationV1 !== undefined) {
+    try {
+      decoded.presentationV1 = decodeCombatPresentationV1(record.presentationV1);
+    } catch {
+      delete decoded.presentationV1;
+    }
   }
   return decoded;
 }
@@ -2868,8 +3099,39 @@ export function decodeCombatResponse(value: unknown): CombatResponseDto {
   };
 }
 
+function decodeCombatConditionView(value: unknown, label: string): CombatConditionViewDto {
+  const record = readRecord(value, label);
+  const conditionId = readString(record, "conditionId", `${label}.conditionId`).trim();
+  if (!conditionId) {
+    throw new Error(`${label}.conditionId must not be empty.`);
+  }
+  return {
+    conditionId,
+    sourceId: readNullableString(record, "sourceId", `${label}.sourceId`),
+    polarity: readStringEnum(
+      record,
+      "polarity",
+      COMBAT_CONDITION_POLARITIES,
+      `${label}.polarity`,
+    ),
+    remainingRounds: readNullableNonNegativeInteger(
+      record,
+      "remainingRounds",
+      `${label}.remainingRounds`,
+    ),
+  };
+}
+
 function decodeCombatParticipant(value: unknown): CombatParticipantResponseDto {
   const record = readRecord(value, "combat.participant");
+  const conditionStates = record.conditionStates === undefined || record.conditionStates === null
+    ? undefined
+    : decodeBoundedArray(
+        record.conditionStates,
+        decodeCombatConditionView,
+        COMBAT_PRESENTATION_MAX_CONDITION_CHANGES,
+        "combat.participant.conditionStates",
+      );
   return {
     sessionEntityId: readString(record, "sessionEntityId", "combat.participant.sessionEntityId"),
     entityType: readStringEnum(record, "entityType", combatEntityTypeValues, "combat.participant.entityType"),
@@ -2886,6 +3148,7 @@ function decodeCombatParticipant(value: unknown): CombatParticipantResponseDto {
     isHostile: readBoolean(record, "isHostile", "combat.participant.isHostile"),
     hasActedThisRound: readBoolean(record, "hasActedThisRound", "combat.participant.hasActedThisRound"),
     conditions: readStringArray(record, "conditions", "combat.participant.conditions"),
+    ...(conditionStates ? { conditionStates } : {}),
     concentration: record.concentration === undefined || record.concentration === null
       ? null
       : decodeCombatConcentration(record.concentration, "combat.participant.concentration"),

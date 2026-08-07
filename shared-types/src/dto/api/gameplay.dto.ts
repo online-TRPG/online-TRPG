@@ -33,6 +33,14 @@ import {
   MainCommandStatus,
   MainCommandTargetType,
 } from "../../constants/enums";
+import type {
+  CombatConditionPolarity,
+  CombatPresentationConditionOperation,
+  CombatPresentationDamageModifier,
+  CombatPresentationDelivery,
+  CombatPresentationHealingKind,
+  CombatPresentationOutcome,
+} from "../../constants/combat-presentation";
 import { MAIN_COMMAND_CHECK_EFFECT_TYPES, VTT_CHECK_EFFECT_ACTIONS } from "../../constants/main-command-check-effects";
 import { SessionCharacterResponseDto } from "./characters.dto";
 import { VttMapStateDto } from "./sessions.dto";
@@ -758,8 +766,44 @@ export type TurnLogDiceResultDto = {
   damageType?: string;
 } & { [key: string]: JsonValue | undefined };
 
+export type CombatPresentationDamagePacketV1 = {
+  damageType: string;
+  rolledAmount: number;
+  appliedAmount: number;
+  modifiers: CombatPresentationDamageModifier[];
+} & JsonObject;
+
+export type CombatPresentationHealingPacketV1 = {
+  kind: CombatPresentationHealingKind;
+  rolledAmount: number | null;
+  appliedAmount: number;
+} & JsonObject;
+
+export type CombatPresentationConditionChangeV1 = {
+  operation: CombatPresentationConditionOperation;
+  conditionId: string;
+} & JsonObject;
+
+export type CombatPresentationImpactV1 = {
+  targetParticipantId: string | null;
+  outcome: CombatPresentationOutcome;
+  damagePackets: CombatPresentationDamagePacketV1[];
+  healingPackets: CombatPresentationHealingPacketV1[];
+  conditionChanges: CombatPresentationConditionChangeV1[];
+} & JsonObject;
+
+export type CombatPresentationV1 = {
+  schemaVersion: 1;
+  sourceParticipantId: string | null;
+  delivery: CombatPresentationDelivery;
+  presetId: string;
+  publicPoint?: { x: number; y: number } & JsonObject;
+  impacts: CombatPresentationImpactV1[];
+} & JsonObject;
+
 export type TurnLogStructuredActionDto = {
   type?: string;
+  presentationV1?: CombatPresentationV1;
 } & { [key: string]: JsonValue | undefined };
 export type TurnLogStateDiffDto = StateDiffResponseDto | JsonObject;
 
@@ -981,6 +1025,20 @@ export class CombatConcentrationStateDto {
   endsAtTurn!: number | null;
 }
 
+export class CombatConditionViewDto {
+  @ApiProperty()
+  conditionId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  sourceId!: string | null;
+
+  @ApiProperty({ enum: ["beneficial", "harmful", "neutral"] })
+  polarity!: CombatConditionPolarity;
+
+  @ApiPropertyOptional({ nullable: true })
+  remainingRounds!: number | null;
+}
+
 export class CombatParticipantResponseDto {
   @ApiProperty()
   sessionEntityId!: string;
@@ -1026,6 +1084,9 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty({ type: [String] })
   conditions!: string[];
+
+  @ApiPropertyOptional({ type: [CombatConditionViewDto] })
+  conditionStates?: CombatConditionViewDto[];
 
   @ApiPropertyOptional({ type: CombatConcentrationStateDto, nullable: true })
   concentration!: CombatConcentrationStateDto | null;

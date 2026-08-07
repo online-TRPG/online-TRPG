@@ -35,6 +35,16 @@ export {
   MONSTER_ACTION_UNAVAILABLE_REASONS,
 } from "./constants/combat-reasons";
 export {
+  COMBAT_CONDITION_POLARITIES,
+  COMBAT_DAMAGE_TYPES,
+  COMBAT_PRESENTATION_CONDITION_OPERATIONS,
+  COMBAT_PRESENTATION_DAMAGE_MODIFIERS,
+  COMBAT_PRESENTATION_DELIVERIES,
+  COMBAT_PRESENTATION_HEALING_KINDS,
+  COMBAT_PRESENTATION_OUTCOMES,
+  SRD_COMBAT_CONDITION_IDS,
+} from "./constants/combat-presentation";
+export {
   MAIN_COMMAND_CHECK_EFFECT_TYPES,
   VTT_CHECK_EFFECT_ACTIONS,
 } from "./constants/main-command-check-effects";
@@ -81,6 +91,7 @@ export {
   decodeClassDefinitionResponseArray,
   decodeCombatActionResult,
   decodeCombatMoveResult,
+  decodeCombatPresentationV1,
   decodeCombatReactionPromptEvent,
   decodeCombatReactionPrompt,
   decodeCombatResponse,
