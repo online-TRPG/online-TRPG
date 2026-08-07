@@ -1814,3 +1814,61 @@
     height: 57px;
   }
 }
+.combat-effect-preference {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  color: var(--text-muted, #c8c1b3);
+  font-size: 0.78rem;
+}
+
+.combat-effect-preference select {
+  min-width: 5.5rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid rgb(203 169 98 / 45%);
+  border-radius: 0.35rem;
+  color: inherit;
+  background: rgb(17 18 23 / 92%);
+}
+
+.combat-effect-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.combat-monster-observation-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0;
+  margin: 0.45rem 0 0;
+  list-style: none;
+}
+
+.combat-monster-observation-conditions li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid rgb(203 169 98 / 38%);
+  border-radius: 999px;
+  background: rgb(18 20 27 / 84%);
+}
+
+.combat-monster-observation-conditions img {
+  width: 1rem;
+  height: 1rem;
+}
+
+.combat-monster-observation-conditions small {
+  color: var(--text-muted, #bcb5a8);
+}

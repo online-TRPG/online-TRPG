@@ -6,6 +6,11 @@ import type {
   SrdMonsterReferenceDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import type {
+  CombatEffectPlayback,
+  CombatMotionPreference,
+  CombatTokenConditionState,
+} from '../presentation/combatEffectTypes';
 
 type CombatMovementMode = 'normal' | 'jump';
 
@@ -40,6 +45,10 @@ interface SessionBattleMapProps {
   keyboardMoveTokenId?: string | null;
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
+  combatEffectPlaybacks?: CombatEffectPlayback[];
+  combatParticipantTokenIdById?: Record<string, string>;
+  combatTokenConditionStates?: CombatTokenConditionState[];
+  combatMotionPreference?: CombatMotionPreference;
   onMapChange: (map: VttMapStateDto) => void;
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   onTokenMoveRequest?: (
@@ -78,6 +87,10 @@ export function SessionBattleMap({
   keyboardMoveTokenId,
   showHiddenContent,
   showPlayerVisionPreview,
+  combatEffectPlaybacks,
+  combatParticipantTokenIdById,
+  combatTokenConditionStates,
+  combatMotionPreference,
   onMapChange,
   onSelectionChange,
   onTokenMoveRequest,
@@ -110,6 +123,10 @@ export function SessionBattleMap({
       keyboardMoveTokenId={keyboardMoveTokenId}
       showHiddenContent={showHiddenContent}
       showPlayerVisionPreview={showPlayerVisionPreview}
+      combatEffectPlaybacks={combatEffectPlaybacks}
+      combatParticipantTokenIdById={combatParticipantTokenIdById}
+      combatTokenConditionStates={combatTokenConditionStates}
+      combatMotionPreference={combatMotionPreference}
       onChange={onMapChange}
       onSelectionChange={onSelectionChange}
       onTokenMoveRequest={onTokenMoveRequest}

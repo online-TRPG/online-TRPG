@@ -28,6 +28,12 @@ import {
   getCombatTurnCardColorStyle,
   useCombatNodeSurfacePresentation,
 } from '../hooks/useCombatNodeSurfacePresentation';
+import { useCombatEffectQueue } from '../hooks/useCombatEffectQueue';
+import type {
+  CombatPresentationEnvelope,
+  CombatTokenConditionState,
+} from '../presentation/combatEffectTypes';
+import { getCombatConditionPresentation } from '../presentation/combatConditionPresentation';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
 import { formatInternalIdAsReadableName, getUserFacingItemName } from '../utils/displayNames';
@@ -111,6 +117,7 @@ interface CombatNodeSurfaceProps {
   isGmView?: boolean;
   map: VttMapStateDto | null;
   combat: CombatResponseDto | null;
+  combatPresentationEvents?: CombatPresentationEnvelope[];
   combatError?: string | null;
   isCombatBusy?: boolean;
   inventory: InventoryItemDto[];
@@ -264,6 +271,7 @@ export function CombatNodeSurface({
   isGmView = false,
   map,
   combat,
+  combatPresentationEvents = [],
   combatError = null,
   isCombatBusy = false,
   inventory,
@@ -324,6 +332,29 @@ export function CombatNodeSurface({
   const combatPresentation = useCombatNodeSurfacePresentation({
     phase,
   });
+  const combatEffects = useCombatEffectQueue(combatPresentationEvents);
+  const combatParticipantTokenIdById = useMemo(
+    () => Object.fromEntries(
+      (combat?.participants ?? []).flatMap((participant) =>
+        participant.tokenId
+          ? [[participant.sessionEntityId, participant.tokenId] as const]
+          : [],
+      ),
+    ),
+    [combat],
+  );
+  const combatTokenConditionStates = useMemo(
+    () => (combat?.participants ?? []).flatMap((participant) =>
+      participant.tokenId
+        ? (participant.conditionStates ?? []).map((condition) => ({
+            ...condition,
+            participantId: participant.sessionEntityId,
+            tokenId: participant.tokenId as string,
+          } satisfies CombatTokenConditionState))
+        : [],
+    ),
+    [combat],
+  );
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const catalogSpellMetadataById = useMemo(
     () => getCombatCatalogSpellMetadataById(ruleCatalog),
@@ -1361,6 +1392,23 @@ export function CombatNodeSurface({
                 getCharacterColorStyle={getCharacterColorStyle}
                 onCharacterClick={(character) => setSelectedTurnCharacterId(character.id)}
               />
+              <div className="combat-effect-preference">
+                <label htmlFor="combat-effect-motion">전투 효과</label>
+                <select
+                  id="combat-effect-motion"
+                  value={combatEffects.motionPreference}
+                  onChange={(event) => combatEffects.setMotionPreference(
+                    event.target.value as 'full' | 'reduced' | 'off',
+                  )}
+                >
+                  <option value="full">전체</option>
+                  <option value="reduced">간소화</option>
+                  <option value="off">끄기</option>
+                </select>
+              </div>
+              <p className="combat-effect-announcement" aria-live="polite" aria-atomic="true">
+                {combatEffects.announcement}
+              </p>
               <SessionBattleMap
                 map={map}
                 characters={characters}
@@ -1375,6 +1423,10 @@ export function CombatNodeSurface({
                 keyboardMoveTokenId={canControlActiveActor && !isCombatBusy ? activeActorToken?.id : null}
                 showHiddenContent={isGmView}
                 showPlayerVisionPreview={isGmView}
+                combatEffectPlaybacks={combatEffects.activeEffects}
+                combatParticipantTokenIdById={combatParticipantTokenIdById}
+                combatTokenConditionStates={combatTokenConditionStates}
+                combatMotionPreference={combatEffects.motionPreference}
                 onMapChange={onMapChange}
                 onPingRequest={onPingRequest}
                 onTokenMoveRequest={handleTokenMoveRequest}
@@ -1400,6 +1452,22 @@ export function CombatNodeSurface({
                   <div className="combat-monster-observation-body">
                     <p>{selectedHostileObservation.healthText}</p>
                     <p>{selectedHostileObservation.conditionText}</p>
+                    {(selectedMapParticipant.conditionStates ?? []).length ? (
+                      <ul className="combat-monster-observation-conditions">
+                        {(selectedMapParticipant.conditionStates ?? []).map((condition) => {
+                          const presentation = getCombatConditionPresentation(condition.conditionId);
+                          return (
+                            <li key={`${condition.conditionId}:${condition.sourceId ?? ''}`}>
+                              <img src={presentation.iconUrl} alt="" aria-hidden="true" />
+                              <span>{presentation.label}</span>
+                              {condition.remainingRounds !== null ? (
+                                <small>{condition.remainingRounds}라운드</small>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
                   </div>
                 </aside>
               ) : null}

@@ -16,6 +16,7 @@ import {
 } from '@trpg/shared-types/frontend';
 import { BattleMapBackgroundLayer } from './BattleMapBackgroundLayer';
 import type { BattleMapGridLine } from './BattleMapBackgroundLayer';
+import { BattleMapCombatEffectLayer } from './BattleMapCombatEffectLayer';
 import { BattleMapCanvas } from './BattleMapCanvas';
 import {
   BattleMapEditorToolbarControls,
@@ -35,6 +36,7 @@ import { BattleMapStartingPositionLayer } from './BattleMapStartingPositionLayer
 import { BattleMapStructureInspector } from './BattleMapStructureInspector';
 import { BattleMapSubtoolbar } from './BattleMapSubtoolbar';
 import { BattleMapTokenLayer } from './BattleMapTokenLayer';
+import { BattleMapTokenStatusLayer } from './BattleMapTokenStatusLayer';
 import { BattleMapTokenInspector } from './BattleMapTokenInspector';
 import { BattleMapToolbar } from './BattleMapToolbar';
 import { BattleMapTokenMovePreview } from './BattleMapTokenMovePreview';
@@ -56,6 +58,11 @@ import {
 } from '../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../utils/sessionTokenColors';
 import { getCharacterImage } from '../../features/sessionPlay/utils/characterVisuals';
+import type {
+  CombatEffectPlayback,
+  CombatMotionPreference,
+  CombatTokenConditionState,
+} from '../../features/sessionPlay/presentation/combatEffectTypes';
 
 export interface BattleMapProps {
   map: VttMapStateDto;
@@ -85,6 +92,10 @@ export interface BattleMapProps {
   keyboardMoveTokenId?: string | null;
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
+  combatEffectPlaybacks?: CombatEffectPlayback[];
+  combatParticipantTokenIdById?: Record<string, string>;
+  combatTokenConditionStates?: CombatTokenConditionState[];
+  combatMotionPreference?: CombatMotionPreference;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -758,6 +769,10 @@ export function BattleMap({
   keyboardMoveTokenId = null,
   showHiddenContent = false,
   showPlayerVisionPreview = false,
+  combatEffectPlaybacks = [],
+  combatParticipantTokenIdById = {},
+  combatTokenConditionStates = [],
+  combatMotionPreference = 'full',
   onTokenMoveRequest,
   onPingRequest,
 }: BattleMapProps) {
@@ -2825,6 +2840,17 @@ export function BattleMap({
                   finishTokenDragMeasure();
                   return wasMoved;
                 }}
+              />
+              <BattleMapTokenStatusLayer
+                tokens={visibleTokensForDisplay}
+                conditionStates={combatTokenConditionStates}
+              />
+              <BattleMapCombatEffectLayer
+                effects={combatEffectPlaybacks}
+                tokens={visibleTokensForDisplay}
+                participantTokenIdById={combatParticipantTokenIdById}
+                motionPreference={combatMotionPreference}
+                mapWidth={map.width}
               />
             </Layer>
 

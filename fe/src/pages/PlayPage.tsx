@@ -54,6 +54,7 @@ import carouselRightImage from '../components/carousel_right.png';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
 import { DiceRollOverlay } from '../features/sessionPlay/components/DiceRollOverlay';
 import type { DiceRollOverlayData } from '../features/sessionPlay/components/DiceRollOverlay';
+import type { CombatPresentationEnvelope } from '../features/sessionPlay/presentation/combatEffectTypes';
 import {
   ExplorationNodeSurface,
   type ExplorationMainCommandRequest,
@@ -247,6 +248,7 @@ interface PlayPageProps {
   onLoadOlderTurnLogs: () => void;
   onCombatActionLog: (message: string, turnLogId?: string | null) => void;
   activeDiceRoll: DiceRollOverlayData | null;
+  combatPresentationEvents: CombatPresentationEnvelope[];
   onDismissDiceRoll: () => void;
 }
 
@@ -299,6 +301,7 @@ export function PlayPage({
   onLoadOlderTurnLogs,
   onCombatActionLog,
   activeDiceRoll,
+  combatPresentationEvents,
   onDismissDiceRoll,
 }: PlayPageProps) {
   // UI 상태: 현재 탭, 모달 열림, 입력창 값입니다.
@@ -1915,6 +1918,7 @@ export function PlayPage({
                   isGmView={canUseHumanGmView}
                   map={vttMap}
                   combat={combat}
+                  combatPresentationEvents={combatPresentationEvents}
                   combatError={combatError}
                   isCombatBusy={isCombatBusy}
                   inventory={selectedCharacterInventory}

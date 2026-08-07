@@ -1005,6 +1005,7 @@ export function App() {
               )
             }
             activeDiceRoll={session.activeDiceRoll}
+            combatPresentationEvents={session.combatPresentationEvents}
             onDismissDiceRoll={session.dismissDiceRoll}
           />
         ) : null}

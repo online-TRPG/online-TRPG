@@ -86,6 +86,8 @@ import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realt
 import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from '../services/storage';
 import { readVttMapFromSessionFlags } from '../features/sessionPlay/utils/sessionStateFlags';
 import { decideVttMapEventDisposition } from '../features/sessionPlay/utils/vttMapEventGuard';
+import type { CombatPresentationEnvelope } from '../features/sessionPlay/presentation/combatEffectTypes';
+import { decodeCombatPresentationEnvelope } from '../features/sessionPlay/presentation/combatPresentationDecoder';
 import type {
   AvailableSessionListItem,
   Character,
@@ -222,6 +224,7 @@ export interface UseSessionReturn {
   clearSnapshot: () => void;
   clearError: () => void;
   activeDiceRoll: DiceRollOverlayData | null;
+  combatPresentationEvents: CombatPresentationEnvelope[];
   dismissDiceRoll: () => void;
 }
 
@@ -732,6 +735,7 @@ export function useSession(
   const [confirmation, setConfirmation] = useState<UseSessionReturn['confirmation']>(null);
   // 세션 진행 중 주사위 굴림을 전원에게 보여주는 오버레이. turn.log.created 이벤트로 채워진다.
   const [activeDiceRoll, setActiveDiceRoll] = useState<DiceRollOverlayData | null>(null);
+  const [combatPresentationEvents, setCombatPresentationEvents] = useState<CombatPresentationEnvelope[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
@@ -817,6 +821,7 @@ export function useSession(
     snapshotRef.current = null;
     setSocketConnected(false);
     setActivePlay(null);
+    setCombatPresentationEvents([]);
     socketRef.current?.disconnect();
     socketRef.current = null;
     seenTurnLogIdsRef.current.clear();
@@ -847,6 +852,7 @@ export function useSession(
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
       setIsLoadingTurnLogs(false);
+      setCombatPresentationEvents([]);
       clearSessionLogs();
     }
     snapshotRef.current = next;
@@ -899,10 +905,12 @@ export function useSession(
       setMySessionListTotal(0);
       setMyCharacters([]);
       setRemovedParticipants([]);
+      setCombatPresentationEvents([]);
       seenTurnLogIdsRef.current.clear();
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
       setIsLoadingTurnLogs(false);
+      setCombatPresentationEvents([]);
       clearSessionLogs();
       return;
     }
@@ -1230,6 +1238,13 @@ export function useSession(
           const diceOverlay = buildDiceRollOverlayData(turnLog, snapshotRef.current);
           if (diceOverlay) {
             setActiveDiceRoll(diceOverlay);
+          }
+          const combatPresentation = decodeCombatPresentationEnvelope(turnLog);
+          if (combatPresentation) {
+            setCombatPresentationEvents((current) => [
+              ...current,
+              combatPresentation,
+            ].slice(-60));
           }
         }
       },
@@ -2528,6 +2543,7 @@ export function useSession(
     clearSnapshot,
     clearError: () => setError(null),
     activeDiceRoll,
+    combatPresentationEvents,
     dismissDiceRoll,
   };
 }
