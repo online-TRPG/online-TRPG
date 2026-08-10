@@ -10,6 +10,7 @@
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
 | `vtt_combat_effects_implementation_plan.md` | VTT 근접·투사체·주문·회복·피해 숫자·상태 아이콘 구현 계획 |
+| `vtt_visual_effects_followup_plan.md` | VTT 피격 반응·주문 프리셋·전투 강조·지속 지형·타게팅 미리보기 후속 계획 |
 | `completed/ai_server_reliability_remediation_plan.md` | 완료된 AI 서버 timeout, fallback, trace, Google AI Studio 입출력 계약·토큰 비용 개선 기록 |
 | `user_experience_remediation_plan.md` | 사용자 온보딩, 세션 운영, 안전, 접근성, AI 신뢰를 포함한 공개 베타 준비 개선 계획 |
 | `performance_scalability_remediation_plan.md` | 데이터 10배·100배 증가 대비 성능·확장성 개선 계획 |
