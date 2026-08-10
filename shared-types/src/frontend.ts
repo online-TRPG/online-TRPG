@@ -45,6 +45,10 @@ export {
   SRD_COMBAT_CONDITION_IDS,
 } from "./constants/combat-presentation";
 export {
+  COMBAT_TARGET_SHAPES,
+} from "./constants/combat-targeting";
+export type { CombatTargetShape } from "./constants/combat-targeting";
+export {
   MAIN_COMMAND_CHECK_EFFECT_TYPES,
   VTT_CHECK_EFFECT_ACTIONS,
 } from "./constants/main-command-check-effects";
@@ -170,6 +174,13 @@ export {
   isMainCommandCheckRequired,
   isMainCommandImpossible,
 } from "./utils/main-command-response";
+export {
+  getCombatTargetDistance,
+  isPointInCombatCircle,
+  isPointInCombatCone,
+  isPointInCombatLine,
+} from "./utils/combat-targeting-geometry";
+export type { CombatTargetPoint } from "./utils/combat-targeting-geometry";
 export {
   isActiveCombatStatus,
   isActiveSessionScenarioStatus,
