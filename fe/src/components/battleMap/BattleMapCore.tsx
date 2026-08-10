@@ -17,6 +17,7 @@ import {
 import { BattleMapBackgroundLayer } from './BattleMapBackgroundLayer';
 import type { BattleMapGridLine } from './BattleMapBackgroundLayer';
 import { BattleMapCombatEffectLayer } from './BattleMapCombatEffectLayer';
+import { BattleMapCombatAttentionLayer } from './BattleMapCombatAttentionLayer';
 import { BattleMapCanvas } from './BattleMapCanvas';
 import {
   BattleMapEditorToolbarControls,
@@ -31,6 +32,9 @@ import { BattleMapPingMarkers } from './BattleMapPingMarkers';
 import type { BattleMapPingMarker } from './BattleMapPingMarkers';
 import { BattleMapRangeOverlayLayer } from './BattleMapRangeOverlayLayer';
 import { BattleMapSessionObstacleLayer } from './BattleMapSessionObstacleLayer';
+import { BattleMapTerrainEffectLayer } from './BattleMapTerrainEffectLayer';
+import { BattleMapTargetPreviewLayer } from './BattleMapTargetPreviewLayer';
+import { getTerrainEffectVisual } from './battleMapTerrainEffects';
 import { BattleMapStageFrame } from './BattleMapStageFrame';
 import { BattleMapStartingPositionLayer } from './BattleMapStartingPositionLayer';
 import { BattleMapStructureInspector } from './BattleMapStructureInspector';
@@ -60,9 +64,14 @@ import type { SessionTokenColor } from '../../utils/sessionTokenColors';
 import { getCharacterImage } from '../../features/sessionPlay/utils/characterVisuals';
 import type {
   CombatEffectPlayback,
+  CombatMapAttentionState,
   CombatMotionPreference,
+  CombatTargetPreview,
+  CombatTargetingMode,
   CombatTokenConditionState,
 } from '../../features/sessionPlay/presentation/combatEffectTypes';
+import { projectCombatTokenVisualEffects } from '../../features/sessionPlay/presentation/combatTokenEffectProjection';
+import { projectCombatTargetPreview } from '../../features/sessionPlay/presentation/combatTargetPreviewProjection';
 
 export interface BattleMapProps {
   map: VttMapStateDto;
@@ -93,6 +102,9 @@ export interface BattleMapProps {
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
   combatEffectPlaybacks?: CombatEffectPlayback[];
+  combatMapAttention?: CombatMapAttentionState | null;
+  combatTargetingMode?: CombatTargetingMode | null;
+  onCombatTargetPreviewChange?: (preview: CombatTargetPreview | null) => void;
   combatParticipantTokenIdById?: Record<string, string>;
   combatTokenConditionStates?: CombatTokenConditionState[];
   combatMotionPreference?: CombatMotionPreference;
@@ -770,6 +782,9 @@ export function BattleMap({
   showHiddenContent = false,
   showPlayerVisionPreview = false,
   combatEffectPlaybacks = [],
+  combatMapAttention = null,
+  combatTargetingMode = null,
+  onCombatTargetPreviewChange,
   combatParticipantTokenIdById = {},
   combatTokenConditionStates = [],
   combatMotionPreference = 'full',
@@ -807,6 +822,7 @@ export function BattleMap({
   const [measureEnd, setMeasureEnd] = useState<MeasurePoint | null>(null);
   const [measurePreview, setMeasurePreview] = useState<MeasurePoint | null>(null);
   const [tokenDragMeasure, setTokenDragMeasure] = useState<TokenDragMeasure | null>(null);
+  const [combatPreviewPoint, setCombatPreviewPoint] = useState<MeasurePoint | null>(null);
   const tokenDragMeasureRef = useRef<TokenDragMeasure | null>(null);
   const tokenDragFrameRef = useRef<number | null>(null);
   const [keyboardTokenMoveDraft, setKeyboardTokenMoveDraft] = useState<TokenDragMeasure | null>(null);
@@ -1001,6 +1017,58 @@ export function BattleMap({
     [shouldComputePlayerVisionCells, map, partyCharacterIds]
   );
   const visibleVisionCells = isVisionMaskEnabled ? playerVisionCells : null;
+  const accessibleTerrainSummaries = useMemo(() => {
+    const countByLabel = new Map<string, number>();
+    terrainCells.forEach((cell) => {
+      if (!isVisionPointVisible(
+        { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 },
+        map,
+        visibleVisionCells,
+      )) return;
+      const label = getTerrainEffectVisual(cell).accessibleLabel;
+      countByLabel.set(label, (countByLabel.get(label) ?? 0) + 1);
+    });
+    return [...countByLabel].map(([label, count]) => `${label} ${count}곳`);
+  }, [map, terrainCells, visibleVisionCells]);
+  const animatedTerrainCellIds = useMemo(() => {
+    if (interactionMode !== 'session' || combatMotionPreference !== 'full') {
+      return new Set<string>();
+    }
+    const safeScale = Math.max(scale, 0.001);
+    const viewport = {
+      left: -stagePosition.x / safeScale,
+      top: -stagePosition.y / safeScale,
+      right: (displayWidth - stagePosition.x) / safeScale,
+      bottom: (displayHeight - stagePosition.y) / safeScale,
+    };
+    return new Set(
+      terrainCells
+        .filter((cell) => {
+          const intersectsViewport =
+            cell.x + cell.width >= viewport.left &&
+            cell.x <= viewport.right &&
+            cell.y + cell.height >= viewport.top &&
+            cell.y <= viewport.bottom;
+          return intersectsViewport && isVisionPointVisible(
+            { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 },
+            map,
+            visibleVisionCells,
+          );
+        })
+        .map((cell) => cell.id),
+    );
+  }, [
+    combatMotionPreference,
+    displayHeight,
+    displayWidth,
+    interactionMode,
+    map,
+    scale,
+    stagePosition.x,
+    stagePosition.y,
+    terrainCells,
+    visibleVisionCells,
+  ]);
   const activeMeasureEnd = measureEnd ?? measurePreview;
   const selectedJumpMovementToken =
     selectedToken &&
@@ -1054,6 +1122,36 @@ export function BattleMap({
           : token
       );
   }, [keyboardTokenMoveDraft, map, visibleTokens, visibleVisionCells]);
+  const combatTokenVisualEffects = useMemo(
+    () => projectCombatTokenVisualEffects({
+      effects: combatEffectPlaybacks,
+      participantTokenIdById: combatParticipantTokenIdById,
+      visibleTokenIds: new Set(visibleTokensForDisplay.map((token) => token.id)),
+    }),
+    [combatEffectPlaybacks, combatParticipantTokenIdById, visibleTokensForDisplay],
+  );
+  const combatTargetPreview = useMemo(
+    () => combatTargetingMode
+      ? projectCombatTargetPreview({
+          mode: combatTargetingMode,
+          point: combatPreviewPoint,
+          tokens: visibleTokensForDisplay,
+          gridSize: map.gridSize,
+        })
+      : null,
+    [combatPreviewPoint, combatTargetingMode, map.gridSize, visibleTokensForDisplay],
+  );
+  useEffect(() => {
+    setCombatPreviewPoint(null);
+  }, [combatTargetingMode?.actionId, combatTargetingMode?.sourceTokenId]);
+  useEffect(() => {
+    onCombatTargetPreviewChange?.(combatTargetPreview);
+  }, [
+    combatTargetPreview?.actionId,
+    combatTargetPreview?.reasonLabel,
+    combatTargetPreview?.validity,
+    onCombatTargetPreviewChange,
+  ]);
   const keyboardMoveTarget = keyboardMoveTokenId
     ? (map.tokens.find((token) => token.id === keyboardMoveTokenId) ?? null)
     : null;
@@ -2462,6 +2560,9 @@ export function BattleMap({
     addPingAt,
     handleMeasureClick,
     emitTileSelection,
+    onWorldPointerMove: combatTargetingMode
+      ? setCombatPreviewPoint
+      : undefined,
   });
 
   function beginObjectExtensionDrag(
@@ -2663,6 +2764,24 @@ export function BattleMap({
         isFullscreen ? ' vtt-fullscreen' : ''
       }`}
     >
+      {!canEditMap && accessibleTerrainSummaries.length ? (
+        <ul
+          aria-label="현재 보이는 지속 지형"
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: 'hidden',
+            clip: 'rect(0, 0, 0, 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+          }}
+        >
+          {accessibleTerrainSummaries.map((summary) => <li key={summary}>{summary}</li>)}
+        </ul>
+      ) : null}
       <BattleMapToolbar
         title={title}
         tokenCountLabel={mapText.tokenCount(map.tokens.length)}
@@ -2744,6 +2863,7 @@ export function BattleMap({
             onDragEnd={handleStageDragEnd}
             onMouseDown={handleStagePointerDown}
             onMouseMove={handleStageMouseMove}
+            onMouseLeave={() => setCombatPreviewPoint(null)}
             onMouseUp={handleStagePointerUp}
             onWheel={(event) => {
               event.evt.preventDefault();
@@ -2774,7 +2894,14 @@ export function BattleMap({
             ) : null}
 
             {!canEditMap ? (
-              <BattleMapSessionObstacleLayer map={map} terrainCells={terrainCells} wallCells={wallCells} />
+              <>
+                <BattleMapSessionObstacleLayer map={map} terrainCells={terrainCells} wallCells={wallCells} />
+                <BattleMapTerrainEffectLayer
+                  terrainCells={terrainCells}
+                  animatedTerrainCellIds={animatedTerrainCellIds}
+                  motionPreference={combatMotionPreference}
+                />
+              </>
             ) : null}
 
             <BattleMapObjectMarkerLayer
@@ -2803,6 +2930,16 @@ export function BattleMap({
                 attackRangeOverlay={attackRangeOverlay}
                 attackRangeOverlayToken={attackRangeOverlayToken}
               />
+              <BattleMapTargetPreviewLayer
+                preview={combatTargetPreview}
+                tokens={visibleTokensForDisplay}
+                gridSize={map.gridSize}
+              />
+              <BattleMapCombatAttentionLayer
+                tokens={visibleTokensForDisplay}
+                attention={combatMapAttention}
+                motionPreference={combatMotionPreference}
+              />
               <BattleMapTokenLayer
                 tokens={visibleTokensForDisplay}
                 characters={characters}
@@ -2812,6 +2949,8 @@ export function BattleMap({
                 isMeasureMode={isMeasureMode}
                 isPingMode={isPingMode}
                 tokenHealthByTokenId={tokenHealthByTokenId}
+                tokenVisualEffectByTokenId={combatTokenVisualEffects}
+                combatMotionPreference={combatMotionPreference}
                 getTokenColor={getBattleTokenColor}
                 canControlToken={canControlToken}
                 constrainTokenDragPosition={(token, x, y) => getTokenDragPosition(token, x, y)}

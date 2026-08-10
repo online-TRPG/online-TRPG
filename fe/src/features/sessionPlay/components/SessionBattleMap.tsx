@@ -8,7 +8,10 @@ import type {
 } from '@trpg/shared-types';
 import type {
   CombatEffectPlayback,
+  CombatMapAttentionState,
   CombatMotionPreference,
+  CombatTargetPreview,
+  CombatTargetingMode,
   CombatTokenConditionState,
 } from '../presentation/combatEffectTypes';
 
@@ -17,6 +20,8 @@ type CombatMovementMode = 'normal' | 'jump';
 type TokenHealthFrame = {
   currentHp: number | null;
   maxHp: number | null;
+  tempHp?: number | null;
+  isAlive?: boolean;
   armorClass: number | null;
 };
 
@@ -46,6 +51,9 @@ interface SessionBattleMapProps {
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
   combatEffectPlaybacks?: CombatEffectPlayback[];
+  combatMapAttention?: CombatMapAttentionState | null;
+  combatTargetingMode?: CombatTargetingMode | null;
+  onCombatTargetPreviewChange?: (preview: CombatTargetPreview | null) => void;
   combatParticipantTokenIdById?: Record<string, string>;
   combatTokenConditionStates?: CombatTokenConditionState[];
   combatMotionPreference?: CombatMotionPreference;
@@ -88,6 +96,9 @@ export function SessionBattleMap({
   showHiddenContent,
   showPlayerVisionPreview,
   combatEffectPlaybacks,
+  combatMapAttention,
+  combatTargetingMode,
+  onCombatTargetPreviewChange,
   combatParticipantTokenIdById,
   combatTokenConditionStates,
   combatMotionPreference,
@@ -124,6 +135,9 @@ export function SessionBattleMap({
       showHiddenContent={showHiddenContent}
       showPlayerVisionPreview={showPlayerVisionPreview}
       combatEffectPlaybacks={combatEffectPlaybacks}
+      combatMapAttention={combatMapAttention}
+      combatTargetingMode={combatTargetingMode}
+      onCombatTargetPreviewChange={onCombatTargetPreviewChange}
       combatParticipantTokenIdById={combatParticipantTokenIdById}
       combatTokenConditionStates={combatTokenConditionStates}
       combatMotionPreference={combatMotionPreference}

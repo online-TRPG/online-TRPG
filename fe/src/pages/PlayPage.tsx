@@ -1919,6 +1919,7 @@ export function PlayPage({
                   map={vttMap}
                   combat={combat}
                   combatPresentationEvents={combatPresentationEvents}
+                  pendingCombatReaction={pendingCombatReaction?.reaction ?? null}
                   combatError={combatError}
                   isCombatBusy={isCombatBusy}
                   inventory={selectedCharacterInventory}
