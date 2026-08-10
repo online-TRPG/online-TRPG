@@ -1,9 +1,13 @@
+import { useEffect, useRef, useState } from 'react';
 import { Arc, Circle, Group, Image as KonvaImage, Text } from 'react-konva';
 import type { SessionTokenColor } from '../../utils/sessionTokenColors';
+import type { CombatMotionPreference } from '../../features/sessionPlay/presentation/combatEffectTypes';
+import { useCombatAnimationClock } from './useCombatAnimationClock';
 
 export type TokenHealthFrame = {
   currentHp: number | null;
   maxHp: number | null;
+  tempHp?: number | null;
   isAlive?: boolean;
 };
 
@@ -15,6 +19,7 @@ interface TokenFrameProps {
   isSelected: boolean;
   isHidden: boolean;
   health?: TokenHealthFrame;
+  motionPreference?: CombatMotionPreference;
 }
 
 function getHealthRatio(health: TokenHealthFrame | undefined) {
@@ -24,7 +29,16 @@ function getHealthRatio(health: TokenHealthFrame | undefined) {
   return Math.max(0, Math.min(1, health.currentHp / health.maxHp));
 }
 
-export function TokenFrame({ image, label, size, color, isSelected, isHidden, health }: TokenFrameProps) {
+export function TokenFrame({
+  image,
+  label,
+  size,
+  color,
+  isSelected,
+  isHidden,
+  health,
+  motionPreference = 'full',
+}: TokenFrameProps) {
   const center = size / 2;
   const frameRadius = Math.max(8, center - 4);
   const frameColor = isHidden ? '#cbd6e2' : color.frame;
@@ -45,6 +59,62 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden, he
   const depletedAngle = hasHealthFrame ? (1 - healthRatio) * 360 : 0;
   const depletedFrameColor = isDefeated ? '#4b463f' : '#686159';
   const portraitToneOverlay = isDefeated ? 'rgba(7, 7, 7, 0.48)' : null;
+  const previousHealthRatioRef = useRef<number | null>(null);
+  const [healthTransition, setHealthTransition] = useState<{
+    from: number;
+    to: number;
+    startedAt: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (healthRatio === null) {
+      previousHealthRatioRef.current = null;
+      setHealthTransition(null);
+      return;
+    }
+    const previous = previousHealthRatioRef.current;
+    previousHealthRatioRef.current = healthRatio;
+    if (
+      previous === null ||
+      Math.abs(previous - healthRatio) < 0.001 ||
+      motionPreference !== 'full'
+    ) {
+      setHealthTransition(null);
+      return;
+    }
+    const startedAt = performance.now();
+    setHealthTransition({ from: previous, to: healthRatio, startedAt });
+  }, [healthRatio, motionPreference]);
+  const transitionNow = useCombatAnimationClock(Boolean(healthTransition), 60);
+  useEffect(() => {
+    if (healthTransition && transitionNow - healthTransition.startedAt >= 450) {
+      setHealthTransition(null);
+    }
+  }, [healthTransition, transitionNow]);
+
+  const healthTransitionProgress = healthTransition
+    ? Math.min(1, Math.max(0, (transitionNow - healthTransition.startedAt) / 450))
+    : 1;
+  const transitionRatio = healthTransition
+    ? healthTransition.from +
+      (healthTransition.to - healthTransition.from) *
+        (1 - Math.pow(1 - healthTransitionProgress, 3))
+    : healthRatio;
+  const damageTrailAngle = healthTransition && healthTransition.from > healthTransition.to
+    ? Math.max(0, ((transitionRatio ?? healthTransition.to) - healthTransition.to) * 360)
+    : 0;
+  const damageTrailRotation = healthTransition
+    ? -90 + (1 - (transitionRatio ?? healthTransition.to)) * 360
+    : -90;
+  const healingShimmerAngle = healthTransition && healthTransition.to > healthTransition.from
+    ? Math.max(0, (healthTransition.to - (transitionRatio ?? healthTransition.to)) * 360)
+    : 0;
+  const healingShimmerRotation = healthTransition
+    ? -90 + (1 - healthTransition.to) * 360
+    : -90;
+  const tempHpRatio = health && health.maxHp && health.maxHp > 0 && health.tempHp
+    ? Math.max(0, Math.min(1, health.tempHp / health.maxHp))
+    : 0;
 
   return (
     <>
@@ -134,6 +204,45 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden, he
               angle={depletedAngle}
               rotation={-90}
               fill={depletedFrameColor}
+              listening={false}
+            />
+          ) : null}
+          {damageTrailAngle > 0 && !isDefeated ? (
+            <Arc
+              x={center}
+              y={center}
+              innerRadius={Math.max(1, frameRadius - frameWidth / 2)}
+              outerRadius={frameRadius + frameWidth / 2}
+              angle={damageTrailAngle}
+              rotation={damageTrailRotation}
+              fill="#F6C177"
+              opacity={Math.max(0, 1 - healthTransitionProgress)}
+              listening={false}
+            />
+          ) : null}
+          {healingShimmerAngle > 0 && !isDefeated ? (
+            <Arc
+              x={center}
+              y={center}
+              innerRadius={Math.max(1, frameRadius - frameWidth / 2)}
+              outerRadius={frameRadius + frameWidth / 2}
+              angle={healingShimmerAngle}
+              rotation={healingShimmerRotation}
+              fill="#58E38D"
+              shadowColor="#58E38D"
+              shadowBlur={8}
+              listening={false}
+            />
+          ) : null}
+          {tempHpRatio > 0 && !isDefeated ? (
+            <Arc
+              x={center}
+              y={center}
+              innerRadius={frameRadius + frameWidth / 2 + 1}
+              outerRadius={frameRadius + frameWidth / 2 + 3}
+              angle={tempHpRatio * 360}
+              rotation={-90}
+              fill="#58B9FF"
               listening={false}
             />
           ) : null}

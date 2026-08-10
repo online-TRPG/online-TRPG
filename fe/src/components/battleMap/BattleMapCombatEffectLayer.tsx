@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
 import type {
   CombatPresentationImpactV1,
@@ -12,6 +12,13 @@ import type {
 import { getCombatDamagePresentation } from '../../features/sessionPlay/presentation/combatDamagePresentation';
 import { getCombatConditionPresentation } from '../../features/sessionPlay/presentation/combatConditionPresentation';
 import { useCanvasImage } from './useCanvasImage';
+import { CombatImpactMotif } from './combatEffects/CombatImpactMotif';
+import { SignatureSpellEffect } from './combatEffects/SignatureSpellEffect';
+import {
+  isSignatureCombatPreset,
+  resolveCombatPreset,
+} from '../../features/sessionPlay/presentation/combatPresetRegistry';
+import { useCombatAnimationClock } from './useCombatAnimationClock';
 
 type Point = { x: number; y: number };
 type VttToken = VttMapStateDto['tokens'][number];
@@ -139,6 +146,56 @@ function ConditionFloat({ impact, point, progress, index }: {
   );
 }
 
+function DamageImpactMotifs({
+  impact,
+  point,
+  progress,
+  reduced,
+}: {
+  impact: CombatPresentationImpactV1;
+  point: Point;
+  progress: number;
+  reduced: boolean;
+}) {
+  if (impact.outcome === 'miss') return null;
+  return (
+    <>
+      {impact.damagePackets.slice(0, 4).map((packet, index) => {
+        const presentation = getCombatDamagePresentation(packet.damageType);
+        const immune = packet.modifiers.includes('immune');
+        const guarded =
+          impact.outcome === 'saved' ||
+          packet.modifiers.includes('saved_half') ||
+          packet.modifiers.includes('resisted');
+        const vulnerable = packet.modifiers.includes('vulnerable');
+        const packetProgress = Math.min(1, Math.max(0, progress - index * 0.045));
+        return (
+          <CombatImpactMotif
+            key={`${packet.damageType}:${index}`}
+            motif={presentation.motif}
+            point={{ x: point.x + index * 3, y: point.y - index * 2 }}
+            progress={packetProgress}
+            color={presentation.color}
+            intensity={vulnerable || impact.outcome === 'critical' ? 1.25 : immune ? 0.55 : 1}
+            reduced={reduced || guarded || immune}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function applyCriticalHitStop(
+  progress: number,
+  outcome: CombatPresentationImpactV1['outcome'],
+  motionPreference: CombatMotionPreference,
+) {
+  if (outcome !== 'critical' || motionPreference !== 'full') return progress;
+  if (progress <= 0.3) return progress;
+  if (progress <= 0.38) return 0.3;
+  return Math.min(1, 0.3 + ((progress - 0.38) / 0.62) * 0.7);
+}
+
 function DeliveryEffect({ presentation, source, target, progress, outcome }: {
   presentation: CombatPresentationV1;
   source: Point | null;
@@ -245,19 +302,11 @@ export function BattleMapCombatEffectLayer({
   motionPreference,
   mapWidth,
 }: BattleMapCombatEffectLayerProps) {
-  const [now, setNow] = useState(() => performance.now());
+  const now = useCombatAnimationClock(
+    effects.length > 0 && motionPreference !== 'off',
+    motionPreference === 'reduced' ? 24 : 60,
+  );
   const tokenById = useMemo(() => new Map(tokens.map((token) => [token.id, token])), [tokens]);
-
-  useEffect(() => {
-    if (!effects.length || motionPreference === 'off') return;
-    let frame = 0;
-    const update = () => {
-      setNow(performance.now());
-      frame = window.requestAnimationFrame(update);
-    };
-    frame = window.requestAnimationFrame(update);
-    return () => window.cancelAnimationFrame(frame);
-  }, [effects.length, motionPreference]);
 
   return (
     <>
@@ -272,13 +321,21 @@ export function BattleMapCombatEffectLayer({
           );
         }
         const presentation = effect.envelope.presentation;
+        const primaryDamageType = presentation.impacts
+          .flatMap((impact) => impact.damagePackets)[0]?.damageType;
+        const resolvedPreset = resolveCombatPreset({
+          presetId: presentation.presetId,
+          delivery: presentation.delivery,
+          damageType: primaryDamageType,
+          hasHealing: presentation.impacts.some((impact) => impact.healingPackets.length > 0),
+        });
         const sourceTokenId = presentation.sourceParticipantId
           ? participantTokenIdById[presentation.sourceParticipantId]
           : null;
         const sourceToken = sourceTokenId ? tokenById.get(sourceTokenId) : null;
         const source = sourceToken ? centerOf(sourceToken) : null;
         return presentation.impacts.slice(0, 24).map((impact, impactIndex) => {
-          const impactProgress = Math.min(
+          const rawImpactProgress = Math.min(
             1,
             Math.max(
               0,
@@ -286,6 +343,12 @@ export function BattleMapCombatEffectLayer({
                 effect.durationMs,
             ),
           );
+          const impactProgress = applyCriticalHitStop(
+            rawImpactProgress,
+            impact.outcome,
+            motionPreference,
+          );
+          const visualProgress = motionPreference === 'off' ? 0.2 : impactProgress;
           const targetTokenId = impact.targetParticipantId
             ? participantTokenIdById[impact.targetParticipantId]
             : null;
@@ -298,13 +361,32 @@ export function BattleMapCombatEffectLayer({
           if (!target) return null;
           return (
             <Group key={`${effect.id}:${impactIndex}:${impact.targetParticipantId ?? 'point'}`} listening={false}>
-              <DeliveryEffect presentation={presentation} source={source} target={target} progress={motionPreference === 'reduced' ? 1 : impactProgress} outcome={impact.outcome} />
+              {isSignatureCombatPreset(resolvedPreset) ? (
+                <SignatureSpellEffect
+                  presetId={resolvedPreset.id}
+                  effectId={effect.id}
+                  source={source}
+                  target={target}
+                  center={presentation.publicPoint ?? target}
+                  progress={visualProgress}
+                  impactIndex={impactIndex}
+                  reduced={motionPreference !== 'full'}
+                />
+              ) : (
+                <DeliveryEffect presentation={presentation} source={source} target={target} progress={motionPreference === 'full' ? impactProgress : 0.45} outcome={impact.outcome} />
+              )}
+              <DamageImpactMotifs
+                impact={impact}
+                point={target}
+                progress={visualProgress}
+                reduced={motionPreference !== 'full'}
+              />
               {impact.outcome === 'miss' ? (
-                <Text text="빗나감" x={target.x - 42} y={target.y - 34 - impactProgress * 20} width={84} align="center" fill="#CBD0DA" stroke="#111" strokeWidth={3} fontSize={18} fontStyle="bold" opacity={Math.max(0, 1 - impactProgress)} />
+                <Text text="빗나감" x={target.x - 42} y={target.y - 34 - visualProgress * 20} width={84} align="center" fill="#CBD0DA" stroke="#111" strokeWidth={3} fontSize={18} fontStyle="bold" opacity={Math.max(0, 1 - visualProgress)} />
               ) : null}
-              {impact.damagePackets.slice(0, 4).map((_, index) => <DamageFloat key={`d:${index}`} impact={impact} point={target} progress={impactProgress} index={index} />)}
-              {impact.healingPackets.slice(0, 2).map((_, index) => <HealingFloat key={`h:${index}`} impact={impact} point={target} progress={impactProgress} index={index} />)}
-              {impact.conditionChanges.slice(0, 4).map((_, index) => <ConditionFloat key={`c:${index}`} impact={impact} point={target} progress={impactProgress} index={index} />)}
+              {impact.damagePackets.slice(0, 4).map((_, index) => <DamageFloat key={`d:${index}`} impact={impact} point={target} progress={visualProgress} index={index} />)}
+              {impact.healingPackets.slice(0, 2).map((_, index) => <HealingFloat key={`h:${index}`} impact={impact} point={target} progress={visualProgress} index={index} />)}
+              {impact.conditionChanges.slice(0, 4).map((_, index) => <ConditionFloat key={`c:${index}`} impact={impact} point={target} progress={visualProgress} index={index} />)}
             </Group>
           );
         });

@@ -12,6 +12,7 @@ describe('combat presentation registries', () => {
     expect(entries).toHaveLength(13);
     expect(new Set(entries.map((entry) => entry.color)).size).toBe(entries.length);
     expect(new Set(entries.map((entry) => entry.iconUrl)).size).toBe(entries.length);
+    expect(new Set(entries.map((entry) => entry.motif)).size).toBe(entries.length);
     expect(entries.every((entry) => entry.iconUrl.startsWith('/assets/combat-icons/'))).toBe(true);
   });
 
