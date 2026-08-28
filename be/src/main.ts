@@ -3,13 +3,23 @@ import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { json, urlencoded } from "express";
 import { AppModule } from "./app.module";
+import { assertJwtConfiguration } from "./common/auth/token.utils";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
+import { getCorsAllowedOrigins } from "./common/security/browser-security";
 import { loadRuntimeEnv } from "./common/utils/runtime-env";
 
 loadRuntimeEnv();
+assertJwtConfiguration();
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+  const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? "0");
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 5) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer between 0 and 5.");
+  }
+  if (trustProxyHops > 0) {
+    app.getHttpAdapter().getInstance().set("trust proxy", trustProxyHops);
+  }
   const bodyLimit = process.env.HTTP_BODY_LIMIT ?? "8mb";
 
   app.use(json({ limit: bodyLimit }));
@@ -33,36 +43,36 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
+  const corsAllowedOrigins = new Set(getCorsAllowedOrigins());
   app.enableCors({
-    origin: true,       // 요청의 Origin을 그대로 허용 (로컬 개발용)
-    credentials: true,  // refresh token 쿠키 전송 허용
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
+      callback(null, !origin || corsAllowedOrigins.has(origin));
+    },
+    credentials: true,
   });
   app.setGlobalPrefix("api/v1");
 
-  const config = new DocumentBuilder()
-    .setTitle("TRPG Platform API")
-    .setDescription("Member, session, character, state, and WebSocket APIs.")
-    .setVersion("0.1.0")
-    .addBearerAuth(
-      {
-        type: "http",
-        scheme: "bearer",
-        bearerFormat: "JWT",
-      },
-      "bearer",
-    )
-    .addApiKey(
-      {
-        type: "apiKey",
-        in: "header",
-        name: "x-user-id",
-      },
-      "x-user-id",
-    )
-    .build();
+  if (process.env.NODE_ENV !== "production" || process.env.ENABLE_SWAGGER === "1") {
+    const config = new DocumentBuilder()
+      .setTitle("TRPG Platform API")
+      .setDescription("Member, session, character, state, and WebSocket APIs.")
+      .setVersion("0.1.0")
+      .addBearerAuth(
+        {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+        },
+        "bearer",
+      )
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup("docs", app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup("docs", app, document);
+  }
 
   const port = Number(process.env.PORT ?? "8080");
   await app.listen(port);

@@ -58,7 +58,7 @@ import {
 import { SessionCharacterResponseDto } from "./characters.dto";
 import type { MainCommandCheckOptionDto, MainCommandResponseDataDto } from "./gameplay.dto";
 import { ScenarioSummaryResponseDto } from "./scenarios.dto";
-import { UserResponseDto } from "./users.dto";
+import { PublicUserResponseDto, UserResponseDto } from "./users.dto";
 
 export class CreateSessionDto {
   @ApiProperty({ example: "검은 우물의 쥐떼" })
@@ -1094,6 +1094,44 @@ export class PlayerScenarioViewDto {
   revealedClues!: PlayerScenarioClueDto[];
 }
 
+export class PublicSessionSummaryResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  publicId!: string;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty({ enum: GmMode })
+  gmMode!: GmMode;
+
+  @ApiProperty({ enum: SessionStatus })
+  status!: SessionStatus;
+
+  @ApiProperty({ enum: SessionActivityStatus })
+  activityStatus!: SessionActivityStatus;
+
+  @ApiProperty({ enum: RecruitmentStatus })
+  recruitmentStatus!: RecruitmentStatus;
+
+  @ApiProperty({ enum: SessionJoinPolicy })
+  joinPolicy!: SessionJoinPolicy;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentPlayId!: string | null;
+
+  @ApiProperty()
+  maxPlayers!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  ruleSetId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  nextSessionAt!: string | null;
+}
+
 export class HumanGmRevealOptionDto {
   @ApiProperty()
   contentId!: string;
@@ -1830,17 +1868,17 @@ export class ActivePlayResponseDto {
 }
 
 export class SessionListItemResponseDto {
-  @ApiProperty({ type: SessionResponseDto })
-  session!: SessionResponseDto;
+  @ApiProperty({ type: PublicSessionSummaryResponseDto })
+  session!: PublicSessionSummaryResponseDto;
 
   @ApiProperty({ type: ScenarioSummaryResponseDto })
   scenario!: ScenarioSummaryResponseDto;
 
-  @ApiProperty({ type: UserResponseDto })
-  host!: UserResponseDto;
+  @ApiProperty({ type: PublicUserResponseDto })
+  host!: PublicUserResponseDto;
 
-  @ApiProperty({ type: UserResponseDto, deprecated: true })
-  owner!: UserResponseDto;
+  @ApiProperty({ type: PublicUserResponseDto, deprecated: true })
+  owner!: PublicUserResponseDto;
 
   @ApiProperty()
   participantCount!: number;

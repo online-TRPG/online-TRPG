@@ -17,7 +17,7 @@ import {
   User as PrismaUser,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import {
   AuthTokenResponseDto,
   ConvertGuestToLocalUserDto,
@@ -31,6 +31,7 @@ import {
   OAuthLoginDto,
   OAuthReauthResponseDto,
   OAuthUrlResponseDto,
+  PublicUserResponseDto,
   RegisterUserDto,
   RequestPasswordResetDto,
   UpdateUserProductProgressDto,
@@ -44,7 +45,7 @@ import {
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { generateEightDigitPublicId } from "../../common/utils/public-id";
-import { mapUser } from "../../common/mappers/domain.mapper";
+import { mapPublicUser, mapUser } from "../../common/mappers/domain.mapper";
 import { badRequest, conflict, internalError } from "../../common/exceptions/domain-error";
 import {
   createAccessToken,
@@ -56,6 +57,8 @@ import {
   verifyToken,
 } from "../../common/auth/token.utils";
 import { PasswordResetEmailService } from "./password-reset-email.service";
+import { OAuthTransactionService, type OAuthIntent } from "./oauth-transaction.service";
+import { RealtimeEventsService } from "../realtime/realtime-events.service";
 
 type KakaoTokenResponse = {
   access_token: string;
@@ -65,6 +68,11 @@ type KakaoTokenResponse = {
   refresh_token_expires_in?: number;
   scope?: string;
   id_token?: string;
+};
+
+type IssuedRefreshToken = {
+  token: string;
+  csrfToken: string;
 };
 
 type KakaoUserResponse = {
@@ -104,6 +112,8 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwordResetEmail: PasswordResetEmailService = new PasswordResetEmailService(),
+    private readonly oauthTransactions: OAuthTransactionService = new OAuthTransactionService(prisma),
+    private readonly realtimeEvents?: RealtimeEventsService,
   ) {}
 
   async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
@@ -117,12 +127,16 @@ export class UsersService {
     const nextHash = await bcrypt.hash(dto.newPassword, 12);
     const now = new Date();
     await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash: nextHash } }),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: nextHash, tokenVersion: { increment: 1 } },
+      }),
       this.prisma.refreshToken.updateMany({
         where: { userId: user.id, revokedAt: null },
         data: { revokedAt: now },
       }),
     ]);
+    this.realtimeEvents?.disconnectAuthenticatedUser(user.id);
   }
 
   async requestPasswordReset(dto: RequestPasswordResetDto): Promise<void> {
@@ -180,15 +194,21 @@ export class UsersService {
       if (claimed.count !== 1) {
         throw new BadRequestException("비밀번호 재설정 링크가 만료되었거나 이미 사용되었습니다.");
       }
-      await tx.user.update({ where: { id: resetToken.userId }, data: { passwordHash: nextHash } });
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: { passwordHash: nextHash, tokenVersion: { increment: 1 } },
+      });
       await tx.refreshToken.updateMany({
         where: { userId: resetToken.userId, revokedAt: null },
         data: { revokedAt: now },
       });
     });
+    this.realtimeEvents?.disconnectAuthenticatedUser(resetToken.userId);
   }
 
-  async createGuest(dto: CreateGuestUserDto): Promise<UserResponseDto> {
+  async createGuest(
+    dto: CreateGuestUserDto,
+  ): Promise<{ body: LoginResponseDto; refreshToken: string }> {
     const user = await this.prisma.user.create({
       data: {
         publicId: await this.generateUserPublicId(),
@@ -196,7 +216,17 @@ export class UsersService {
       },
     });
 
-    return mapUser(user);
+    const refreshSession = await this.issueRefreshToken(user.id, user.email, user.tokenVersion);
+    return {
+      body: {
+        accessToken: createAccessToken(user.id, user.email, user.tokenVersion),
+        tokenType: "Bearer",
+        expiresIn: getAccessTokenExpiresIn(),
+        csrfToken: refreshSession.csrfToken,
+        user: mapUser(user),
+      },
+      refreshToken: refreshSession.token,
+    };
   }
 
   async register(dto: RegisterUserDto): Promise<UserResponseDto> {
@@ -249,25 +279,43 @@ export class UsersService {
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
     try {
-      const user = await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          email,
-          passwordHash,
-          displayName: dto.name.trim(),
-          authProvider: PrismaAuthProvider.LOCAL,
-        },
+      const user = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.user.update({
+          where: { id: userId },
+          data: {
+            email,
+            passwordHash,
+            displayName: dto.name.trim(),
+            authProvider: PrismaAuthProvider.LOCAL,
+            tokenVersion: { increment: 1 },
+          },
+        });
+        await tx.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        return updated;
       });
+      this.realtimeEvents?.disconnectAuthenticatedUser(userId);
       const ensuredUser = await this.ensureUserPublicId(user);
-      const refreshToken = await this.issueRefreshToken(ensuredUser.id, ensuredUser.email);
+      const refreshSession = await this.issueRefreshToken(
+        ensuredUser.id,
+        ensuredUser.email,
+        ensuredUser.tokenVersion,
+      );
       return {
         body: {
-          accessToken: createAccessToken(ensuredUser.id, ensuredUser.email),
+          accessToken: createAccessToken(
+            ensuredUser.id,
+            ensuredUser.email,
+            ensuredUser.tokenVersion,
+          ),
           tokenType: "Bearer",
           expiresIn: getAccessTokenExpiresIn(),
+          csrfToken: refreshSession.csrfToken,
           user: mapUser(ensuredUser),
         },
-        refreshToken,
+        refreshToken: refreshSession.token,
       };
     } catch (error) {
       if (this.isEmailUniqueConstraintError(error)) {
@@ -301,27 +349,42 @@ export class UsersService {
 
     try {
       const ensuredUser = await this.ensureUserPublicId(user);
-      const refreshToken = await this.issueRefreshToken(ensuredUser.id, ensuredUser.email);
+      const refreshSession = await this.issueRefreshToken(
+        ensuredUser.id,
+        ensuredUser.email,
+        ensuredUser.tokenVersion,
+      );
       return {
         body: {
-          accessToken: createAccessToken(ensuredUser.id, ensuredUser.email),
+          accessToken: createAccessToken(
+            ensuredUser.id,
+            ensuredUser.email,
+            ensuredUser.tokenVersion,
+          ),
           tokenType: "Bearer",
           expiresIn: getAccessTokenExpiresIn(),
+          csrfToken: refreshSession.csrfToken,
           user: mapUser(ensuredUser),
         },
-        refreshToken,
+        refreshToken: refreshSession.token,
       };
     } catch {
       this.throwLoginTokenIssueFailed();
     }
   }
 
-  async reissue(refreshToken: string | undefined): Promise<AuthTokenResponseDto> {
-    if (!refreshToken) {
+  async reissue(
+    refreshToken: string | undefined,
+    csrfToken: string | undefined,
+  ): Promise<AuthTokenResponseDto> {
+    if (!refreshToken || !csrfToken) {
       throw new UnauthorizedException("Refresh Token이 유효하지 않습니다.");
     }
 
     const payload = verifyToken(refreshToken, "refresh");
+    if (!this.matchesCsrfToken(payload.csrf, csrfToken)) {
+      throw new UnauthorizedException("Refresh Token이 유효하지 않습니다.");
+    }
     const tokenHash = this.hashToken(refreshToken);
     const storedToken = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
@@ -333,22 +396,30 @@ export class UsersService {
       storedToken.revokedAt ||
       storedToken.expiresAt <= new Date() ||
       storedToken.user.deletedAt ||
-      storedToken.userId !== payload.sub
+      storedToken.userId !== payload.sub ||
+      storedToken.user.tokenVersion !== payload.ver
     ) {
       throw new UnauthorizedException("Refresh Token이 유효하지 않습니다.");
     }
 
     return {
-      accessToken: createAccessToken(storedToken.user.id, storedToken.user.email),
+      accessToken: createAccessToken(
+        storedToken.user.id,
+        storedToken.user.email,
+        storedToken.user.tokenVersion,
+      ),
       tokenType: "Bearer",
       expiresIn: getAccessTokenExpiresIn(),
+      csrfToken,
     };
   }
 
-  async logout(userId: string, refreshToken: string | undefined): Promise<void> {
-    if (!refreshToken) {
-      return;
-    }
+  async logout(
+    userId: string,
+    refreshToken: string | undefined,
+    csrfToken: string | undefined,
+  ): Promise<void> {
+    this.assertRefreshTokenOwner(refreshToken, csrfToken, userId);
 
     await this.prisma.refreshToken.updateMany({
       where: {
@@ -360,6 +431,26 @@ export class UsersService {
         revokedAt: new Date(),
       },
     });
+  }
+
+  async logoutAll(
+    userId: string,
+    refreshToken: string | undefined,
+    csrfToken: string | undefined,
+  ): Promise<void> {
+    this.assertRefreshTokenOwner(refreshToken, csrfToken, userId);
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { tokenVersion: { increment: 1 } },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+    ]);
+    this.realtimeEvents?.disconnectAuthenticatedUser(userId);
   }
 
   async getMe(userId: string): Promise<UserResponseDto> {
@@ -431,19 +522,20 @@ export class UsersService {
     return this.mapProductProgress(progress);
   }
 
-  async getPublicProfile(publicId: string): Promise<UserResponseDto> {
+  async getPublicProfile(publicId: string): Promise<PublicUserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: {
         publicId,
         deletedAt: null,
       },
+      include: { profile: true },
     });
 
     if (!user) {
       throw new NotFoundException(`User ${publicId} was not found.`);
     }
 
-    return mapUser(await this.ensureUserPublicId(user));
+    return mapPublicUser(await this.ensureUserPublicId(user));
   }
 
   private mapProductProgress(progress: {
@@ -584,9 +676,10 @@ export class UsersService {
       });
       await tx.user.update({
         where: { id: userId },
-        data: { deletedAt: now },
+        data: { deletedAt: now, tokenVersion: { increment: 1 } },
       });
     });
+    this.realtimeEvents?.disconnectAuthenticatedUser(userId);
   }
 
   async reauthenticateOAuth(
@@ -609,11 +702,26 @@ export class UsersService {
     }
 
     let providerUserId: string;
+    const transaction = await this.oauthTransactions.consume({
+      provider,
+      intent: "reauth",
+      state: dto.state,
+      redirectUri: dto.redirectUri,
+      userId,
+    });
     if (provider === "KAKAO") {
-      const token = await this.requestKakaoToken(dto.code.trim(), dto.redirectUri.trim());
+      const token = await this.requestKakaoToken(
+        dto.code.trim(),
+        transaction.redirectUri,
+        transaction.codeVerifier,
+      );
       providerUserId = String((await this.requestKakaoUser(token.accessToken)).id).trim();
     } else {
-      const token = await this.requestDiscordToken(dto.code.trim(), dto.redirectUri.trim());
+      const token = await this.requestDiscordToken(
+        dto.code.trim(),
+        transaction.redirectUri,
+        transaction.codeVerifier,
+      );
       providerUserId = (await this.requestDiscordUser(token.accessToken)).id.trim();
     }
     if (providerUserId !== linkedAccount.providerUserId) {
@@ -621,7 +729,7 @@ export class UsersService {
     }
 
     return {
-      ticket: createReauthToken(userId, provider),
+      ticket: createReauthToken(userId, provider, user.tokenVersion),
       expiresIn: getReauthTokenExpiresIn(),
     };
   }
@@ -648,35 +756,51 @@ export class UsersService {
     }
     const payload = verifyToken(dto.reauthTicket, "reauth");
     const expectedProvider = user.authProvider === PrismaAuthProvider.KAKAO ? "KAKAO" : "DISCORD";
-    if (payload.sub !== user.id || payload.provider !== expectedProvider) {
+    if (
+      payload.sub !== user.id ||
+      payload.provider !== expectedProvider ||
+      payload.ver !== user.tokenVersion
+    ) {
       throw new ForbiddenException("소셜 계정 재인증 정보가 일치하지 않습니다.");
     }
   }
 
-  getOAuthUrl(provider: "KAKAO" | "DISCORD", redirectUri: string, state?: string): OAuthUrlResponseDto {
-    const trimmedRedirectUri = redirectUri.trim();
-    if (!trimmedRedirectUri) {
-      throw new BadRequestException("redirectUri가 필요합니다.");
-    }
-
-    const encodedRedirectUri = encodeURIComponent(trimmedRedirectUri);
-    const encodedState = state ? `&state=${encodeURIComponent(state)}` : "";
+  async getOAuthUrl(
+    provider: "KAKAO" | "DISCORD",
+    redirectUri: string,
+    intent: OAuthIntent = "login",
+    userId?: string | null,
+  ): Promise<OAuthUrlResponseDto> {
+    const transaction = await this.oauthTransactions.begin({
+      provider,
+      redirectUri,
+      intent,
+      userId,
+    });
     if (provider === "KAKAO") {
+      const params = new URLSearchParams({
+        client_id: this.getRequiredEnv("KAKAO_REST_API_KEY"),
+        redirect_uri: transaction.redirectUri,
+        response_type: "code",
+        state: transaction.state,
+        code_challenge: transaction.codeChallenge,
+        code_challenge_method: "S256",
+      });
       return {
         provider,
-        authUrl: `https://kauth.kakao.com/oauth/authorize?client_id=${this.getRequiredEnv("KAKAO_REST_API_KEY")}&redirect_uri=${encodedRedirectUri}&response_type=code${encodedState}`,
+        authUrl: `https://kauth.kakao.com/oauth/authorize?${params.toString()}`,
       };
     }
 
     const params = new URLSearchParams({
       client_id: this.getRequiredEnv("DISCORD_CLIENT_ID"),
       response_type: "code",
-      redirect_uri: trimmedRedirectUri,
+      redirect_uri: transaction.redirectUri,
       scope: "identify email",
+      state: transaction.state,
+      code_challenge: transaction.codeChallenge,
+      code_challenge_method: "S256",
     });
-    if (state) {
-      params.set("state", state);
-    }
 
     return {
       provider,
@@ -707,8 +831,13 @@ export class UsersService {
     return this.ensureUserPublicId(user);
   }
 
-  private async issueRefreshToken(userId: string, email: string | null): Promise<string> {
-    const refreshToken = createRefreshToken(userId, email);
+  private async issueRefreshToken(
+    userId: string,
+    email: string | null,
+    tokenVersion: number,
+  ): Promise<IssuedRefreshToken> {
+    const csrfToken = randomBytes(32).toString("base64url");
+    const refreshToken = createRefreshToken(userId, email, csrfToken, tokenVersion);
     await this.prisma.refreshToken.create({
       data: {
         userId,
@@ -716,7 +845,33 @@ export class UsersService {
         expiresAt: getRefreshTokenExpiresAt(),
       },
     });
-    return refreshToken;
+    return { token: refreshToken, csrfToken };
+  }
+
+  private matchesCsrfToken(expected: string | undefined, actual: string): boolean {
+    if (!expected) {
+      return false;
+    }
+    const expectedBuffer = Buffer.from(expected);
+    const actualBuffer = Buffer.from(actual);
+    return (
+      expectedBuffer.length === actualBuffer.length &&
+      timingSafeEqual(expectedBuffer, actualBuffer)
+    );
+  }
+
+  private assertRefreshTokenOwner(
+    refreshToken: string | undefined,
+    csrfToken: string | undefined,
+    userId: string,
+  ): asserts refreshToken is string {
+    if (!refreshToken || !csrfToken) {
+      throw new UnauthorizedException("Refresh Token이 유효하지 않습니다.");
+    }
+    const payload = verifyToken(refreshToken, "refresh");
+    if (payload.sub !== userId || !this.matchesCsrfToken(payload.csrf, csrfToken)) {
+      throw new UnauthorizedException("Refresh Token이 유효하지 않습니다.");
+    }
   }
 
   private hashToken(token: string): string {
@@ -725,12 +880,20 @@ export class UsersService {
 
   private async kakaoLogin(dto: OAuthLoginDto): Promise<{ body: LoginResponseDto; refreshToken: string }> {
     const code = dto.code.trim();
-    const redirectUri = dto.redirectUri.trim();
-    if (!code || !redirectUri) {
-      throw new BadRequestException("code와 redirectUri가 필요합니다.");
+    if (!code) {
+      throw new BadRequestException("code가 필요합니다.");
     }
-
-    const token = await this.requestKakaoToken(code, redirectUri);
+    const transaction = await this.oauthTransactions.consume({
+      provider: "KAKAO",
+      intent: "login",
+      state: dto.state,
+      redirectUri: dto.redirectUri,
+    });
+    const token = await this.requestKakaoToken(
+      code,
+      transaction.redirectUri,
+      transaction.codeVerifier,
+    );
     const kakaoUser = await this.requestKakaoUser(token.accessToken);
     const providerUserId = String(kakaoUser.id).trim();
 
@@ -738,28 +901,31 @@ export class UsersService {
     const email = this.getVerifiedKakaoEmail(kakaoUser);
     const displayName = this.getKakaoDisplayName(kakaoUser, providerUserId);
     const user = await this.findOrCreateKakaoUser(providerUserId, email, displayName);
-    const refreshToken = await this.issueRefreshToken(user.id, user.email);
+    const refreshSession = await this.issueRefreshToken(user.id, user.email, user.tokenVersion);
 
     return {
       body: {
-        accessToken: createAccessToken(user.id, user.email),
+        accessToken: createAccessToken(user.id, user.email, user.tokenVersion),
         tokenType: "Bearer",
         expiresIn: getAccessTokenExpiresIn(),
+        csrfToken: refreshSession.csrfToken,
         user: mapUser(user),
       },
-      refreshToken,
+      refreshToken: refreshSession.token,
     };
   }
 
   private async requestKakaoToken(
     code: string,
     redirectUri: string,
+    codeVerifier: string,
   ): Promise<{ accessToken: string }> {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       client_id: this.getRequiredEnv("KAKAO_REST_API_KEY"),
       redirect_uri: redirectUri,
       code,
+      code_verifier: codeVerifier,
       client_secret: this.getRequiredEnv("KAKAO_CLIENT_SECRET"),
     });
 
@@ -797,12 +963,20 @@ export class UsersService {
 
   private async discordLogin(dto: OAuthLoginDto): Promise<{ body: LoginResponseDto; refreshToken: string }> {
     const code = dto.code.trim();
-    const redirectUri = dto.redirectUri.trim();
-    if (!code || !redirectUri) {
-      throw new BadRequestException("code와 redirectUri가 필요합니다.");
+    if (!code) {
+      throw new BadRequestException("code가 필요합니다.");
     }
-
-    const token = await this.requestDiscordToken(code, redirectUri);
+    const transaction = await this.oauthTransactions.consume({
+      provider: "DISCORD",
+      intent: "login",
+      state: dto.state,
+      redirectUri: dto.redirectUri,
+    });
+    const token = await this.requestDiscordToken(
+      code,
+      transaction.redirectUri,
+      transaction.codeVerifier,
+    );
     const discordUser = await this.requestDiscordUser(token.accessToken);
     const providerUserId = discordUser.id.trim();
 
@@ -810,22 +984,24 @@ export class UsersService {
     const email = this.getVerifiedDiscordEmail(discordUser);
     const displayName = this.getDiscordDisplayName(discordUser, providerUserId);
     const user = await this.findOrCreateDiscordUser(providerUserId, email, displayName);
-    const refreshToken = await this.issueRefreshToken(user.id, user.email);
+    const refreshSession = await this.issueRefreshToken(user.id, user.email, user.tokenVersion);
 
     return {
       body: {
-        accessToken: createAccessToken(user.id, user.email),
+        accessToken: createAccessToken(user.id, user.email, user.tokenVersion),
         tokenType: "Bearer",
         expiresIn: getAccessTokenExpiresIn(),
+        csrfToken: refreshSession.csrfToken,
         user: mapUser(user),
       },
-      refreshToken,
+      refreshToken: refreshSession.token,
     };
   }
 
   private async requestDiscordToken(
     code: string,
     redirectUri: string,
+    codeVerifier: string,
   ): Promise<{ accessToken: string }> {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
@@ -833,6 +1009,7 @@ export class UsersService {
       client_secret: this.getRequiredEnv("DISCORD_CLIENT_SECRET"),
       code,
       redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
     });
 
     // client secret은 브라우저에 노출하면 안 되므로 토큰 교환은 백엔드에서만 처리한다.

@@ -37,6 +37,16 @@ export class RealtimeEventsService {
     return `session:${sessionId}`;
   }
 
+  getAuthenticatedUserRoomName(userId: string): string {
+    return `auth:user:${userId}`;
+  }
+
+  disconnectAuthenticatedUser(userId: string): void {
+    this.server
+      ?.in(this.getAuthenticatedUserRoomName(userId))
+      .disconnectSockets(true);
+  }
+
   getUserRoomName(sessionId: string, userId: string): string {
     return `session:${sessionId}:user:${userId}`;
   }

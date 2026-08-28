@@ -7,7 +7,7 @@ import { badRequest } from "../../common/exceptions/domain-error";
 import { TurnLogsService } from "./turn-logs.service";
 
 @ApiTags("turn-logs")
-@ApiSecurity("x-user-id")
+@ApiSecurity("bearer")
 @Controller("sessions/:sessionId/turn-logs")
 export class TurnLogsController {
   constructor(private readonly turnLogsService: TurnLogsService) {}

@@ -7,8 +7,8 @@ import {
 import { ParticipantRole, SessionListItemResponseDto } from "@trpg/shared-types";
 import {
   mapScenarioSummary,
-  mapSession,
-  mapUser,
+  mapPublicSessionSummary,
+  mapPublicUser,
 } from "../../common/mappers/domain.mapper";
 
 const participantRoleToApi: Record<PrismaParticipantRole, ParticipantRole> = {
@@ -20,7 +20,7 @@ const participantRoleToApi: Record<PrismaParticipantRole, ParticipantRole> = {
 
 type SessionListSource = Prisma.SessionGetPayload<{
   include: {
-    host: true;
+    host: { include: { profile: true } };
     participants: true;
     sessionScenarios: {
       include: {
@@ -44,10 +44,10 @@ export class SessionListItemService {
     }
 
     return {
-      session: mapSession(session),
+      session: mapPublicSessionSummary(session),
       scenario: mapScenarioSummary(activeScenario.scenario),
-      host: mapUser(session.host),
-      owner: mapUser(session.host),
+      host: mapPublicUser(session.host),
+      owner: mapPublicUser(session.host),
       participantCount: session.participants.length,
       availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
       role: this.getParticipantRoleForUser(session.participants, requesterUserId),

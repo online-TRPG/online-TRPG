@@ -82,6 +82,7 @@ import {
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
+import { Public } from "../../common/auth/public.decorator";
 import { MapRuntimeService } from "./map-runtime.service";
 import { SessionsService } from "./sessions.service";
 import { SessionPlayService } from "./session-play.service";
@@ -96,7 +97,7 @@ export class SessionsController {
   ) {}
 
   @Get(":id/plays")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [SessionPlayResponseDto] })
   async listPlays(
     @CurrentUserId() userId: string,
@@ -106,7 +107,7 @@ export class SessionsController {
   }
 
   @Post(":id/plays")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiCreatedResponse({ type: SessionPlayResponseDto })
   async createPlay(
     @CurrentUserId() userId: string,
@@ -121,7 +122,7 @@ export class SessionsController {
   }
 
   @Patch(":id/plays/:playId")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionPlayResponseDto })
   async updatePlay(
     @CurrentUserId() userId: string,
@@ -134,7 +135,7 @@ export class SessionsController {
 
   @Post(":id/plays/:playId/cancel")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionPlayResponseDto })
   async cancelPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
     return apiResponse("SESSION_200", "플레이 일정을 취소했습니다.", await this.sessionPlayService.cancelPlay(userId, sessionId, playId, dto));
@@ -142,7 +143,7 @@ export class SessionsController {
 
   @Post(":id/plays/:playId/open-lobby")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionPlayResponseDto })
   async openPlayLobby(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
     return apiResponse("SESSION_200", "대기실을 열었습니다.", await this.sessionPlayService.openLobby(userId, sessionId, playId, dto));
@@ -150,7 +151,7 @@ export class SessionsController {
 
   @Post(":id/plays/:playId/start")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionSnapshotDto })
   async startPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
     return apiResponse("SESSION_200", "플레이를 시작했습니다.", await this.sessionsService.startSession(userId, sessionId, { playId, expectedStateVersion: dto.expectedStateVersion }));
@@ -158,14 +159,14 @@ export class SessionsController {
 
   @Post(":id/plays/:playId/finish")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionPlayResponseDto })
   async finishPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: SessionPlayTransitionDto) {
     return apiResponse("SESSION_200", "플레이를 닫고 대기 중으로 전환했습니다.", await this.sessionPlayService.finishPlay(userId, sessionId, playId, dto));
   }
 
   @Patch(":id/plays/:playId/attendance/me")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionPlayResponseDto })
   async updatePlayAttendance(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: UpdateSessionPlayAttendanceDto) {
     return apiResponse("SESSION_200", "참석 응답을 저장했습니다.", await this.sessionPlayService.updateAttendance(userId, sessionId, playId, dto));
@@ -173,7 +174,7 @@ export class SessionsController {
 
   @Post(":id/plays/:playId/enter")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: ActivePlayResponseDto })
   async enterPlay(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("playId") playId: string, @Body() dto: AcquireActivePlayDto) {
     return apiResponse("SESSION_200", "실시간 플레이에 입장했습니다.", await this.sessionPlayService.acquireActivePlay(userId, sessionId, playId, dto));
@@ -181,28 +182,28 @@ export class SessionsController {
 
   @Delete("active-play/me")
   @HttpCode(204)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   async leaveActivePlay(@CurrentUserId() userId: string): Promise<void> {
     await this.sessionPlayService.releaseActivePlay(userId);
   }
 
   @Post("active-play/:playId/heartbeat")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: ActivePlayResponseDto })
   async heartbeatActivePlay(@CurrentUserId() userId: string, @Param("playId") playId: string) {
     return apiResponse("SESSION_200", "실시간 참여 상태를 갱신했습니다.", await this.sessionPlayService.heartbeat(userId, playId));
   }
 
   @Post(":id/applications")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiCreatedResponse({ type: SessionApplicationResponseDto })
   async createApplication(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Body() dto: CreateSessionApplicationDto) {
     return apiResponse("SESSION_201", "참가 신청을 보냈습니다.", await this.sessionPlayService.createApplication(userId, sessionId, dto));
   }
 
   @Get(":id/application-proximity-warnings")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [SessionScheduleProximityWarningDto] })
   async getApplicationProximityWarnings(@CurrentUserId() userId: string, @Param("id") sessionId: string) {
     return apiResponse(
@@ -213,21 +214,21 @@ export class SessionsController {
   }
 
   @Get(":id/applications")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [SessionApplicationResponseDto] })
   async listApplications(@CurrentUserId() userId: string, @Param("id") sessionId: string) {
     return apiResponse("SESSION_200", "참가 신청을 조회했습니다.", await this.sessionPlayService.listApplications(userId, sessionId));
   }
 
   @Patch(":id/applications/:applicationId")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionApplicationResponseDto })
   async resolveApplication(@CurrentUserId() userId: string, @Param("id") sessionId: string, @Param("applicationId") applicationId: string, @Body() dto: ResolveSessionApplicationDto) {
     return apiResponse("SESSION_200", "참가 신청을 처리했습니다.", await this.sessionPlayService.resolveApplication(userId, sessionId, applicationId, dto));
   }
 
   @Get()
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [SessionListItemResponseDto] })
   async listSessions(
     @CurrentUserId() userId: string,
@@ -258,7 +259,7 @@ export class SessionsController {
   }
 
   @Post()
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async createSession(
     @CurrentUserId() userId: string,
@@ -272,7 +273,7 @@ export class SessionsController {
   }
 
   @Post("join")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async joinSessionLegacy(
     @CurrentUserId() userId: string,
@@ -286,7 +287,7 @@ export class SessionsController {
   }
 
   @Post("join-by-invite")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async joinSessionByInvite(
     @CurrentUserId() userId: string,
@@ -300,6 +301,7 @@ export class SessionsController {
   }
 
   @Get("invites/:inviteCode/preview")
+  @Public()
   @ApiParam({ name: "inviteCode" })
   @ApiOkResponse({ type: SessionInvitePreviewResponseDto })
   async getInvitePreview(
@@ -313,7 +315,7 @@ export class SessionsController {
   }
 
   @Get("invites/:inviteCode/proximity-warnings")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [SessionScheduleProximityWarningDto] })
   async getInviteProximityWarnings(
     @CurrentUserId() userId: string,
@@ -327,7 +329,7 @@ export class SessionsController {
   }
 
   @Get("characters/vault")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [CharacterVaultItemDto] })
   async listCharacterVault(
     @CurrentUserId() userId: string,
@@ -340,7 +342,7 @@ export class SessionsController {
   }
 
   @Get(":id")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionDetailResponseDto })
   async getSession(
@@ -355,7 +357,7 @@ export class SessionsController {
   }
 
   @Patch(":id")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionResponseDto })
   async updateSession(
@@ -371,7 +373,7 @@ export class SessionsController {
   }
 
   @Post(":id/complete-campaign")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: CampaignArchiveResponseDto })
   async completeLongCampaign(
@@ -387,7 +389,7 @@ export class SessionsController {
   }
 
   @Get(":id/campaign-archive")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: CampaignArchiveResponseDto })
   async getCampaignArchive(
@@ -402,7 +404,7 @@ export class SessionsController {
   }
 
   @Post(":id/character-transfers")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: CharacterTransferResponseDto })
   async requestCharacterTransfer(
@@ -419,7 +421,7 @@ export class SessionsController {
 
   @Post(":id/character-transfers/:requestId/approve")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiParam({ name: "requestId" })
   @ApiOkResponse({ type: CharacterTransferResponseDto })
@@ -437,7 +439,7 @@ export class SessionsController {
 
   @Post(":id/character-transfers/:requestId/reject")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiParam({ name: "requestId" })
   @ApiOkResponse({ type: CharacterTransferResponseDto })
@@ -454,7 +456,7 @@ export class SessionsController {
   }
 
   @Delete(":id/leave")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
   @HttpCode(204)
@@ -466,7 +468,7 @@ export class SessionsController {
   }
 
   @Post(":id/join")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async joinSessionById(
@@ -482,7 +484,7 @@ export class SessionsController {
   }
 
   @Delete(":id")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
   @HttpCode(200)
@@ -495,7 +497,7 @@ export class SessionsController {
   }
 
   @Get(":id/participants")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [SessionParticipantResponseDto] })
   async getParticipants(
@@ -510,7 +512,7 @@ export class SessionsController {
   }
 
   @Delete(":id/participants/:participantPublicId")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionParticipantResponseDto })
   async removeParticipant(
     @CurrentUserId() userId: string,
@@ -526,7 +528,7 @@ export class SessionsController {
 
   @Post(":id/participants/:participantPublicId/restore")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: SessionParticipantResponseDto })
   async restoreParticipant(
     @CurrentUserId() userId: string,
@@ -541,7 +543,7 @@ export class SessionsController {
   }
 
   @Get(":id/participants/status")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [ParticipantStatusResponseDto] })
   async getParticipantStatuses(
@@ -554,7 +556,7 @@ export class SessionsController {
   }
 
   @Get(":id/participants/removed")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [SessionParticipantResponseDto] })
   async getRemovedParticipants(
     @CurrentUserId() userId: string,
@@ -568,7 +570,7 @@ export class SessionsController {
   }
 
   @Get(":id/state")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: GameStateResponseDto })
   async getState(
@@ -583,7 +585,7 @@ export class SessionsController {
   }
 
   @Get(":id/map")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: VttMapStateDto })
   async getVttMap(
@@ -598,7 +600,7 @@ export class SessionsController {
   }
 
   @Patch(":id/map")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOperation({
     summary: "Legacy whole-map update endpoint.",
@@ -618,7 +620,7 @@ export class SessionsController {
   }
 
   @Put(":id/gm/map")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: VttMapStateDto })
   async updateGmVttMap(
@@ -635,7 +637,7 @@ export class SessionsController {
 
   @Post(":id/map/tokens/move")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: VttMapStateDto })
   async moveSessionToken(
@@ -652,7 +654,7 @@ export class SessionsController {
 
   @Post(":id/map/pings")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: VttMapStateDto })
   async createVttMapPing(
@@ -669,7 +671,7 @@ export class SessionsController {
 
   @Post(":id/map/interactions")
   @HttpCode(200)
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: VttMapInteractionResponseDto })
   async runVttMapInteraction(
@@ -685,7 +687,7 @@ export class SessionsController {
   }
 
   @Get(":id/player-scenario")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: PlayerScenarioViewDto })
   async getPlayerScenario(
@@ -700,7 +702,7 @@ export class SessionsController {
   }
 
   @Post(":id/character-selection")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionParticipantResponseDto })
   @HttpCode(200)
@@ -717,7 +719,7 @@ export class SessionsController {
   }
 
   @Patch(":id/participants/me/ready")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionParticipantResponseDto })
   async updateReadyState(
@@ -733,7 +735,7 @@ export class SessionsController {
   }
 
   @Post(":id/resume")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async resumeSession(
@@ -748,7 +750,7 @@ export class SessionsController {
   }
 
   @Post(":id/start")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async startSession(
@@ -763,7 +765,7 @@ export class SessionsController {
   }
 
   @Get(":id/invite")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionInviteResponseDto })
   async getInvite(
@@ -778,7 +780,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/messages")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async createHumanGmMessage(
@@ -794,7 +796,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/reveals")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionRevealResponseDto })
   async revealSessionContent(
@@ -810,7 +812,7 @@ export class SessionsController {
   }
 
   @Get(":id/gm/reveal-options")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [HumanGmRevealOptionDto] })
   async listHumanGmRevealOptions(
@@ -825,7 +827,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/inventory/grant")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async grantHumanGmInventoryItem(
@@ -841,7 +843,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/inventory/remove")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async removeHumanGmInventoryItem(
@@ -857,7 +859,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/economy")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async applyHumanGmEconomyAction(
@@ -873,7 +875,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/campaign-calendar")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async applyGmCampaignCalendarAction(
@@ -889,7 +891,7 @@ export class SessionsController {
   }
 
   @Post(":id/campaign-calendar")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async applyCampaignCalendarAction(
@@ -905,7 +907,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/dc")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async setHumanGmDifficultyClass(
@@ -921,7 +923,7 @@ export class SessionsController {
   }
 
   @Get(":id/gm/private-notes")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [HumanGmPrivateNoteDto] })
   async listHumanGmPrivateNotes(
@@ -936,7 +938,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/ai-assist/suggestions")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: HumanGmAiAssistSuggestionDto })
   async createHumanGmAiAssistSuggestion(
@@ -952,7 +954,7 @@ export class SessionsController {
   }
 
   @Get(":id/gm/ai-assist/suggestions")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [HumanGmAiAssistSuggestionDto] })
   async listHumanGmAiAssistSuggestions(
@@ -967,7 +969,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/ai-assist/accept")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async acceptHumanGmAiAssistSuggestion(
@@ -983,7 +985,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/ai-assist/apply-failure")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async reportHumanGmAiAssistApplicationFailure(
@@ -999,7 +1001,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/combat/conditions")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async applyHumanGmCombatCondition(
@@ -1015,7 +1017,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/combat/hp")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async adjustHumanGmCombatHp(
@@ -1031,7 +1033,7 @@ export class SessionsController {
   }
 
   @Patch(":id/gm/node")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionNodeTransitionResponseDto })
   async updateSessionNode(
@@ -1047,7 +1049,7 @@ export class SessionsController {
   }
 
   @Get(":id/gm/node-options")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [HumanGmNodeMoveOptionDto] })
   async listHumanGmNodeMoveOptions(
@@ -1062,7 +1064,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/combat/start")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async startCombat(
@@ -1077,7 +1079,7 @@ export class SessionsController {
   }
 
   @Post(":id/gm/combat/end")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
   async endCombat(

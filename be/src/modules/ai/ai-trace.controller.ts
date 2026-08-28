@@ -21,7 +21,7 @@ export class AiTraceController {
 
   @Get("metrics")
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiOkResponse({ type: AiTraceQualityMetricsResponseDto })
   async metrics(
@@ -37,7 +37,7 @@ export class AiTraceController {
 
   @Get()
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiOkResponse({ type: AiTraceListResponseDto })
   async list(

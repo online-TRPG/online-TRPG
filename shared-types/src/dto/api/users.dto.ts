@@ -172,10 +172,10 @@ export class OAuthUrlQueryDto {
   @IsNotEmpty()
   redirectUri!: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ required: false, enum: ["login", "reauth"], default: "login" })
   @IsOptional()
   @IsString()
-  state?: string;
+  intent?: "login" | "reauth";
 }
 
 export class OAuthLoginDto {
@@ -189,10 +189,11 @@ export class OAuthLoginDto {
   @IsNotEmpty()
   redirectUri!: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  state?: string;
+  @IsNotEmpty()
+  @MaxLength(100)
+  state!: string;
 }
 
 export class AuthTokenResponseDto {
@@ -202,8 +203,11 @@ export class AuthTokenResponseDto {
   @ApiProperty({ example: "Bearer" })
   tokenType!: "Bearer";
 
-  @ApiProperty({ example: 172800 })
+  @ApiProperty({ example: 600 })
   expiresIn!: number;
+
+  @ApiProperty({ description: "Refresh cookie 사용 요청에 함께 보낼 CSRF token" })
+  csrfToken!: string;
 }
 
 export class UserResponseDto {
@@ -236,6 +240,17 @@ export class UserResponseDto {
 
   @ApiProperty()
   createdAt!: string;
+}
+
+export class PublicUserResponseDto {
+  @ApiProperty()
+  publicId!: string;
+
+  @ApiProperty()
+  displayName!: string;
+
+  @ApiProperty({ required: false, nullable: true })
+  profileImageUrl!: string | null;
 }
 
 export class LoginResponseDto extends AuthTokenResponseDto {

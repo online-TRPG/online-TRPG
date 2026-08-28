@@ -39,7 +39,7 @@ class CombatReactionRequestDto implements CombatReactionResponseDto {
 }
 
 @ApiTags("combat")
-@ApiSecurity("x-user-id")
+@ApiSecurity("bearer")
 @Controller("sessions/:sessionId/combat")
 export class CombatController {
   constructor(private readonly combatService: CombatService) {}

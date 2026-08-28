@@ -6,9 +6,11 @@ import {
   RuleCatalogReferenceDto,
 } from "@trpg/shared-types";
 import { CatalogService } from "./catalog.service";
+import { Public } from "../../common/auth/public.decorator";
 
 @ApiTags("catalog")
 @Controller()
+@Public()
 export class CatalogController {
   constructor(private readonly catalogService: CatalogService) {}
 

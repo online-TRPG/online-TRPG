@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -28,6 +29,7 @@ import {
   OAuthReauthResponseDto,
   OAuthUrlResponseDto,
   PaginatedResponse,
+  PublicUserResponseDto,
   RegisterUserDto,
   RecordProductEventDto,
   RequestPasswordResetDto,
@@ -39,8 +41,15 @@ import {
   UserResponseDto,
 } from "@trpg/shared-types";
 import { apiResponse, ApiResponse } from "../../common/api-response";
+import type { AuthenticatedRequest } from "../../common/auth/authenticated-request";
 import { getRefreshTokenExpiresInMs } from "../../common/auth/token.utils";
+import { Public } from "../../common/auth/public.decorator";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
+import {
+  getRefreshCookieName,
+  getRefreshCookieSameSite,
+  isTrustedBrowserRequestOrigin,
+} from "../../common/security/browser-security";
 import { SessionsService } from "../sessions/sessions.service";
 import { UsersService } from "./users.service";
 import { ProductEventsService } from "./product-events.service";
@@ -55,12 +64,21 @@ export class UsersController {
   ) {}
 
   @Post("guest")
-  @ApiCreatedResponse({ type: UserResponseDto })
-  createGuest(@Body() dto: CreateGuestUserDto): Promise<UserResponseDto> {
-    return this.usersService.createGuest(dto);
+  @Public()
+  @ApiCreatedResponse({ type: LoginResponseDto })
+  async createGuest(
+    @Body() dto: CreateGuestUserDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ApiResponse<LoginResponseDto>> {
+    this.assertTrustedBrowserRequest(request);
+    const result = await this.usersService.createGuest(dto);
+    this.setRefreshCookie(response, result.refreshToken);
+    return apiResponse("USER_201", "게스트 계정이 생성되었습니다.", result.body);
   }
 
   @Post("register")
+  @Public()
   @ApiCreatedResponse({ type: UserResponseDto })
   async register(@Body() dto: RegisterUserDto): Promise<ApiResponse<UserResponseDto>> {
     const user = await this.usersService.register(dto);
@@ -76,12 +94,14 @@ export class UsersController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<LoginResponseDto>> {
+    this.assertTrustedBrowserRequest(request);
     const result = await this.usersService.convertGuestToLocal(userId, dto);
-    this.setRefreshCookie(response, result.refreshToken, this.resolveRefreshCookieSameSite(request));
+    this.setRefreshCookie(response, result.refreshToken);
     return apiResponse("USER_200", "게스트 계정을 회원 계정으로 저장했습니다.", result.body);
   }
 
   @Get("email-check")
+  @Public()
   @ApiOkResponse({ type: EmailCheckResponseDto })
   async checkEmail(@Query("email") email = ""): Promise<ApiResponse<EmailCheckResponseDto>> {
     const result = await this.usersService.checkEmail(email);
@@ -89,6 +109,7 @@ export class UsersController {
   }
 
   @Post("login")
+  @Public()
   @HttpCode(200)
   @ApiOkResponse({ type: LoginResponseDto })
   async login(
@@ -96,8 +117,9 @@ export class UsersController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<LoginResponseDto>> {
+    this.assertTrustedBrowserRequest(request);
     const result = await this.usersService.login(dto);
-    this.setRefreshCookie(response, result.refreshToken, this.resolveRefreshCookieSameSite(request));
+    this.setRefreshCookie(response, result.refreshToken);
     return apiResponse("USER_200", "로그인에 성공했습니다.", result.body);
   }
 
@@ -109,16 +131,26 @@ export class UsersController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<null>> {
-    await this.usersService.logout(userId, this.getRefreshToken(request));
+    this.assertTrustedBrowserRequest(request);
+    await this.usersService.logout(
+      userId,
+      this.getRefreshToken(request),
+      this.getSingleHeaderValue(request.headers["x-csrf-token"]),
+    );
     this.clearRefreshCookie(response);
     return apiResponse("USER_200", "로그아웃이 완료되었습니다.", null);
   }
 
   @Post("reissue")
+  @Public()
   @HttpCode(200)
   @ApiOkResponse({ type: AuthTokenResponseDto })
   async reissue(@Req() request: Request): Promise<ApiResponse<AuthTokenResponseDto>> {
-    const result = await this.usersService.reissue(this.getRefreshToken(request));
+    this.assertTrustedBrowserRequest(request);
+    const result = await this.usersService.reissue(
+      this.getRefreshToken(request),
+      this.getSingleHeaderValue(request.headers["x-csrf-token"]),
+    );
     return apiResponse("USER_200", "Access Token이 재발급되었습니다.", result);
   }
 
@@ -140,6 +172,24 @@ export class UsersController {
     return apiResponse("USER_200", "닉네임이 변경되었습니다.", await this.usersService.updateMe(userId, dto));
   }
 
+  @Post("logout-all")
+  @HttpCode(200)
+  @ApiSecurity("bearer")
+  async logoutAll(
+    @CurrentUserId() userId: string,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ApiResponse<null>> {
+    this.assertTrustedBrowserRequest(request);
+    await this.usersService.logoutAll(
+      userId,
+      this.getRefreshToken(request),
+      this.getSingleHeaderValue(request.headers["x-csrf-token"]),
+    );
+    this.clearRefreshCookie(response);
+    return apiResponse("USER_200", "모든 기기에서 로그아웃했습니다.", null);
+  }
+
   @Patch("me/password")
   @HttpCode(200)
   @ApiSecurity("bearer")
@@ -152,6 +202,7 @@ export class UsersController {
   }
 
   @Post("password-reset/request")
+  @Public()
   @HttpCode(200)
   async requestPasswordReset(@Body() dto: RequestPasswordResetDto): Promise<ApiResponse<null>> {
     await this.usersService.requestPasswordReset(dto);
@@ -159,6 +210,7 @@ export class UsersController {
   }
 
   @Post("password-reset/confirm")
+  @Public()
   @HttpCode(200)
   async confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto): Promise<ApiResponse<null>> {
     await this.usersService.confirmPasswordReset(dto);
@@ -205,8 +257,11 @@ export class UsersController {
   }
 
   @Get("public/:publicId")
-  @ApiOkResponse({ type: UserResponseDto })
-  async getPublicProfile(@Param("publicId") publicId: string): Promise<ApiResponse<UserResponseDto>> {
+  @Public()
+  @ApiOkResponse({ type: PublicUserResponseDto })
+  async getPublicProfile(
+    @Param("publicId") publicId: string,
+  ): Promise<ApiResponse<PublicUserResponseDto>> {
     return apiResponse("USER_200", "공개 프로필 조회에 성공했습니다.", await this.usersService.getPublicProfile(publicId));
   }
 
@@ -244,50 +299,70 @@ export class UsersController {
   }
 
   @Get("oauth/kakao/url")
+  @Public()
   @ApiOkResponse({ type: OAuthUrlResponseDto })
-  getKakaoUrl(
+  async getKakaoUrl(
     @Query("redirectUri") redirectUri = "",
-    @Query("state") state?: string,
-  ): ApiResponse<OAuthUrlResponseDto> {
+    @Query("intent") intent = "login",
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ApiResponse<OAuthUrlResponseDto>> {
     return apiResponse(
       "USER_200",
       "요청이 성공했습니다.",
-      this.usersService.getOAuthUrl("KAKAO", redirectUri, state),
+      await this.usersService.getOAuthUrl(
+        "KAKAO",
+        redirectUri,
+        this.readOAuthIntent(intent),
+        request.accessTokenAuth?.userId,
+      ),
     );
   }
 
   @Post("oauth/kakao/login")
+  @Public()
   @HttpCode(200)
   async kakaoLogin(
     @Body() dto: OAuthLoginDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<LoginResponseDto>> {
+    this.assertTrustedBrowserRequest(request);
     const result = await this.usersService.oauthLogin("KAKAO", dto);
-    this.setRefreshCookie(response, result.refreshToken, "none");
+    this.setRefreshCookie(response, result.refreshToken);
     return apiResponse("USER_200", "요청이 성공했습니다.", result.body);
   }
 
   @Get("oauth/discord/url")
+  @Public()
   @ApiOkResponse({ type: OAuthUrlResponseDto })
-  getDiscordUrl(
+  async getDiscordUrl(
     @Query("redirectUri") redirectUri = "",
-    @Query("state") state?: string,
-  ): ApiResponse<OAuthUrlResponseDto> {
+    @Query("intent") intent = "login",
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ApiResponse<OAuthUrlResponseDto>> {
     return apiResponse(
       "USER_200",
       "요청이 성공했습니다.",
-      this.usersService.getOAuthUrl("DISCORD", redirectUri, state),
+      await this.usersService.getOAuthUrl(
+        "DISCORD",
+        redirectUri,
+        this.readOAuthIntent(intent),
+        request.accessTokenAuth?.userId,
+      ),
     );
   }
 
   @Post("oauth/discord/login")
+  @Public()
   @HttpCode(200)
   async discordLogin(
     @Body() dto: OAuthLoginDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<LoginResponseDto>> {
+    this.assertTrustedBrowserRequest(request);
     const result = await this.usersService.oauthLogin("DISCORD", dto);
-    this.setRefreshCookie(response, result.refreshToken, "none");
+    this.setRefreshCookie(response, result.refreshToken);
     return apiResponse("USER_200", "요청이 성공했습니다.", result.body);
   }
 
@@ -323,9 +398,9 @@ export class UsersController {
   private setRefreshCookie(
     response: Response,
     refreshToken: string,
-    sameSite: "strict" | "none" = "strict",
   ): void {
-    response.cookie("refreshToken", refreshToken, {
+    const sameSite = getRefreshCookieSameSite();
+    response.cookie(getRefreshCookieName(), refreshToken, {
       httpOnly: true,
       secure: sameSite === "none" || process.env.NODE_ENV === "production",
       sameSite,
@@ -334,50 +409,41 @@ export class UsersController {
     });
   }
 
-  private resolveRefreshCookieSameSite(request: Request): "strict" | "none" {
-    const origin = this.getSingleHeaderValue(request.headers.origin);
-    if (!origin) {
-      return "strict";
-    }
-
-    const originHostname = this.getHostname(origin);
-    const requestHostname = this.getRequestHostname(request);
-    if (!originHostname || !requestHostname) {
-      return "strict";
-    }
-
-    // 로컬 프론트가 배포 API를 바라보는 경우처럼 사이트가 다르면 Strict 쿠키가 재발급 요청에 실리지 않는다.
-    // 이때만 SameSite=None으로 발급해서 refresh token 쿠키가 credentials 요청에 포함되게 한다.
-    return originHostname === requestHostname ? "strict" : "none";
-  }
-
-  private getRequestHostname(request: Request): string | null {
-    const forwardedHost = this.getSingleHeaderValue(request.headers["x-forwarded-host"]);
-    const host = forwardedHost ?? this.getSingleHeaderValue(request.headers.host);
-    return host ? this.getHostname(`http://${host}`) : null;
-  }
-
-  private getHostname(value: string): string | null {
-    try {
-      return new URL(value).hostname;
-    } catch {
-      return null;
-    }
-  }
-
   private getSingleHeaderValue(value: string | string[] | undefined): string | undefined {
     return Array.isArray(value) ? value[0] : value;
   }
 
+  private readOAuthIntent(value: string): "login" | "reauth" {
+    if (value === "login" || value === "reauth") {
+      return value;
+    }
+    throw new BadRequestException("지원하지 않는 OAuth 요청 목적입니다.");
+  }
+
+  private assertTrustedBrowserRequest(request: Request): void {
+    if (
+      !isTrustedBrowserRequestOrigin(
+        this.getSingleHeaderValue(request.headers.origin),
+        this.getSingleHeaderValue(request.headers.referer),
+      )
+    ) {
+      throw new ForbiddenException("허용되지 않은 요청 출처입니다.");
+    }
+  }
+
   private clearRefreshCookie(response: Response): void {
-    // refreshToken은 일반 로그인과 OAuth 로그인에서 SameSite/Secure 조합이 달라질 수 있다.
-    // 브라우저가 기존 쿠키와 같은 조건의 삭제 Set-Cookie를 요구하는 경우를 피하려고,
-    // 우리가 발급할 수 있는 조합을 모두 만료시켜 로그아웃 후 쿠키가 남지 않게 한다.
     const baseOptions = {
       httpOnly: true,
       path: "/",
     } as const;
 
+    response.clearCookie(getRefreshCookieName(), {
+      ...baseOptions,
+      secure: process.env.NODE_ENV === "production" || getRefreshCookieSameSite() === "none",
+      sameSite: getRefreshCookieSameSite(),
+    });
+
+    // 이전 이름과 속성으로 발급된 쿠키도 마이그레이션 기간에 함께 정리한다.
     response.clearCookie("refreshToken", {
       ...baseOptions,
       secure: false,
@@ -396,11 +462,15 @@ export class UsersController {
   }
 
   private getRefreshToken(request: Request): string | undefined {
-    return request.headers.cookie
-      ?.split(";")
-      .map((cookie) => cookie.trim())
-      .find((cookie) => cookie.startsWith("refreshToken="))
-      ?.slice("refreshToken=".length);
+    const cookies = request.headers.cookie?.split(";").map((cookie) => cookie.trim()) ?? [];
+    for (const name of [getRefreshCookieName(), "refreshToken"] as const) {
+      const prefix = `${name}=`;
+      const value = cookies.find((cookie) => cookie.startsWith(prefix))?.slice(prefix.length);
+      if (value) {
+        return value;
+      }
+    }
+    return undefined;
   }
 
   private toSessionPage(

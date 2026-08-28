@@ -23,7 +23,7 @@ import { CurrentUserId } from "../../common/decorators/current-user-id.decorator
 import { CharactersService } from "./characters.service";
 
 @ApiTags("characters")
-@ApiSecurity("x-user-id")
+@ApiSecurity("bearer")
 @Controller()
 export class CharactersController {
   constructor(private readonly charactersService: CharactersService) {}

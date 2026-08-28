@@ -39,6 +39,7 @@ import {
   InventoryItemDto,
   normalizeInventoryItemsDisplay,
   ParticipantRole,
+  PublicUserResponseDto,
   ScenarioLicense,
   ScenarioNodeResponseDto,
   ScenarioNodeCheckOptionsConfigDto,
@@ -57,6 +58,7 @@ import {
   SessionStatus,
   SessionActivityStatus,
   RecruitmentStatus,
+  PublicSessionSummaryResponseDto,
   SessionJoinPolicy,
   SessionVisibility,
   StartingSpellsDto,
@@ -551,6 +553,16 @@ export function mapUser(user: User): UserResponseDto {
   };
 }
 
+export function mapPublicUser(
+  user: User & { profile?: { profileImageUrl?: string | null } | null },
+): PublicUserResponseDto {
+  return {
+    publicId: user.publicId ?? user.id,
+    displayName: user.displayName || "User",
+    profileImageUrl: user.profile?.profileImageUrl ?? null,
+  };
+}
+
 export function mapSessionScenario(
   sessionScenario: SessionScenarioWithScenario,
 ): SessionScenarioResponseDto {
@@ -601,6 +613,26 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     activeSessionScenarioId: activeScenario?.id ?? null,
     createdAt: toIsoString(session.createdAt),
     updatedAt: toIsoString(session.updatedAt),
+  };
+}
+
+export function mapPublicSessionSummary(
+  session: SessionWithRelations,
+): PublicSessionSummaryResponseDto {
+  const publicId = session.publicId ?? session.id;
+  return {
+    id: publicId,
+    publicId,
+    title: session.title,
+    gmMode: gmModeMap[session.gmMode],
+    status: sessionStatusMap[session.status],
+    activityStatus: sessionActivityStatusMap[session.activityStatus],
+    recruitmentStatus: recruitmentStatusMap[session.recruitmentStatus],
+    joinPolicy: sessionJoinPolicyMap[session.joinPolicy],
+    currentPlayId: session.currentPlayId,
+    maxPlayers: session.maxParticipants,
+    ruleSetId: session.ruleSetId,
+    nextSessionAt: session.nextSessionAt ? toIsoString(session.nextSessionAt) : null,
   };
 }
 
@@ -776,6 +808,7 @@ export function mapGameState(
 }
 
 type ScenarioUserDisplaySource = {
+  publicId?: string | null;
   displayName?: string | null;
   profile?: {
     nickname?: string | null;
@@ -843,7 +876,7 @@ export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSum
   return {
     id: scenario.id,
     title: scenario.title,
-    createdByUserId: scenario.createdByUserId ?? null,
+    createdByUserId: scenario.creator?.publicId ?? null,
     createdByDisplayName: creatorDisplayName,
     description: scenario.description ?? null,
     thumbnailUrl: scenario.thumbnailUrl ?? null,
@@ -860,7 +893,10 @@ export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSum
     changelog: revision.changelog,
     validationReport: revision.validationReport,
     publishedAt: revision.publishedAt,
-    publishedByUserId: revision.publishedByUserId,
+    publishedByUserId:
+      revision.publishedByUserId === scenario.createdByUserId
+        ? scenario.creator?.publicId ?? null
+        : null,
     publishedByDisplayName,
     publishStatus: revision.publishStatus,
     tags: scenario.publication?.tags ?? [],

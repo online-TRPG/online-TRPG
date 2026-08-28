@@ -109,6 +109,7 @@ import type {
   PlayerVisibleTargetDto,
   SessionDetailResponseDto,
   SessionListItemResponseDto,
+  PublicSessionSummaryResponseDto,
   SessionParticipantResponseDto,
   SessionRevealResponseDto,
   SessionNodeTransitionResponseDto,
@@ -116,7 +117,7 @@ import type {
   VttMapInteractionResponseDto,
   VttMapStateDto,
 } from "../dto/api/sessions.dto";
-import type { UserResponseDto } from "../dto/api/users.dto";
+import type { PublicUserResponseDto, UserResponseDto } from "../dto/api/users.dto";
 import type {
   AuthTokenResponseDto,
   LoginResponseDto,
@@ -399,6 +400,7 @@ export function decodeAuthTokenResponse(value: unknown): AuthTokenResponseDto {
     accessToken: readString(record, "accessToken", "authToken.accessToken"),
     tokenType,
     expiresIn: readPositiveInteger(record, "expiresIn", "authToken.expiresIn"),
+    csrfToken: readString(record, "csrfToken", "authToken.csrfToken"),
   };
 }
 
@@ -415,6 +417,19 @@ export function decodeUserResponse(value: unknown): UserResponseDto {
     role: readStringEnum(record, "role", userRoleValues, "user.role"),
     displayName: readString(record, "displayName", "user.displayName"),
     createdAt: readString(record, "createdAt", "user.createdAt"),
+  };
+}
+
+export function decodePublicUserResponse(value: unknown): PublicUserResponseDto {
+  const record = readRecord(value, "publicUser");
+  return {
+    publicId: readString(record, "publicId", "publicUser.publicId"),
+    displayName: readString(record, "displayName", "publicUser.displayName"),
+    profileImageUrl: readNullableString(
+      record,
+      "profileImageUrl",
+      "publicUser.profileImageUrl",
+    ),
   };
 }
 
@@ -2406,6 +2421,41 @@ export function decodeSessionResponse(value: unknown): SessionSnapshotDto["sessi
   };
 }
 
+export function decodePublicSessionSummary(
+  value: unknown,
+): PublicSessionSummaryResponseDto {
+  const record = readRecord(value, "publicSession");
+  return {
+    id: readString(record, "id", "publicSession.id"),
+    publicId: readString(record, "publicId", "publicSession.publicId"),
+    title: readString(record, "title", "publicSession.title"),
+    gmMode: readStringEnum(record, "gmMode", gmModeValues, "publicSession.gmMode"),
+    status: readStringEnum(record, "status", sessionStatusValues, "publicSession.status"),
+    activityStatus: readStringEnum(
+      record,
+      "activityStatus",
+      sessionActivityStatusValues,
+      "publicSession.activityStatus",
+    ),
+    recruitmentStatus: readStringEnum(
+      record,
+      "recruitmentStatus",
+      recruitmentStatusValues,
+      "publicSession.recruitmentStatus",
+    ),
+    joinPolicy: readStringEnum(
+      record,
+      "joinPolicy",
+      sessionJoinPolicyValues,
+      "publicSession.joinPolicy",
+    ),
+    currentPlayId: readNullableString(record, "currentPlayId", "publicSession.currentPlayId"),
+    maxPlayers: readPositiveInteger(record, "maxPlayers", "publicSession.maxPlayers"),
+    ruleSetId: readNullableString(record, "ruleSetId", "publicSession.ruleSetId"),
+    nextSessionAt: readNullableString(record, "nextSessionAt", "publicSession.nextSessionAt"),
+  };
+}
+
 export function decodeSessionParticipant(value: unknown): SessionParticipantResponseDto {
   const record = readRecord(value, "participant");
   if (!isRecord(record.user)) {
@@ -2578,10 +2628,10 @@ export function decodeSessionListItem(value: unknown): SessionListItemResponseDt
   }
   const decodedRole = readOptionalStringEnum(record, "role", participantRoleValues, "sessionListItem.role");
   return {
-    session: decodeSessionResponse(record.session),
+    session: decodePublicSessionSummary(record.session),
     scenario: decodeScenarioSummary(record.scenario),
-    host: decodeUserResponse(record.host),
-    owner: decodeUserResponse(record.owner),
+    host: decodePublicUserResponse(record.host),
+    owner: decodePublicUserResponse(record.owner),
     participantCount: readNonNegativeInteger(record, "participantCount", "sessionListItem.participantCount"),
     availableSlots: readNonNegativeInteger(record, "availableSlots", "sessionListItem.availableSlots"),
     currentSceneTitle: readNullableString(record, "currentSceneTitle", "sessionListItem.currentSceneTitle"),

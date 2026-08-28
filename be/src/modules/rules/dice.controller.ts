@@ -6,7 +6,7 @@ import { CurrentUserId } from "../../common/decorators/current-user-id.decorator
 import { DiceService } from "./dice.service";
 
 @ApiTags("dice")
-@ApiSecurity("x-user-id")
+@ApiSecurity("bearer")
 @Controller("sessions/:sessionId/dice-rolls")
 export class DiceController {
   constructor(private readonly diceService: DiceService) {}

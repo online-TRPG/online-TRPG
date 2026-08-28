@@ -119,6 +119,7 @@ export {
   decodeMainCommandResponse,
   decodeOAuthUrlResponse,
   decodePaginatedResponse,
+  decodePublicUserResponse,
   decodeParticipantUpdatedEvent,
   decodeRaceResponse,
   decodeRaceResponseArray,

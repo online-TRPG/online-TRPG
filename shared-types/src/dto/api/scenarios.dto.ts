@@ -775,16 +775,19 @@ export class UploadScenarioNodeImageDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(255)
   fileName!: string;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   contentType!: string;
 
   @ApiProperty()
   @IsString()
   @IsBase64()
+  @MaxLength(14_000_000)
   dataBase64!: string;
 }
 
@@ -849,16 +852,19 @@ export class UploadScenarioAssetDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(255)
   fileName!: string;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   contentType!: string;
 
   @ApiProperty()
   @IsString()
   @IsBase64()
+  @MaxLength(14_000_000)
   dataBase64!: string;
 }
 

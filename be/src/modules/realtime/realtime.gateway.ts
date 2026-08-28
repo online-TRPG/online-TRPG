@@ -21,6 +21,9 @@ import {
 import { ConnectionStatus as PrismaConnectionStatus } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { Server, Socket } from "socket.io";
+import { verifyToken } from "../../common/auth/token.utils";
+import { isCorsOriginAllowed } from "../../common/security/browser-security";
+import { FixedWindowRateLimiter } from "../../common/security/fixed-window-rate-limiter";
 import { SessionsService } from "../sessions/sessions.service";
 import { UsersService } from "../users/users.service";
 import { RealtimeEventsService } from "./realtime-events.service";
@@ -28,7 +31,17 @@ import { RealtimeEventsService } from "./realtime-events.service";
 @WebSocketGateway({
   namespace: "/ws",
   cors: {
-    origin: "*",
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
+      try {
+        callback(null, isCorsOriginAllowed(origin));
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error("Origin is not allowed."), false);
+      }
+    },
+    credentials: true,
   },
 })
 @UsePipes(
@@ -49,6 +62,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       userId: string;
     }
   >();
+  private readonly socketIdsByUser = new Map<string, Set<string>>();
+  private readonly rateLimiter = new FixedWindowRateLimiter();
 
   constructor(
     private readonly realtimeEvents: RealtimeEventsService,
@@ -58,9 +73,24 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
 
   afterInit(server: Server): void {
     this.realtimeEvents.bindServer(server);
+    server.use((client, next) => {
+      const connectionDecision = this.rateLimiter.consume(
+        `ws-connect:${client.handshake.address || "unknown"}`,
+        20,
+        60_000,
+      );
+      if (!connectionDecision.allowed) {
+        next(new Error(`Rate limit exceeded. Retry after ${connectionDecision.retryAfterSeconds}s.`));
+        return;
+      }
+      void this.authenticateClient(client)
+        .then(() => next())
+        .catch(() => next(new Error("Authentication required.")));
+    });
   }
 
   async handleDisconnect(client: Socket): Promise<void> {
+    this.removeTrackedSocket(client);
     const membership = this.sessionMembershipBySocket.get(client.id);
     if (!membership) {
       return;
@@ -89,21 +119,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: SessionJoinMessageDto,
   ): Promise<void> {
-    // REST 요청과 같은 방식으로 WebSocket 연결도 사용자 ID를 기준으로 구분한다.
-    // 브라우저 WebSocket은 커스텀 헤더가 빠질 수 있어서, auth.userId도 함께 허용한다.
-    const userIdHeader = client.handshake.headers["x-user-id"];
-    const userIdFromHeader = Array.isArray(userIdHeader) ? userIdHeader[0] : userIdHeader;
-    const userIdFromAuth =
-      typeof client.handshake.auth?.userId === "string"
-        ? client.handshake.auth.userId
-        : undefined;
-    const userId = userIdFromHeader ?? userIdFromAuth;
-
-    if (!userId) {
-      throw new WsException("x-user-id header is required.");
-    }
-
-    await this.usersService.getUserEntityOrThrow(userId);
+    const userId = await this.authenticateClient(client);
+    this.enforceSocketRateLimit(`ws-join:${userId}`, 30, 60_000);
     await this.sessionsService.ensureActivePlayAccess(userId, dto.sessionId);
     await this.sessionsService.updateParticipantConnectionStatus(
       userId,
@@ -132,11 +149,63 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     });
   }
 
+  private async authenticateClient(client: Socket): Promise<string> {
+    const existingAuth = this.readAuthenticatedClient(client);
+    if (existingAuth) {
+      try {
+        const user = await this.usersService.getUserEntityOrThrow(existingAuth.userId);
+        if (user.tokenVersion !== existingAuth.tokenVersion) {
+          throw new WsException("Authentication required.");
+        }
+        await this.trackAuthenticatedSocket(client, user.id);
+        return user.id;
+      } catch {
+        throw new WsException("Authentication required.");
+      }
+    }
+
+    const accessToken = client.handshake.auth?.accessToken;
+    if (typeof accessToken !== "string" || !accessToken.trim()) {
+      throw new WsException("Authentication required.");
+    }
+
+    try {
+      const payload = verifyToken(accessToken, "access");
+      const user = await this.usersService.getUserEntityOrThrow(payload.sub);
+      if (user.tokenVersion !== payload.ver) {
+        throw new WsException("Authentication required.");
+      }
+      client.data.accessTokenAuth = { userId: user.id, tokenVersion: payload.ver };
+      await this.trackAuthenticatedSocket(client, user.id);
+      return user.id;
+    } catch {
+      throw new WsException("Authentication required.");
+    }
+  }
+
+  private readAuthenticatedClient(
+    client: Socket,
+  ): { userId: string; tokenVersion: number } | null {
+    const auth = client.data?.accessTokenAuth;
+    if (!auth || typeof auth !== "object") {
+      return null;
+    }
+    const { userId, tokenVersion } = auth as {
+      userId?: unknown;
+      tokenVersion?: unknown;
+    };
+    return typeof userId === "string" && userId && Number.isInteger(tokenVersion)
+      ? { userId, tokenVersion: tokenVersion as number }
+      : null;
+  }
+
   @SubscribeMessage("session.resync")
   async handleSessionResync(
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: SessionJoinMessageDto,
   ): Promise<void> {
+    const userId = await this.authenticateClient(client);
+    this.enforceSocketRateLimit(`ws-resync:${userId}`, 30, 60_000);
     const membership = this.sessionMembershipBySocket.get(client.id);
     if (!membership || membership.sessionId !== dto.sessionId) {
       throw new WsException("You must join the session before requesting a resync.");
@@ -155,6 +224,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: ChatSendMessageDto,
   ): Promise<void> {
+    const userId = await this.authenticateClient(client);
+    this.enforceSocketRateLimit(`ws-chat:${userId}`, 20, 10_000);
     const membership = this.sessionMembershipBySocket.get(client.id);
     if (!membership || membership.sessionId !== dto.sessionId) {
       throw new WsException("You must join the session before chatting.");
@@ -183,5 +254,37 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       scope,
       createdAt: new Date().toISOString(),
     });
+  }
+
+  private enforceSocketRateLimit(key: string, limit: number, windowMs: number): void {
+    const decision = this.rateLimiter.consume(key, limit, windowMs);
+    if (!decision.allowed) {
+      throw new WsException(
+        `Rate limit exceeded. Retry after ${decision.retryAfterSeconds}s.`,
+      );
+    }
+  }
+
+  private async trackAuthenticatedSocket(client: Socket, userId: string): Promise<void> {
+    const socketIds = this.socketIdsByUser.get(userId) ?? new Set<string>();
+    socketIds.add(client.id);
+    if (socketIds.size > 5) {
+      socketIds.delete(client.id);
+      throw new WsException("Concurrent socket limit exceeded.");
+    }
+    this.socketIdsByUser.set(userId, socketIds);
+    await client.join(this.realtimeEvents.getAuthenticatedUserRoomName(userId));
+  }
+
+  private removeTrackedSocket(client: Socket): void {
+    const auth = this.readAuthenticatedClient(client);
+    if (!auth) {
+      return;
+    }
+    const socketIds = this.socketIdsByUser.get(auth.userId);
+    socketIds?.delete(client.id);
+    if (socketIds?.size === 0) {
+      this.socketIdsByUser.delete(auth.userId);
+    }
   }
 }

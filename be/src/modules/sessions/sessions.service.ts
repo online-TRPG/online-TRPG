@@ -518,7 +518,7 @@ export class SessionsService {
       this.prisma.session.findMany({
         where,
         include: {
-          host: true,
+          host: { include: { profile: true } },
           participants: {
             where: { status: PrismaParticipantStatus.JOINED },
           },
@@ -1490,7 +1490,7 @@ export class SessionsService {
       this.prisma.session.findMany({
         where,
         include: {
-          host: true,
+          host: { include: { profile: true } },
           participants: {
             where: { status: PrismaParticipantStatus.JOINED },
           },

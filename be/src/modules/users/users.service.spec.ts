@@ -1,11 +1,18 @@
-import { BadRequestException, ConflictException, InternalServerErrorException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  InternalServerErrorException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { createRefreshToken, verifyToken } from "../../common/auth/token.utils";
 import { UsersService } from "./users.service";
 
 function createService() {
   const prisma = {
     refreshToken: {
       create: jest.fn(),
+      findUnique: jest.fn(),
       updateMany: jest.fn(),
     },
     passwordResetToken: {
@@ -27,6 +34,7 @@ function createService() {
     },
     user: {
       create: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
     },
@@ -41,10 +49,17 @@ function createService() {
   });
 
   const email = { sendPasswordReset: jest.fn() };
+  const realtimeEvents = { disconnectAuthenticatedUser: jest.fn() };
   return {
     prisma,
     email,
-    service: new UsersService(prisma as never, email as never),
+    realtimeEvents,
+    service: new UsersService(
+      prisma as never,
+      email as never,
+      undefined,
+      realtimeEvents as never,
+    ),
   };
 }
 
@@ -56,12 +71,173 @@ const localUser = {
   displayName: "test-user",
   authProvider: "LOCAL",
   role: "USER",
+  tokenVersion: 0,
   deletedAt: null,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 };
 
 describe("UsersService", () => {
+  describe("guest authentication", () => {
+    it("creates a guest with signed access/refresh tokens and a bound CSRF token", async () => {
+      const { prisma, service } = createService();
+      const guest = {
+        ...localUser,
+        id: "guest-1",
+        publicId: "87654321",
+        email: null,
+        passwordHash: null,
+        authProvider: "GUEST",
+      };
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue(guest);
+      prisma.refreshToken.create.mockResolvedValue({ id: "refresh-1" });
+
+      const result = await service.createGuest({ displayName: "Guest" });
+
+      expect(result.body.user.id).toBe(guest.id);
+      expect(result.body.csrfToken).toHaveLength(43);
+      expect(verifyToken(result.body.accessToken, "access").sub).toBe(guest.id);
+      expect(verifyToken(result.refreshToken, "refresh")).toMatchObject({
+        sub: guest.id,
+        csrf: result.body.csrfToken,
+      });
+      expect(prisma.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: guest.id,
+          tokenHash: expect.not.stringContaining(result.refreshToken),
+        }),
+      });
+    });
+
+    it("revokes guest sessions when converting the account to local credentials", async () => {
+      const { prisma, realtimeEvents, service } = createService();
+      const guest = {
+        ...localUser,
+        id: "guest-1",
+        publicId: "87654321",
+        email: null,
+        passwordHash: null,
+        authProvider: "GUEST",
+      };
+      const converted = {
+        ...guest,
+        email: "member@example.com",
+        authProvider: "LOCAL",
+        tokenVersion: 1,
+      };
+      prisma.user.findUnique.mockResolvedValueOnce(guest).mockResolvedValueOnce(null);
+      prisma.user.update.mockResolvedValue(converted);
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+      prisma.refreshToken.create.mockResolvedValue({ id: "refresh-2" });
+
+      const result = await service.convertGuestToLocal(guest.id, {
+        email: "member@example.com",
+        password: "NewPassword123!",
+        name: "Member",
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: guest.id },
+        data: expect.objectContaining({
+          authProvider: "LOCAL",
+          tokenVersion: { increment: 1 },
+        }),
+      });
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: guest.id, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(verifyToken(result.body.accessToken, "access").ver).toBe(1);
+      expect(verifyToken(result.refreshToken, "refresh").ver).toBe(1);
+      expect(realtimeEvents.disconnectAuthenticatedUser).toHaveBeenCalledWith(guest.id);
+    });
+
+    it("rejects refresh token reissue when the CSRF token does not match", async () => {
+      const { prisma, service } = createService();
+      const csrfToken = "a".repeat(43);
+      const refreshToken = createRefreshToken(localUser.id, localUser.email, csrfToken);
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        userId: localUser.id,
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: localUser,
+      });
+
+      await expect(service.reissue(refreshToken, "b".repeat(43))).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(service.reissue(refreshToken, csrfToken)).resolves.toMatchObject({
+        tokenType: "Bearer",
+        csrfToken,
+      });
+    });
+
+    it("rejects refresh tokens issued for an older token version", async () => {
+      const { prisma, service } = createService();
+      const csrfToken = "a".repeat(43);
+      const refreshToken = createRefreshToken(localUser.id, localUser.email, csrfToken, 2);
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        userId: localUser.id,
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { ...localUser, tokenVersion: 3 },
+      });
+
+      await expect(service.reissue(refreshToken, csrfToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  describe("token revocation", () => {
+    it("increments the token version and revokes refresh tokens after a password change", async () => {
+      const { prisma, realtimeEvents, service } = createService();
+      prisma.user.findUnique.mockResolvedValue(localUser);
+      prisma.user.update.mockResolvedValue({ ...localUser, tokenVersion: 1 });
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.changePassword(localUser.id, {
+        currentPassword: "P@ssword123",
+        newPassword: "NewPassword123!",
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: localUser.id },
+        data: {
+          passwordHash: expect.any(String),
+          tokenVersion: { increment: 1 },
+        },
+      });
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: localUser.id, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(realtimeEvents.disconnectAuthenticatedUser).toHaveBeenCalledWith(localUser.id);
+    });
+
+    it("disconnects existing sockets after logout-all revokes every token", async () => {
+      const { prisma, realtimeEvents, service } = createService();
+      const csrfToken = "a".repeat(43);
+      const refreshToken = createRefreshToken(
+        localUser.id,
+        localUser.email,
+        csrfToken,
+        localUser.tokenVersion,
+      );
+      prisma.user.update.mockResolvedValue({ ...localUser, tokenVersion: 1 });
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.logoutAll(localUser.id, refreshToken, csrfToken);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: localUser.id },
+        data: { tokenVersion: { increment: 1 } },
+      });
+      expect(realtimeEvents.disconnectAuthenticatedUser).toHaveBeenCalledWith(localUser.id);
+    });
+  });
+
   describe("password reset", () => {
     it("존재하지 않는 이메일에도 성공 응답 경로를 유지하고 토큰을 만들지 않는다.", async () => {
       const { prisma, service } = createService();
@@ -120,6 +296,29 @@ describe("UsersService", () => {
           },
         });
       }
+    });
+  });
+
+  describe("public profile", () => {
+    it("returns only explicitly public identity fields", async () => {
+      const { prisma, service } = createService();
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue({
+        ...localUser,
+        profile: { profileImageUrl: "https://assets.example/avatar.webp" },
+      });
+
+      const result = await service.getPublicProfile(localUser.publicId);
+
+      expect(result).toEqual({
+        publicId: localUser.publicId,
+        displayName: localUser.displayName,
+        profileImageUrl: "https://assets.example/avatar.webp",
+      });
+      expect(result).not.toHaveProperty("id");
+      expect(result).not.toHaveProperty("email");
+      expect(result).not.toHaveProperty("role");
+      expect(result).not.toHaveProperty("authProvider");
     });
   });
 
@@ -343,7 +542,10 @@ describe("UsersService", () => {
       });
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: "user-1" },
-        data: { deletedAt: expect.any(Date) },
+        data: {
+          deletedAt: expect.any(Date),
+          tokenVersion: { increment: 1 },
+        },
       });
     });
   });

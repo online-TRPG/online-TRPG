@@ -2384,14 +2384,16 @@ describe("SessionsService session listing", () => {
           },
         }),
         include: expect.objectContaining({
-          host: true,
+          host: {
+            include: { profile: true },
+          },
         }),
       }),
     );
     expect(usersService.getUserEntityOrThrow).not.toHaveBeenCalled();
     expect(result.items[0]).toMatchObject({
-      session: { id: "session-1" },
-      host: { id: "host-user" },
+      session: { id: "87654321", publicId: "87654321" },
+      host: { publicId: "12345678" },
       participantCount: 1,
       role: "PLAYER",
     });
@@ -4039,8 +4041,8 @@ describe("SessionsService P5 long campaign list integrity", () => {
         items: [
           expect.objectContaining({
             session: expect.objectContaining({
-              id: "session-1",
-              scenarioId: "scenario_p5_astral_seal_campaign",
+              id: "87654321",
+              publicId: "87654321",
             }),
             scenario: expect.objectContaining({
               id: "scenario_p5_astral_seal_campaign",
