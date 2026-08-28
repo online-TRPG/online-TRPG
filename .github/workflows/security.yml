@@ -1,0 +1,189 @@
+name: Security gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - develop
+  schedule:
+    - cron: "17 18 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tracked-sensitive-files:
+    name: Tracked sensitive paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Reject tracked dumps, runtime logs, env files, and private keys
+        run: npm run security:check:tracked
+
+      - name: Reject sensitive paths from every branch and tag
+        run: npm run security:check:history
+
+  secret-history:
+    name: Gitleaks full history
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install checksum-verified Gitleaks
+        shell: bash
+        env:
+          GITLEAKS_VERSION: 8.30.0
+          GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "${archive}"
+          printf '%s  %s\n' "${GITLEAKS_SHA256}" "${archive}" | sha256sum --check --strict
+          tar --extract --gzip --file "${archive}" --directory "${RUNNER_TEMP}" gitleaks
+          chmod 0755 "${RUNNER_TEMP}/gitleaks"
+
+      - name: Verify Gitleaks detects a synthetic canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          canary="${RUNNER_TEMP}/gitleaks-canary.txt"
+          printf 'aws_access_key_id = "%s%s"\n' 'AKIA' 'QWERTYUIOPASDFGH' > "${canary}"
+          set +e
+          "${RUNNER_TEMP}/gitleaks" dir \
+            --redact=100 \
+            --no-banner \
+            "${canary}" \
+            > "${RUNNER_TEMP}/gitleaks-canary.log" 2>&1
+          status=$?
+          set -e
+          rm -f "${canary}" "${RUNNER_TEMP}/gitleaks-canary.log"
+          if [ "${status}" -ne 1 ]; then
+            echo "::error::Gitleaks self-test failed with status ${status}"
+            exit 1
+          fi
+
+      - name: Scan every branch and tag without exposing findings
+        shell: bash
+        run: >-
+          "${RUNNER_TEMP}/gitleaks" git
+          --log-opts="--all"
+          --redact=100
+          --no-banner
+          .
+
+  node-audit:
+    name: Node production audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Reject High and Critical production advisories
+        run: npm run security:audit:node
+
+  node-regressions:
+    name: Node security regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install the locked dependency graph
+        run: npm ci
+
+      - name: Generate the locked Prisma client
+        run: npm run prisma:generate
+
+      - name: Run backend security regressions
+        run: npm test
+
+      - name: Run frontend security regressions
+        run: npm run test -w @trpg/fe -- --run
+
+      - name: Build all workspaces
+        run: npm run build
+
+  python-security:
+    name: Python audit and regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.14"
+          python-version: "3.12"
+          working-directory: ai
+          enable-cache: false
+
+      - name: Sync locked development dependencies
+        run: uv --directory ai sync --frozen --extra dev
+
+      - name: Run AI security regressions
+        run: uv --directory ai run --frozen --extra dev pytest -q
+
+      - name: Export locked production dependencies
+        shell: bash
+        run: >-
+          uv export
+          --directory ai
+          --frozen
+          --no-dev
+          --no-emit-project
+          --format requirements-txt
+          --output-file "${RUNNER_TEMP}/ai-requirements.txt"
+
+      - name: Audit locked production dependencies
+        shell: bash
+        run: >-
+          uvx --from pip-audit==2.10.1 pip-audit
+          --strict
+          --requirement "${RUNNER_TEMP}/ai-requirements.txt"
