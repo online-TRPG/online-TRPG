@@ -33,6 +33,7 @@ def _trace_payload(index: int) -> dict:
 
 def test_response_logger_rotates_and_omits_payloads_by_default(tmp_path):
     settings = Settings(
+        app_env="development",
         ai_log_dir=str(tmp_path),
         ai_log_max_bytes=64 * 1024,
         ai_log_backup_count=2,
@@ -61,8 +62,28 @@ def test_response_logger_rotates_and_omits_payloads_by_default(tmp_path):
     assert latest["aiTrace"]["totalTokenCount"] == 12
 
 
+def test_response_logger_forces_payload_redaction_in_production(tmp_path):
+    settings = Settings(
+        app_env="production",
+        ai_log_dir=str(tmp_path),
+        ai_log_payloads=True,
+    )
+
+    HarnessResponseLogger(settings).log_success(
+        endpoint="director",
+        request_payload={"sessionId": "session-1", "question": "secret prompt"},
+        response_payload=_trace_payload(1),
+    )
+
+    event = json.loads((tmp_path / "director.latest.json").read_text(encoding="utf-8"))
+    assert event["request"] == {"sessionId": "session-1"}
+    assert "parsed" not in event["response"]
+    assert "rawOutput" not in event["response"]
+
+
 def test_response_logger_compacts_one_event_larger_than_file_limit(tmp_path):
     settings = Settings(
+        app_env="development",
         ai_log_dir=str(tmp_path),
         ai_log_max_bytes=64 * 1024,
         ai_log_backup_count=1,
@@ -125,7 +146,7 @@ def test_response_logger_restores_bounds_after_settings_are_reduced(tmp_path):
     assert unrelated.read_text(encoding="utf-8") == "keep"
 
 
-def test_response_logger_always_bounds_provider_error_messages(tmp_path):
+def test_response_logger_omits_provider_error_messages_by_default(tmp_path):
     settings = Settings(ai_log_dir=str(tmp_path), ai_log_payloads=False)
     logger = HarnessResponseLogger(settings)
 
@@ -140,12 +161,38 @@ def test_response_logger_always_bounds_provider_error_messages(tmp_path):
     )
 
     event = json.loads((tmp_path / "director.latest.json").read_text(encoding="utf-8"))
-    assert len(event["error"]["message"]) == 1000
+    assert "message" not in event["error"]
     assert event["request"] == {"sessionId": "session-1"}
 
 
+def test_response_logger_bounds_provider_error_messages_in_non_production_diagnostics(tmp_path):
+    settings = Settings(
+        app_env="development",
+        ai_log_dir=str(tmp_path),
+        ai_log_payloads=True,
+    )
+    logger = HarnessResponseLogger(settings)
+
+    logger.log_failure(
+        endpoint="director",
+        request_payload={"sessionId": "session-1"},
+        error=AiClientError(
+            "provider detail\n" + ("x" * 5000),
+            "upstream_error",
+            True,
+        ),
+    )
+
+    event = json.loads((tmp_path / "director.latest.json").read_text(encoding="utf-8"))
+    assert len(event["error"]["message"]) == 1000
+
+
 def test_response_logger_serialization_failure_does_not_escape(tmp_path):
-    settings = Settings(ai_log_dir=str(tmp_path), ai_log_payloads=True)
+    settings = Settings(
+        app_env="development",
+        ai_log_dir=str(tmp_path),
+        ai_log_payloads=True,
+    )
     logger = HarnessResponseLogger(settings)
 
     result = logger.log_success(

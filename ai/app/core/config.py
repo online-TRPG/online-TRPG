@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "S14P31A201 AI Harness"
+    app_env: str = "development"
     ai_provider: str = "google-ai-studio"
     google_api_key: str | None = None
     ai_model_default: str = "gemma-4-31b-it"

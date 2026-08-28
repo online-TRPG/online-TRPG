@@ -18,7 +18,11 @@ class HarnessResponseLogger:
         self._base_dir = settings.ai_log_path
         self._max_bytes = settings.ai_log_max_bytes
         self._backup_count = settings.ai_log_backup_count
-        self._log_payloads = settings.ai_log_payloads
+        # Production diagnostics never persist prompts or model output, even if a stale
+        # environment flag attempts to enable payload logging.
+        self._log_payloads = (
+            settings.ai_log_payloads and settings.app_env.strip().lower() != "production"
+        )
         self._write_lock = Lock()
         self._existing_bounds_checked = False
 
@@ -212,8 +216,7 @@ class HarnessResponseLogger:
         }
         return minimal_event, json.dumps(minimal_event, ensure_ascii=False)
 
-    @staticmethod
-    def _bounded_error(error_payload: Any) -> dict[str, Any] | None:
+    def _bounded_error(self, error_payload: Any) -> dict[str, Any] | None:
         if not isinstance(error_payload, dict):
             return None
         bounded = {
@@ -230,7 +233,7 @@ class HarnessResponseLogger:
             if error_payload.get(key) is not None
         }
         message = error_payload.get("message")
-        if message is not None:
+        if self._log_payloads and message is not None:
             bounded["message"] = str(message)[:1000]
         return bounded
 
