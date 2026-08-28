@@ -3,7 +3,7 @@
 # 런타임 bind mount 없음 → DooD(Jenkins) 환경에서도 안전하게 동작
 
 # =============== 1. FE 빌더 ===============
-FROM node:20-alpine AS fe-builder
+FROM node:24-alpine AS fe-builder
 WORKDIR /app
 
 # workspace 정의 + 루트 lock + 루트 tsconfig + 각 workspace package.json (의존성 레이어 캐시)

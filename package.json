@@ -7,6 +7,15 @@
     "shared-types",
     "srd-data"
   ],
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "5.2.3"
+    },
+    "deepmerge-ts": "8.0.1",
+    "socket.io": {
+      "socket.io-adapter": "2.5.8"
+    }
+  },
   "scripts": {
     "build": "npm run build -w @trpg/shared-types && echo [build] @trpg/shared-types completed && npm run build -w @trpg/srd-data && npm run sync:fe:srd && npm run build -w @trpg/be && echo [build] @trpg/be completed && npm run build -w @trpg/fe",
     "dev": "npm run build -w @trpg/shared-types && npm run build -w @trpg/srd-data && npm run start:dev -w @trpg/be",
@@ -29,6 +38,9 @@
     "benchmark:performance:seed": "node scripts/performance/seed-scale.mjs",
     "benchmark:performance:vtt": "npm run --silent build -w @trpg/shared-types && node scripts/performance/benchmark-vtt-payload.mjs",
     "benchmark:performance:vtt-spatial": "tsx scripts/performance/benchmark-vtt-spatial.ts",
+    "security:check:tracked": "node scripts/security/check-sensitive-files.mjs",
+    "security:check:history": "node scripts/security/check-sensitive-files.mjs --history",
+    "security:audit:node": "npm audit --omit=dev --audit-level=high",
     "verify:rule-data-sync": "node scripts/verify-rule-data-sync.mjs",
     "verify:spell-presentation": "node scripts/verify-spell-presentation.mjs",
     "verify:user-facing-identifiers": "node scripts/verify-user-facing-identifiers.mjs",
