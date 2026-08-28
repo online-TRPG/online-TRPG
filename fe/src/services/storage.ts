@@ -1,7 +1,5 @@
-import type { SessionSnapshotDto } from "@trpg/shared-types";
 import {
   UserRole,
-  decodeSessionSnapshot,
   isRecord,
   parseJsonWithDecoder,
   readString,
@@ -18,8 +16,8 @@ const OAUTH_PROVIDER_KEY = "trpg.oauthProvider";
 const AUTH_RETURN_TO_KEY = "trpg.authReturnTo";
 const OAUTH_INTENT_KEY = "trpg.oauthIntent";
 const DELETE_REAUTH_TICKET_KEY = "trpg.deleteReauthTicket";
+const CSRF_TOKEN_KEY = "trpg.csrfToken";
 const STORED_USER_SCHEMA_VERSION = 1;
-const STORED_SNAPSHOT_SCHEMA_VERSION = 1;
 const STORED_USER_ROLE = {
   USER: UserRole.USER,
   MODERATOR: UserRole.MODERATOR,
@@ -38,6 +36,9 @@ export type StoredDeleteReauthTicket = {
   ticket: string;
   expiresAt: number;
 };
+
+let inMemoryAccessToken: string | null = null;
+let inMemorySnapshot: SessionSnapshot | null = null;
 
 export function loadStoredUser(): StoredUser | null {
   const raw = readStorageValue(USER_KEY);
@@ -83,11 +84,13 @@ export function clearStoredUser(): void {
 }
 
 export function loadStoredToken(): string | null {
-  const token = readStorageValue(TOKEN_KEY);
+  // Access tokens never persist across page loads. Remove tokens left by older builds.
+  removeStorageValue(TOKEN_KEY);
+  const token = inMemoryAccessToken;
   if (!token) return null;
   const expiresAtMs = getAccessTokenExpiresAtMs(token);
   if (expiresAtMs === null || expiresAtMs <= Date.now()) {
-    removeStorageValue(TOKEN_KEY);
+    inMemoryAccessToken = null;
     return null;
   }
   return token;
@@ -96,14 +99,37 @@ export function loadStoredToken(): string | null {
 export function saveStoredToken(token: string): void {
   const expiresAtMs = getAccessTokenExpiresAtMs(token);
   if (expiresAtMs === null || expiresAtMs <= Date.now()) {
-    removeStorageValue(TOKEN_KEY);
+    inMemoryAccessToken = null;
     return;
   }
-  writeStorageValue(TOKEN_KEY, token);
+  inMemoryAccessToken = token;
+  removeStorageValue(TOKEN_KEY);
 }
 
 export function clearStoredToken(): void {
+  inMemoryAccessToken = null;
   removeStorageValue(TOKEN_KEY);
+}
+
+export function loadStoredCsrfToken(): string | null {
+  const token = readSessionStorageValue(CSRF_TOKEN_KEY);
+  if (!token || token.length < 32) {
+    removeSessionStorageValue(CSRF_TOKEN_KEY);
+    return null;
+  }
+  return token;
+}
+
+export function saveStoredCsrfToken(token: string): void {
+  if (token.length < 32) {
+    removeSessionStorageValue(CSRF_TOKEN_KEY);
+    return;
+  }
+  writeSessionStorageValue(CSRF_TOKEN_KEY, token);
+}
+
+export function clearStoredCsrfToken(): void {
+  removeSessionStorageValue(CSRF_TOKEN_KEY);
 }
 
 export function loadStoredAuthMode(): AuthMode | null {
@@ -201,43 +227,30 @@ export function clearStoredDeleteReauthTicket(): void {
 }
 
 export function loadStoredSnapshot(): SessionSnapshot | null {
-  const raw = readStorageValue(SNAPSHOT_KEY);
-  if (!raw) return null;
-  try {
-    return normalizeSessionSnapshot(parseJsonWithDecoder(raw, decodeStoredSnapshot, SNAPSHOT_KEY));
-  } catch {
-    removeStorageValue(SNAPSHOT_KEY);
-    return null;
-  }
+  removeStorageValue(SNAPSHOT_KEY);
+  return inMemorySnapshot;
 }
 
 export function saveStoredSnapshot(snapshot: SessionSnapshot): void {
-  writeStorageValue(
-    SNAPSHOT_KEY,
-    JSON.stringify(toVersionedStoredValue(snapshot, STORED_SNAPSHOT_SCHEMA_VERSION)),
-  );
+  inMemorySnapshot = normalizeSessionSnapshot(snapshot);
+  removeStorageValue(SNAPSHOT_KEY);
 }
 
 export function clearStoredSnapshot(): void {
+  inMemorySnapshot = null;
   removeStorageValue(SNAPSHOT_KEY);
 }
 
 export function clearAll(): void {
   clearStoredUser();
   clearStoredToken();
+  clearStoredCsrfToken();
   clearStoredAuthMode();
   clearStoredOAuthProvider();
   clearStoredOAuthIntent();
   clearStoredAuthReturnTo();
   clearStoredDeleteReauthTicket();
   clearStoredSnapshot();
-}
-
-function decodeStoredSnapshot(value: unknown): SessionSnapshotDto {
-  if (isVersionedStoredValue(value, STORED_SNAPSHOT_SCHEMA_VERSION)) {
-    return decodeSessionSnapshot(value.data);
-  }
-  return decodeSessionSnapshot(value);
 }
 
 function toVersionedStoredValue<T>(data: T, schemaVersion: number): VersionedStoredValue<T> {

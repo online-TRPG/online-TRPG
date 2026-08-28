@@ -337,17 +337,18 @@ export function App() {
     if (url.pathname !== '/oauth/callback') return;
 
     const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
     const provider = loadStoredOAuthProvider();
     const intent = loadStoredOAuthIntent();
 
-    if (code && provider) {
+    if (code && state && provider) {
       clearStoredOAuthProvider();
       clearStoredOAuthIntent();
       const returnTo = loadStoredAuthReturnTo() ?? '/';
       clearStoredAuthReturnTo();
       if (intent === 'delete_reauth' && auth.user) {
         const redirectUri = `${window.location.origin}/oauth/callback`;
-        void reauthenticateOAuth(auth.user, auth.accessToken, provider, code, redirectUri)
+        void reauthenticateOAuth(auth.user, auth.accessToken, provider, code, redirectUri, state)
           .then((result) => {
             saveStoredDeleteReauthTicket({
               provider,
@@ -359,9 +360,15 @@ export function App() {
           .finally(() => navigate('/account', { replace: true }));
       } else {
         navigate(returnTo, { replace: true });
-        void auth.handleOAuthCallback(provider, code);
+        void auth.handleOAuthCallback(provider, code, state);
       }
+      return;
     }
+
+    clearStoredOAuthProvider();
+    clearStoredOAuthIntent();
+    clearStoredAuthReturnTo();
+    navigate('/', { replace: true });
   }, [auth, navigate]);
 
   useEffect(() => {
@@ -460,7 +467,7 @@ export function App() {
       saveStoredOAuthProvider(provider);
       saveStoredOAuthIntent('login');
       saveStoredAuthReturnTo(location.pathname);
-      const { authUrl } = await getOAuthUrl(provider, redirectUri);
+      const { authUrl } = await getOAuthUrl(provider, redirectUri, 'login');
       window.location.href = authUrl;
     } catch {
       clearStoredOAuthProvider();
@@ -508,7 +515,7 @@ export function App() {
       saveStoredOAuthProvider(provider);
       saveStoredOAuthIntent('delete_reauth');
       saveStoredAuthReturnTo('/account');
-      const { authUrl } = await getOAuthUrl(provider, redirectUri);
+      const { authUrl } = await getOAuthUrl(provider, redirectUri, 'reauth', auth.accessToken);
       window.location.href = authUrl;
     } catch {
       clearStoredOAuthProvider();

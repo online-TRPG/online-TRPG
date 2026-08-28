@@ -9,7 +9,7 @@ import type {
 } from '@trpg/shared-types';
 import type { StoredUser } from '../types/session';
 import { decodeValidatedAuthTokenResponse } from './authToken';
-import { saveStoredToken } from './storage';
+import { loadStoredCsrfToken, saveStoredCsrfToken, saveStoredToken } from './storage';
 import { getApiErrorMessage } from '../presentation/apiErrorMessages';
 
 function readOptionalEnvString(value: unknown): string | undefined {
@@ -62,6 +62,7 @@ interface RequestOptions {
   body?: unknown;
   user?: StoredUser | null;
   accessToken?: string | null;
+  csrfToken?: string | null;
   withCredentials?: boolean;
   skipAuthRefresh?: boolean;
 }
@@ -155,10 +156,15 @@ async function requestAccessTokenReissue(): Promise<AuthTokenResponseDto> {
 }
 
 async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
+  const csrfToken = loadStoredCsrfToken();
+  if (!csrfToken) {
+    throw new Error('로그인 보안 정보가 없습니다. 다시 로그인해주세요.');
+  }
   const init: RequestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
     },
     credentials: 'include',
   };
@@ -193,7 +199,9 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
   }
 
   const body: unknown = await response.json();
-  return decodeResponseBody<AuthTokenResponseDto>(body, decodeValidatedAuthTokenResponse);
+  const result = decodeResponseBody<AuthTokenResponseDto>(body, decodeValidatedAuthTokenResponse);
+  saveStoredCsrfToken(result.csrfToken);
+  return result;
 }
 
 export async function requestJson<T>(
@@ -215,8 +223,9 @@ export async function requestJson<T>(
 
   if (options.accessToken) {
     headers.Authorization = `Bearer ${options.accessToken}`;
-  } else if (options.user) {
-    headers['x-user-id'] = options.user.id;
+  }
+  if (options.csrfToken) {
+    headers['X-CSRF-Token'] = options.csrfToken;
   }
 
   const init: RequestInit = {
@@ -258,6 +267,7 @@ export async function requestJson<T>(
       try {
         const nextToken = await requestAccessTokenReissue();
         saveStoredToken(nextToken.accessToken);
+        saveStoredCsrfToken(nextToken.csrfToken);
         notifyAuthTokenReissued(nextToken.accessToken);
         if (options.decode) {
           return requestJson(path, {

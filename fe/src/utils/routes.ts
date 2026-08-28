@@ -10,7 +10,9 @@ function slugifySegment(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
-export function buildPublicProfilePath(user: Pick<User, "publicId" | "nickname" | "displayName">): string {
+export function buildPublicProfilePath(
+  user: Pick<User, "publicId" | "displayName"> & { nickname?: string },
+): string {
   const label = slugifySegment(user.nickname || user.displayName || "profile") || "profile";
   return `/users/${user.publicId}/${label}`;
 }

@@ -1151,13 +1151,14 @@ export function useSession(
   useEffect(() => {
     if (
       !user ||
+      !accessToken ||
       !snapshot?.session.id ||
       !snapshot.session.currentPlayId ||
       activePlay?.sessionId !== snapshot.session.id ||
       activePlay.playId !== snapshot.session.currentPlayId
     ) return undefined;
 
-    const socket: Socket = connectSessionSocket(user, snapshot.session.id, {
+    const socket: Socket = connectSessionSocket(accessToken, snapshot.session.id, {
       onSnapshot: updateSnapshot,
       onParticipantUpdated: (participant: Participant) => {
         if (participant.userId === user.id && participant.status !== SessionParticipantStatus.JOINED) {
@@ -1438,7 +1439,7 @@ export function useSession(
       }
       socket.disconnect();
     };
-  }, [activePlay?.playId, activePlay?.sessionId, appendLog, appendServerTurnLog, removeLog, snapshot?.session.currentPlayId, snapshot?.session.id, updateSnapshot, user]);
+  }, [accessToken, activePlay?.playId, activePlay?.sessionId, appendLog, appendServerTurnLog, removeLog, snapshot?.session.currentPlayId, snapshot?.session.id, updateSnapshot, user]);
 
   useEffect(() => {
     if (!user || !activePlay) return undefined;

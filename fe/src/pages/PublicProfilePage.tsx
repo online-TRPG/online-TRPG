@@ -8,10 +8,11 @@
  * 4) canonicalPath useEffect: 실제 publicId 기준 URL로 주소 정규화
  * 5) JSX: 공개 프로필 히어로, 기본 정보, 확장 예정 기능 설명
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getPublicProfile } from "../services/authApi";
 import type { User } from "../types/session";
+import type { PublicUserResponseDto } from "@trpg/shared-types";
 import { buildPublicProfilePath } from "../utils/routes";
 import "./ProfilePage.css";
 
@@ -27,9 +28,19 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
   // 라우터 훅: 공개 프로필 URL을 정규화할 때 사용합니다.
   const location = useLocation();
   const navigate = useNavigate();
-  const resolvedPreview = previewUser?.publicId === publicId ? previewUser : null;
+  const resolvedPreview = useMemo<PublicUserResponseDto | null>(
+    () =>
+      previewUser?.publicId === publicId
+        ? {
+            publicId: previewUser.publicId,
+            displayName: previewUser.displayName,
+            profileImageUrl: null,
+          }
+        : null,
+    [previewUser, publicId],
+  );
   // 직접 링크 접근이면 API로 불러오고, 세션 화면에서 넘어온 경우 previewUser를 먼저 사용합니다.
-  const [profile, setProfile] = useState<User | null>(resolvedPreview);
+  const [profile, setProfile] = useState<PublicUserResponseDto | null>(resolvedPreview);
   const [loading, setLoading] = useState(!resolvedPreview);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,18 +78,12 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
   // 로딩/에러 중에도 화면이 깨지지 않도록 fallback 프로필을 만듭니다.
   const effectiveProfile =
     profile ?? {
-      id: "",
       publicId,
-      userId: "",
-      email: null,
-      name: "알 수 없는 사용자",
-      nickname: "미확인",
-      authProvider: "LOCAL",
       displayName: publicId,
-      createdAt: "",
+      profileImageUrl: null,
     };
   const canonicalPath = buildPublicProfilePath(effectiveProfile);
-  const nickname = effectiveProfile.nickname || effectiveProfile.displayName || "-";
+  const nickname = effectiveProfile.displayName || "-";
 
   useEffect(() => {
     if (!effectiveProfile.publicId) return;
@@ -93,7 +98,6 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
   // 공개 프로필에서도 이름 계열 필드는 닉네임 하나만 보여줘 사용자가 같은 값을 여러 이름으로 보지 않게 합니다.
   const profileRows = [
     { label: "닉네임", value: nickname },
-    { label: "가입일", value: effectiveProfile.createdAt ? new Date(effectiveProfile.createdAt).toLocaleDateString("ko-KR") : "-" },
     { label: "공개 대상", value: "세션 탐색 중 확인 가능한 기본 프로필" },
   ];
 

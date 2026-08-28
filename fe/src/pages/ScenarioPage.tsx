@@ -117,7 +117,10 @@ function getScenarioCardState(
   if (scenario.sourceType === "SYSTEM") {
     return { label: "기본 제공", tone: "provided", description: "시스템에서 기본 제공하는 공개 시나리오" };
   }
-  if (scenario.publishedByUserId === viewer.id || scenario.createdByUserId === viewer.id) {
+  if (
+    scenario.publishedByUserId === viewer.publicId ||
+    scenario.createdByUserId === viewer.publicId
+  ) {
     return { label: "내 공개", tone: "mine", description: "내가 공개한 시나리오" };
   }
   return { label: "공개", tone: "public", description: "활성 상태의 공개 시나리오" };

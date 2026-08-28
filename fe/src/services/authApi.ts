@@ -3,12 +3,14 @@ import type {
   LoginResponseDto,
   OAuthUrlResponseDto,
   OAuthReauthResponseDto,
+  PublicUserResponseDto,
   ProductProgressAction,
   UserProductProgressResponseDto,
   UserResponseDto,
 } from '@trpg/shared-types';
 import {
   decodeOAuthUrlResponse,
+  decodePublicUserResponse,
   decodeUserResponse,
   isRecord,
   readNumber,
@@ -41,11 +43,12 @@ function decodeProductProgress(value: unknown): UserProductProgressResponseDto {
   };
 }
 
-export function createGuest(displayName: string): Promise<User> {
-  return requestJson<User>('/users/guest', {
+export function createGuest(displayName: string): Promise<LoginResponseDto> {
+  return requestJson<LoginResponseDto>('/users/guest', {
     method: 'POST',
     body: { displayName },
-    decode: decodeUserResponse,
+    withCredentials: true,
+    decode: decodeValidatedLoginResponse,
   });
 }
 
@@ -58,14 +61,14 @@ export function register(email: string, password: string, name: string): Promise
 }
 
 export function convertGuestToLocal(
-  user: StoredUser,
+  accessToken: string,
   email: string,
   password: string,
   name: string
 ): Promise<LoginResponseDto> {
   return requestJson<LoginResponseDto>('/users/guest/convert-local', {
     method: 'POST',
-    user,
+    accessToken,
     body: { email, password, name },
     withCredentials: true,
     decode: decodeValidatedLoginResponse,
@@ -81,18 +84,20 @@ export function login(email: string, password: string): Promise<LoginResponseDto
   });
 }
 
-export function logout(accessToken: string): Promise<void> {
+export function logout(accessToken: string, csrfToken: string): Promise<void> {
   return requestJson<void>('/users/logout', {
     method: 'POST',
     accessToken,
+    csrfToken,
     withCredentials: true,
   });
 }
 
-export function reissue(): Promise<AuthTokenResponseDto> {
+export function reissue(csrfToken: string): Promise<AuthTokenResponseDto> {
   return requestJson<AuthTokenResponseDto>('/users/reissue', {
     method: 'POST',
     withCredentials: true,
+    csrfToken,
     decode: decodeValidatedAuthTokenResponse,
   });
 }
@@ -162,8 +167,10 @@ export function updateProductProgress(
   });
 }
 
-export function getPublicProfile(publicId: string): Promise<UserResponseDto> {
-  return requestJson<UserResponseDto>(`/users/public/${publicId}`, { decode: decodeUserResponse });
+export function getPublicProfile(publicId: string): Promise<PublicUserResponseDto> {
+  return requestJson<PublicUserResponseDto>(`/users/public/${publicId}`, {
+    decode: decodePublicUserResponse,
+  });
 }
 
 export type DeleteAccountCredential = {
@@ -192,12 +199,13 @@ export function reauthenticateOAuth(
   provider: 'kakao' | 'discord',
   code: string,
   redirectUri: string,
+  state: string,
 ): Promise<OAuthReauthResponseDto> {
   return requestJson<OAuthReauthResponseDto>(`/users/me/reauth/${provider}`, {
     method: 'POST',
     user,
     accessToken,
-    body: { code, redirectUri },
+    body: { code, redirectUri, state },
     decode: (value) => {
       if (!isRecord(value) || typeof value.ticket !== 'string' || typeof value.expiresIn !== 'number') {
         throw new Error('OAuth reauthentication response is invalid.');
@@ -209,10 +217,13 @@ export function reauthenticateOAuth(
 
 export function getOAuthUrl(
   provider: 'kakao' | 'discord',
-  redirectUri: string
+  redirectUri: string,
+  intent: 'login' | 'reauth' = 'login',
+  accessToken: string | null = null,
 ): Promise<OAuthUrlResponseDto> {
-  const params = new URLSearchParams({ redirectUri });
+  const params = new URLSearchParams({ redirectUri, intent });
   return requestJson<OAuthUrlResponseDto>(`/users/oauth/${provider}/url?${params.toString()}`, {
+    accessToken,
     decode: decodeOAuthUrlResponse,
   });
 }
@@ -220,11 +231,12 @@ export function getOAuthUrl(
 export function oauthLogin(
   provider: 'kakao' | 'discord',
   code: string,
-  redirectUri: string
+  redirectUri: string,
+  state: string,
 ): Promise<LoginResponseDto> {
   return requestJson<LoginResponseDto>(`/users/oauth/${provider}/login`, {
     method: 'POST',
-    body: { code, redirectUri },
+    body: { code, redirectUri, state },
     withCredentials: true,
     decode: decodeValidatedLoginResponse,
   });
