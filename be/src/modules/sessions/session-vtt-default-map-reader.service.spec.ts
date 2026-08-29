@@ -83,4 +83,62 @@ describe("SessionVttDefaultMapReaderService", () => {
     });
     expect(service.extractVttMapFromCheckOptions("{malformed")).toBeNull();
   });
+
+  it("hydrates sparse scenario monster references instead of dropping the map", () => {
+    const map = service.extractVttMapFromCheckOptions(
+      JSON.stringify({
+        vttMap: {
+          id: "map-sparse-monster",
+          scenarioNodeId: "node-1",
+          gridType: "square",
+          gridSize: 64,
+          width: 640,
+          height: 480,
+          tokens: [
+            {
+              id: "token-goblin",
+              name: "Goblin",
+              x: 64,
+              y: 64,
+              size: 64,
+              isHostile: true,
+              monster: {
+                id: "monster.goblin",
+                nameEn: "Goblin",
+                nameKo: "고블린",
+              },
+            },
+          ],
+          terrainCells: [
+            {
+              id: "terrain-fire",
+              x: 128,
+              y: 128,
+              terrainEffectId: "terrain.burning",
+            },
+          ],
+          fogRects: [],
+        },
+      }),
+    );
+
+    expect(map?.tokens).toHaveLength(1);
+    expect(map?.tokens[0]).toMatchObject({
+      id: "token-goblin",
+      monster: {
+        id: "monster.goblin",
+        basicRaw: "",
+        traits: [],
+        actions: [],
+        legendaryActions: [],
+      },
+    });
+    expect(map?.terrainCells).toEqual([
+      expect.objectContaining({
+        id: "terrain-fire",
+        width: 64,
+        height: 64,
+      }),
+    ]);
+  });
 });

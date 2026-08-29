@@ -810,27 +810,103 @@ function decodeScenarioNodeVttMap(value: unknown, nodeId: string | null): VttMap
   const gridType = record.gridType === undefined || record.gridType === null
     ? "square"
     : readStringEnum(record, "gridType", ["square", "hex"], "scenarioNode.vttMap.gridType");
+  const gridSize =
+    readOptionalIntegerInRange(
+      record,
+      "gridSize",
+      16,
+      160,
+      "scenarioNode.vttMap.gridSize",
+    ) ?? 64;
   const normalized = {
     id: readOptionalString(record, "id", "scenarioNode.vttMap.id") ?? `map:${fallbackScenarioNodeId ?? "scenario-node"}`,
     scenarioNodeId: fallbackScenarioNodeId,
     imageUrl: readNullableString(record, "imageUrl", "scenarioNode.vttMap.imageUrl"),
     gridType,
-    gridSize: readOptionalIntegerInRange(record, "gridSize", 16, 160, "scenarioNode.vttMap.gridSize") ?? 64,
+    gridSize,
     width: readOptionalIntegerInRange(record, "width", 320, 4000, "scenarioNode.vttMap.width") ?? 1280,
     height: readOptionalIntegerInRange(record, "height", 240, 4000, "scenarioNode.vttMap.height") ?? 832,
-    tokens: record.tokens === undefined || record.tokens === null ? [] : record.tokens,
+    tokens:
+      record.tokens === undefined || record.tokens === null
+        ? []
+        : normalizeScenarioNodeVttTokens(record.tokens),
     encounterScaling: record.encounterScaling ?? null,
     fogRects: record.fogRects === undefined || record.fogRects === null ? [] : record.fogRects,
     ...(record.startingPositions !== undefined && record.startingPositions !== null ? { startingPositions: record.startingPositions } : {}),
     ...(record.pings !== undefined && record.pings !== null ? { pings: record.pings } : {}),
     ...(record.lightSources !== undefined && record.lightSources !== null ? { lightSources: record.lightSources } : {}),
-    ...(record.terrainCells !== undefined && record.terrainCells !== null ? { terrainCells: record.terrainCells } : {}),
-    ...(record.wallCells !== undefined && record.wallCells !== null ? { wallCells: record.wallCells } : {}),
-    ...(record.doorCells !== undefined && record.doorCells !== null ? { doorCells: record.doorCells } : {}),
-    ...(record.objectCells !== undefined && record.objectCells !== null ? { objectCells: record.objectCells } : {}),
+    ...(record.terrainCells !== undefined && record.terrainCells !== null
+      ? { terrainCells: normalizeScenarioNodeVttCells(record.terrainCells, gridSize) }
+      : {}),
+    ...(record.wallCells !== undefined && record.wallCells !== null
+      ? { wallCells: normalizeScenarioNodeVttCells(record.wallCells, gridSize) }
+      : {}),
+    ...(record.doorCells !== undefined && record.doorCells !== null
+      ? { doorCells: normalizeScenarioNodeVttCells(record.doorCells, gridSize, true) }
+      : {}),
+    ...(record.objectCells !== undefined && record.objectCells !== null
+      ? { objectCells: normalizeScenarioNodeVttCells(record.objectCells, gridSize) }
+      : {}),
     updatedAt: readOptionalString(record, "updatedAt", "scenarioNode.vttMap.updatedAt") ?? new Date(0).toISOString(),
   };
   return { ...decodeVttMapState(normalized) };
+}
+
+function normalizeScenarioNodeVttCells(
+  value: unknown,
+  gridSize: number,
+  isDoor = false,
+): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  return value.map((cell) =>
+    isRecord(cell)
+      ? {
+          ...cell,
+          width: cell.width ?? gridSize,
+          height: cell.height ?? gridSize,
+          ...(isDoor
+            ? {
+                state: cell.state ?? "closed",
+                keyItemId: cell.keyItemId ?? null,
+                breakCheckDc: cell.breakCheckDc ?? null,
+              }
+            : {}),
+        }
+      : cell,
+  );
+}
+
+function normalizeScenarioNodeVttTokens(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  return value.map((token) => {
+    if (!isRecord(token) || !isRecord(token.monster)) {
+      return token;
+    }
+    const monster = token.monster;
+    return {
+      ...token,
+      monster: {
+        ...monster,
+        basicRaw: monster.basicRaw ?? "",
+        armorClassRaw: monster.armorClassRaw ?? null,
+        hitPointsRaw: monster.hitPointsRaw ?? null,
+        speedRaw: monster.speedRaw ?? null,
+        challengeRaw: monster.challengeRaw ?? null,
+        sensesRaw: monster.sensesRaw ?? null,
+        languagesRaw: monster.languagesRaw ?? null,
+        traits: monster.traits ?? [],
+        actions: monster.actions ?? [],
+        legendaryActions: monster.legendaryActions ?? [],
+        playReference: monster.playReference ?? null,
+      },
+    };
+  });
 }
 
 function decodeScenarioCheckOption(value: unknown): ScenarioCheckOptionDto {
