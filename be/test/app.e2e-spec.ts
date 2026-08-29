@@ -28,7 +28,8 @@ describe("Session service e2e", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;
-  let intentionalPublicSessionId: string | null = null;
+  let intentionalPublicSessionPublicId: string | null = null;
+  let guestClientSequence = 1;
   const createdGuestUserIds = new Set<string>();
   const authorization = (userId: string) => `Bearer ${createAccessToken(userId)}`;
 
@@ -47,6 +48,7 @@ describe("Session service e2e", () => {
     );
     app.useGlobalFilters(new HttpExceptionFilter());
     app.setGlobalPrefix("api/v1");
+    app.getHttpAdapter().getInstance().set("trust proxy", 1);
 
     await app.init();
     await app.listen(0);
@@ -120,7 +122,7 @@ describe("Session service e2e", () => {
     expect(created.body.data.session.status).toBe("recruiting");
     expect(created.body.data.session.hostUserId).toBe(host.id);
     expect(created.body.data.session.visibility).toBe("PUBLIC");
-    intentionalPublicSessionId = created.body.data.session.sessionId as string;
+    intentionalPublicSessionPublicId = created.body.data.session.publicId as string;
     expect(created.body.data.sessionScenarios).toHaveLength(1);
     expect(created.body.data.sessionScenarios[0].scenarioId).toBe(DEFAULT_SCENARIO_ID);
     expect(created.body.data.sessionScenarios[0].status).toBe("ACTIVE");
@@ -177,6 +179,7 @@ describe("Session service e2e", () => {
       .expect(201);
 
     const sessionId = created.body.data.session.sessionId as string;
+    const sessionPublicId = created.body.data.session.publicId as string;
     const inviteCode = created.body.data.session.inviteCode as string;
 
     const publicSessions = await request(baseUrl)
@@ -184,12 +187,12 @@ describe("Session service e2e", () => {
       .set("Authorization", authorization(host.id))
       .expect(200);
     const listedSessionIds = publicSessions.body.data.content.map(
-      (item: { session: { sessionId: string } }) => item.session.sessionId,
+      (item: { session: { publicId: string } }) => item.session.publicId,
     );
 
-    expect(intentionalPublicSessionId).not.toBeNull();
-    expect(listedSessionIds).toContain(intentionalPublicSessionId as string);
-    expect(listedSessionIds).not.toContain(sessionId);
+    expect(intentionalPublicSessionPublicId).not.toBeNull();
+    expect(listedSessionIds).toContain(intentionalPublicSessionPublicId as string);
+    expect(listedSessionIds).not.toContain(sessionPublicId);
 
     await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/character-selection`)
@@ -212,6 +215,9 @@ describe("Session service e2e", () => {
         expect(response.body.data.characterId).toBe(guestCharacter.id);
         expect(response.body.data.isReady).toBe(false);
       });
+
+    await enterCurrentPlay(sessionId, host.id);
+    await enterCurrentPlay(sessionId, guest.id);
 
     await request(baseUrl)
       .get("/api/v1/users/me/characters")
@@ -236,10 +242,7 @@ describe("Session service e2e", () => {
       .send({ isReady: true })
       .expect(200);
 
-    const started = await request(baseUrl)
-      .post(`/api/v1/sessions/${sessionId}/start`)
-      .set("Authorization", authorization(host.id))
-      .expect(201);
+    const started = await startCurrentPlay(sessionId, host.id);
 
     expect(started.body.data.session.status).toBe("playing");
     expect(started.body.data.state.phase).toBe("exploration");
@@ -362,9 +365,9 @@ describe("Session service e2e", () => {
       .send({ nodeId: "node_inner_tunnel" })
       .expect(200);
 
-    expect(moved.body.data.session.currentNodeId).toBe("node_inner_tunnel");
-    expect(moved.body.data.state.currentNodeId).toBe("node_inner_tunnel");
-    expect(moved.body.data.state.phase).toBe("dialogue");
+    expect(moved.body.data.snapshot.session.currentNodeId).toBe("node_inner_tunnel");
+    expect(moved.body.data.snapshot.state.currentNodeId).toBe("node_inner_tunnel");
+    expect(moved.body.data.snapshot.state.phase).toBe("dialogue");
 
     const playerScenario = await request(baseUrl)
       .get(`/api/v1/sessions/${sessionId}/player-scenario`)
@@ -563,8 +566,8 @@ describe("Session service e2e", () => {
         .send({ nodeId: next.id })
         .expect(200);
 
-      expect(moved.body.data.state.currentNodeId).toBe(next.id);
-      expect(moved.body.data.state.phase).toBe(next.phase);
+      expect(moved.body.data.snapshot.state.currentNodeId).toBe(next.id);
+      expect(moved.body.data.snapshot.state.phase).toBe(next.phase);
     }
 
     await request(baseUrl)
@@ -594,11 +597,22 @@ describe("Session service e2e", () => {
       .set("Authorization", authorization(host.id))
       .expect(201);
 
+    const activeCombat = await prisma.combat.findFirstOrThrow({
+      where: { sessionId, status: "ACTIVE" },
+      include: { participants: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const conditionTarget = activeCombat.participants.find(
+      (participant) =>
+        participant.tokenId === "token_node_rule_smoke_human_gm_goblin",
+    );
+    expect(conditionTarget).toBeDefined();
+
     await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/gm/combat/conditions`)
       .set("Authorization", authorization(host.id))
       .send({
-        targetId: "token_node_rule_smoke_human_gm_goblin",
+        targetId: conditionTarget!.id,
         conditionId: "stunned",
         operation: "add",
       })
@@ -632,7 +646,7 @@ describe("Session service e2e", () => {
       overrideLogs.some(
         (log: { structuredAction: { kind: string }; stateDiff: { reason?: string } | null }) =>
           log.structuredAction.kind === "node_move" &&
-          log.stateDiff?.reason === "gm_override:node_move",
+          log.stateDiff === null,
       ),
     ).toBe(true);
     expect(
@@ -742,13 +756,7 @@ describe("Session service e2e", () => {
         wis: 12,
         cha: 10,
       },
-      inventory: [
-        {
-          id: "p6-transferable-arcane-focus",
-          name: "Transferable Arcane Focus",
-          quantity: 1,
-        },
-      ],
+      features: ["asi:str", "asi:dex", "asi:con", "asi:wis", "asi:cha"],
     });
 
     const sourceSession = await request(baseUrl)
@@ -771,15 +779,13 @@ describe("Session service e2e", () => {
       .set("Authorization", authorization(sourcePlayer.id))
       .send({ characterId: sourceCharacter.id })
       .expect(200);
+    await enterCurrentPlay(sourceSessionId, sourcePlayer.id);
     await request(baseUrl)
       .patch(`/api/v1/sessions/${sourceSessionId}/participants/me/ready`)
       .set("Authorization", authorization(sourcePlayer.id))
       .send({ isReady: true })
       .expect(200);
-    const startedSource = await request(baseUrl)
-      .post(`/api/v1/sessions/${sourceSessionId}/start`)
-      .set("Authorization", authorization(sourcePlayer.id))
-      .expect(201);
+    const startedSource = await startCurrentPlay(sourceSessionId, sourcePlayer.id);
 
     const sourceSessionCharacterId = startedSource.body.data.sessionCharacters[0].id as string;
 
@@ -967,7 +973,11 @@ describe("Session service e2e", () => {
     const published = await request(baseUrl)
       .post(`/api/v1/scenarios/${draftScenarioId}/publish`)
       .set("Authorization", authorization(creator.id))
-      .send({ visibility: "public", changelog: "P6 moderation e2e" })
+      .send({
+        visibility: "public",
+        changelog: "P6 moderation e2e",
+        rightsConfirmed: true,
+      })
       .expect(201);
 
     const publishedScenarioId = published.body.id as string;
@@ -1096,16 +1106,15 @@ describe("Session service e2e", () => {
       .send({ characterId: hostCharacter.id })
       .expect(200);
 
+    await enterCurrentPlay(sessionId, host.id);
+
     await request(baseUrl)
       .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
       .set("Authorization", authorization(host.id))
       .send({ isReady: true })
       .expect(200);
 
-    await request(baseUrl)
-      .post(`/api/v1/sessions/${sessionId}/start`)
-      .set("Authorization", authorization(host.id))
-      .expect(201);
+    await startCurrentPlay(sessionId, host.id);
 
     const accepted = await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/actions`)
@@ -1219,6 +1228,9 @@ describe("Session service e2e", () => {
       .send({ characterId: guestCharacter.id })
       .expect(200);
 
+    await enterCurrentPlay(sessionId, host.id);
+    await enterCurrentPlay(sessionId, guest.id);
+
     await request(baseUrl)
       .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
       .set("Authorization", authorization(host.id))
@@ -1229,10 +1241,7 @@ describe("Session service e2e", () => {
       .set("Authorization", authorization(guest.id))
       .send({ isReady: true })
       .expect(200);
-    const started = await request(baseUrl)
-      .post(`/api/v1/sessions/${sessionId}/start`)
-      .set("Authorization", authorization(host.id))
-      .expect(201);
+    const started = await startCurrentPlay(sessionId, host.id);
 
     const sessionCharacters = started.body.data.sessionCharacters as Array<{
       id: string;
@@ -1370,14 +1379,48 @@ describe("Session service e2e", () => {
   });
 
   async function createGuest(displayName: string) {
+    const testClientIp = `198.51.100.${guestClientSequence++}`;
     const response = await request(baseUrl)
       .post("/api/v1/users/guest")
+      .set("X-Forwarded-For", testClientIp)
       .send({ displayName })
       .expect(201);
 
     const guest = response.body.data.user as { id: string; displayName: string };
     createdGuestUserIds.add(guest.id);
     return guest;
+  }
+
+  async function getCurrentPlay(sessionId: string, userId: string) {
+    const response = await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/plays`)
+      .set("Authorization", authorization(userId))
+      .expect(200);
+    const play = (response.body.data as Array<{
+      id: string;
+      status: string;
+      stateVersion: number;
+    }>).find((candidate) => candidate.status === "LOBBY_OPEN");
+    expect(play).toBeDefined();
+    return play!;
+  }
+
+  async function enterCurrentPlay(sessionId: string, userId: string) {
+    const play = await getCurrentPlay(sessionId, userId);
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/plays/${play.id}/enter`)
+      .set("Authorization", authorization(userId))
+      .send({ confirmSwitch: false })
+      .expect(200);
+  }
+
+  async function startCurrentPlay(sessionId: string, userId: string) {
+    const play = await getCurrentPlay(sessionId, userId);
+    return request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/plays/${play.id}/start`)
+      .set("Authorization", authorization(userId))
+      .send({ expectedStateVersion: play.stateVersion })
+      .expect(200);
   }
 
   async function createCharacter(
@@ -1393,8 +1436,13 @@ describe("Session service e2e", () => {
     const response = await request(baseUrl)
       .post("/api/v1/characters")
       .set("Authorization", authorization(userId))
-      .send(requestPayload)
-      .expect(201);
+      .send(requestPayload);
+
+    if (response.status !== 201) {
+      throw new Error(
+        `Character creation failed (${response.status}): ${JSON.stringify(response.body)}`,
+      );
+    }
 
     return response.body as { id: string };
   }
@@ -1469,6 +1517,9 @@ describe("Session service e2e", () => {
       .send({ characterId: guestCharacter.id })
       .expect(200);
 
+    await enterCurrentPlay(sessionId, host.id);
+    await enterCurrentPlay(sessionId, guest.id);
+
     if (gmMode === "AI") {
       await request(baseUrl)
         .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
@@ -1494,6 +1545,7 @@ describe("Session service e2e", () => {
         .set("Authorization", authorization(secondGuest.id))
         .send({ characterId: secondGuestCharacter.id })
         .expect(200);
+      await enterCurrentPlay(sessionId, secondGuest.id);
       await request(baseUrl)
         .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
         .set("Authorization", authorization(secondGuest.id))
@@ -1501,10 +1553,7 @@ describe("Session service e2e", () => {
         .expect(200);
     }
 
-    const started = await request(baseUrl)
-      .post(`/api/v1/sessions/${sessionId}/start`)
-      .set("Authorization", authorization(host.id))
-      .expect(201);
+    const started = await startCurrentPlay(sessionId, host.id);
 
     return {
       host,

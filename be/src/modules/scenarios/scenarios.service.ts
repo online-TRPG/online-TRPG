@@ -79,6 +79,7 @@ import { mapScenario, mapScenarioSummary } from '../../common/mappers/domain.map
 import {
   DEFAULT_PROVIDED_SCENARIO_ID,
   PROVIDED_SCENARIO_IDS,
+  isInternalValidationScenarioId,
   isProvidedScenarioId,
 } from './provided-scenario.constants';
 import {
@@ -1465,7 +1466,17 @@ export class ScenariosService {
 
     const canViewProvidedScenario =
       isDefaultProvidedScenario && (!scenario.publication || !projectionBlocksPublicAccess);
-    if (canViewProvidedScenario || isOwnScenario || isPublishedRevision || canViewCollaborativeDraft) {
+    const canViewInternalValidationScenario =
+      process.env.NODE_ENV === "test" &&
+      process.env.TRPG_E2E === "1" &&
+      isInternalValidationScenarioId(scenario.id);
+    if (
+      canViewProvidedScenario ||
+      canViewInternalValidationScenario ||
+      isOwnScenario ||
+      isPublishedRevision ||
+      canViewCollaborativeDraft
+    ) {
       return;
     }
 
