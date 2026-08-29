@@ -660,6 +660,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
   const activeAssignment =
     character.sessionCharacters?.find(
       (assignment) =>
+        assignment.status === PrismaSessionCharacterStatus.ACTIVE &&
         assignment.session.status !== PrismaSessionStatus.COMPLETED &&
         assignment.session.status !== PrismaSessionStatus.DISBANDED,
     ) ?? null;

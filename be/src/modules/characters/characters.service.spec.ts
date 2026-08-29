@@ -1,5 +1,6 @@
 ﻿import {
   CharacterAvatarType as PrismaCharacterAvatarType,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import { CharactersService } from "./characters.service";
@@ -263,6 +264,38 @@ describe("CharactersService level up", () => {
       ruleCatalogService,
     };
   };
+
+  it("treats a character assignment as inactive after leaving a session", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      sessionCharacters: [
+        {
+          id: "session-character-left",
+          sessionId: "session-recruiting",
+          userId: "user-1",
+          characterId: baseCharacter.id,
+          status: PrismaSessionCharacterStatus.LEFT,
+          currentHp: baseCharacter.maxHp,
+          tempHp: 0,
+          conditionsJson: "[]",
+          inventorySnapshotJson: "[]",
+          createdAt: baseCharacter.createdAt,
+          updatedAt: baseCharacter.updatedAt,
+          session: {
+            id: "session-recruiting",
+            status: PrismaSessionStatus.RECRUITING,
+            sessionScenarios: [],
+          },
+        },
+      ],
+    });
+
+    const result = await service.getCharacter("user-1", baseCharacter.id);
+
+    expect(result.activeSessionId).toBeNull();
+    expect(result.isSelectable).toBe(true);
+  });
 
   it("accepts non-default provided scenarios during character creation", async () => {
     const { service, prisma } = createService();
@@ -1044,6 +1077,7 @@ describe("CharactersService level up", () => {
           id: "session-character-1",
           sessionId: "session-1",
           userId: "user-1",
+          status: PrismaSessionCharacterStatus.ACTIVE,
           session: { id: "session-1", status: PrismaSessionStatus.PLAYING },
         },
       ],
@@ -1156,6 +1190,7 @@ describe("CharactersService level up", () => {
           id: "session-character-active",
           sessionId: "session-active",
           userId: "user-1",
+          status: PrismaSessionCharacterStatus.ACTIVE,
           conditionsJson: JSON.stringify([
             { conditionId: "condition.concentration", tags: ["concentration:spell:spell.wish"] },
           ]),
@@ -1187,6 +1222,7 @@ describe("CharactersService level up", () => {
           id: "session-character-archived",
           sessionId: "session-completed",
           userId: "user-1",
+          status: PrismaSessionCharacterStatus.RETIRED,
           conditionsJson: "[]",
           session: {
             id: "session-completed",
@@ -1424,6 +1460,7 @@ describe("CharactersService level up", () => {
           id: "session-character-1",
           sessionId: "session-1",
           userId: "user-1",
+          status: PrismaSessionCharacterStatus.ACTIVE,
           currentHp: 20,
           session: { id: "session-1", status: PrismaSessionStatus.PLAYING },
         },
@@ -2112,6 +2149,7 @@ describe("CharactersService level up", () => {
           id: "session-character-1",
           sessionId: "session-1",
           userId: "user-1",
+          status: PrismaSessionCharacterStatus.ACTIVE,
           session: { id: "session-1", status: PrismaSessionStatus.PLAYING },
         },
       ],
