@@ -28,8 +28,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@nestjs/swagger": "11.4.6",
+    "@nestjs/swagger": "11.4.7",
     "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.1"
+    "class-validator": "^0.15.1"
   }
 }
