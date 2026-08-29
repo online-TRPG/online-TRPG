@@ -1,6 +1,18 @@
 # UX 개선 검증 증거
 
+상태: 미완료 — 브라우저 E2E, 수동 사용자 여정 12개와 이메일 provider 대기
+
 이 문서는 `doc/user_experience_remediation_plan.md` 구현 결과를 검증할 때 사용하는 기록지다. 코드 작성만으로 완료 처리하지 않으며, 실제 실행 결과가 생길 때마다 아래 상태와 증거를 갱신한다.
+
+## 처음 보는 개발자를 위한 현재 상태
+
+자동 검증은 대부분 통과했다. 아직 완료되지 않은 핵심은 실제 브라우저 E2E,
+아래 12개 수동 사용자 여정, 비밀번호 재설정 메일 provider 연결이다. 따라서
+현재 공개 베타 판정은 아직 `미완료`다.
+
+검증을 실행한 사람은 성공 여부만 바꾸지 말고 실행 날짜, 환경, 실패한 경우의
+오류 코드나 화면을 “결과/증거” 열에 함께 적는다. 계정 ID, token, 채팅 원문은
+기록하지 않는다.
 
 ## 기록 원칙
 
@@ -13,11 +25,11 @@
 
 | 범위 | 명령 | 현재 상태 | 결과/증거 |
 |---|---|---|---|
-| 정적 사용자 식별자 | `npm run verify:user-facing-identifiers` | 미실행 | 사용자 실행 필요 |
-| 공유 타입 | `npm run build -w @trpg/shared-types` | 미실행 | 사용자 실행 필요 |
-| 백엔드 단위/회귀 | `npm run test -w @trpg/be` | 미실행 | 사용자 실행 필요 |
-| 프론트 단위·axe | `npm run test -w @trpg/fe` | 미실행 | 사용자 실행 필요 |
-| 프론트 빌드 | `npm run build -w @trpg/fe` | 미실행 | 사용자 실행 필요 |
+| 정적 사용자 식별자 | `npm run verify:user-facing-identifiers` | 통과 | 2026-08-29 정적 검사 통과 |
+| 공유 타입 | `npm run build -w @trpg/shared-types` | 통과 | 2026-08-29 통합 production build에서 통과 |
+| 백엔드 단위/회귀 | `npm run test -w @trpg/be` | 통과 | 2026-08-29, 148 suites·1,276 tests 통과 |
+| 프론트 단위·axe | `npm run test -w @trpg/fe` | 통과 | 2026-08-29, 18 files·44 tests 통과 |
+| 프론트 빌드 | `npm run build -w @trpg/fe` | 통과 | 2026-08-29 Vite production build 통과, 대형 chunk 경고만 남음 |
 | 데스크톱 접근성 smoke | `npm run test:ux-e2e` | 미실행 | FE/BE 실행 후 사용자 실행 필요 |
 
 ## 수동 사용자 여정
