@@ -13,6 +13,7 @@ import {
 
 type UsePlayScenarioMapLoaderParams = {
   user: StoredUser;
+  accessToken: string | null;
   sessionId: string | null;
   isRecruiting: boolean;
   currentNodeId?: string | null;
@@ -33,6 +34,7 @@ type UsePlayScenarioMapLoaderParams = {
 export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams) {
   const {
     user,
+    accessToken,
     sessionId,
     isRecruiting,
     currentNodeId,
@@ -73,6 +75,12 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
       return;
     }
 
+    // Access tokens are restored asynchronously from the refresh cookie after a page reload.
+    // Wait for that bootstrap to finish instead of sending an unauthenticated request first.
+    if (!accessToken) {
+      return;
+    }
+
     const loadKey = createPlayerScenarioLoadKey(sessionId, currentNodeId, stateVersion);
     let ignore = false;
     setScenarioLoadError(null);
@@ -88,7 +96,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     }
     setIsScenarioLoaded(false);
 
-    getPlayerScenario(user, sessionId)
+    getPlayerScenario(user, sessionId, accessToken)
       .then((scenario) => {
         if (!ignore) {
           playerScenarioLoadKeyRef.current = loadKey;
@@ -110,6 +118,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
       ignore = true;
     };
   }, [
+    accessToken,
     currentNodeId,
     isRecruiting,
     latestConfirmedMapRef,
@@ -138,7 +147,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
   }, [currentNodeId, sessionId, snapshotVttMap, stateVersion]);
 
   useEffect(() => {
-    if (!sessionId || isRecruiting) {
+    if (!sessionId || !accessToken || isRecruiting) {
       return;
     }
 
@@ -151,7 +160,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
     currentMapLoadKeyRef.current = loadKey;
     setMapLoadError(null);
 
-    getVttMap(user, sessionId)
+    getVttMap(user, sessionId, accessToken)
       .then((map) => {
         if (
           !ignore
@@ -171,6 +180,7 @@ export function usePlayScenarioMapLoader(params: UsePlayScenarioMapLoaderParams)
       ignore = true;
     };
   }, [
+    accessToken,
     currentNodeId,
     isRecruiting,
     sessionId,

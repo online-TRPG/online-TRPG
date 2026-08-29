@@ -715,6 +715,7 @@ export function PlayPage({
     isGmNodeMovePending,
   } = useHumanGmSceneActions({
     user,
+    accessToken,
     sessionId: session?.id ?? null,
     canUseHumanGmView,
     latestConfirmedMapRef,
@@ -933,6 +934,7 @@ export function PlayPage({
   });
   usePlayScenarioMapLoader({
     user,
+    accessToken,
     sessionId: session?.id ?? null,
     isRecruiting,
     currentNodeId: snapshot?.state.currentNodeId,

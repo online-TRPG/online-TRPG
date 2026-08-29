@@ -25,6 +25,7 @@ const user = {
 function createParams() {
   return {
     user,
+    accessToken: 'access-token' as string | null,
     sessionId: 'session-1',
     isRecruiting: true,
     currentNodeId: 'node-2' as string | null,
@@ -87,7 +88,7 @@ describe('usePlayScenarioMapLoader', () => {
     renderHook(() => usePlayScenarioMapLoader(params));
 
     await waitFor(() => {
-      expect(getPlayerScenario).toHaveBeenCalledTimes(1);
+      expect(getPlayerScenario).toHaveBeenCalledWith(user, 'session-1', 'access-token');
       expect(params.setPlayerScenario).toHaveBeenCalledWith(scenario);
     });
     expect(params.playerScenarioLoadKeyRef.current).toEqual(
@@ -107,7 +108,7 @@ describe('usePlayScenarioMapLoader', () => {
     renderHook(() => usePlayScenarioMapLoader(params));
 
     await waitFor(() => {
-      expect(getPlayerScenario).toHaveBeenCalledTimes(1);
+      expect(getPlayerScenario).toHaveBeenCalledWith(user, 'session-1', 'access-token');
     });
   });
 
@@ -139,6 +140,7 @@ describe('usePlayScenarioMapLoader', () => {
     params.stateVersion = 8;
     rerender();
     await waitFor(() => {
+      expect(getVttMap).toHaveBeenCalledWith(user, 'session-1', 'access-token');
       expect(params.setMapIfChanged).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'map-node-2' }),
         'load',
@@ -157,5 +159,34 @@ describe('usePlayScenarioMapLoader', () => {
       expect.objectContaining({ id: 'map-node-1' }),
       'load',
     );
+  });
+
+  it('waits for an access token before loading protected session resources', async () => {
+    const params = createParams();
+    params.accessToken = null;
+    params.isRecruiting = false;
+    vi.mocked(getPlayerScenario).mockResolvedValue({
+      currentNodeId: 'node-2',
+      currentNode: { id: 'node-2' },
+    } as PlayerScenarioView);
+    vi.mocked(getVttMap).mockResolvedValue({
+      id: 'map-node-2',
+      scenarioNodeId: 'node-2',
+      tokens: [],
+      fogRects: [],
+    } as never);
+
+    const { rerender } = renderHook(() => usePlayScenarioMapLoader(params));
+
+    expect(getPlayerScenario).not.toHaveBeenCalled();
+    expect(getVttMap).not.toHaveBeenCalled();
+
+    params.accessToken = 'reissued-access-token';
+    rerender();
+
+    await waitFor(() => {
+      expect(getPlayerScenario).toHaveBeenCalledWith(user, 'session-1', 'reissued-access-token');
+      expect(getVttMap).toHaveBeenCalledWith(user, 'session-1', 'reissued-access-token');
+    });
   });
 });

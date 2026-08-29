@@ -21,6 +21,7 @@ type GmMessagePayload = {
 
 type UseHumanGmSceneActionsParams = {
   user: StoredUser;
+  accessToken: string | null;
   sessionId: string | null;
   canUseHumanGmView: boolean;
   latestConfirmedMapRef: MutableRefObject<VttMapStateDto | null>;
@@ -46,6 +47,7 @@ function extractSnapshotMap(snapshot: SessionSnapshot): VttMapStateDto | null {
 export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
   const {
     user,
+    accessToken,
     sessionId,
     canUseHumanGmView,
     latestConfirmedMapRef,
@@ -85,20 +87,25 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
 
   const executeGmMessage = useCallback(
     async (payload: GmMessagePayload) => {
-      if (!sessionId || !canUseHumanGmView) {
+      if (!sessionId || !accessToken || !canUseHumanGmView) {
         throw new Error('HUMAN GM 메시지를 실행할 수 없는 세션 상태입니다.');
       }
 
-      const nextSnapshot = await createHumanGmMessage(user, sessionId, {
-        content: payload.content,
-        speakerName: payload.speakerName?.trim() || undefined,
-        asNpc: payload.asNpc,
-        privateNote: payload.privateNote?.trim() || null,
-      });
+      const nextSnapshot = await createHumanGmMessage(
+        user,
+        sessionId,
+        {
+          content: payload.content,
+          speakerName: payload.speakerName?.trim() || undefined,
+          asNpc: payload.asNpc,
+          privateNote: payload.privateNote?.trim() || null,
+        },
+        accessToken,
+      );
       applySnapshotMap(nextSnapshot);
       onAction(payload.asNpc ? 'GM NPC 대사' : 'GM 장면 묘사');
     },
-    [applySnapshotMap, canUseHumanGmView, onAction, sessionId, user],
+    [accessToken, applySnapshotMap, canUseHumanGmView, onAction, sessionId, user],
   );
 
   const handleGmMessage = useCallback(
@@ -129,13 +136,18 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
 
   const executeGmNodeMove = useCallback(
     async (nodeId: string) => {
-      if (!sessionId || !canUseHumanGmView) {
+      if (!sessionId || !accessToken || !canUseHumanGmView) {
         throw new Error('HUMAN GM 노드 이동을 실행할 수 없는 세션 상태입니다.');
       }
 
       nodeTransitionTargetIdRef.current = nodeId;
       try {
-        const transition = await updateHumanGmSessionNode(user, sessionId, nodeId);
+        const transition = await updateHumanGmSessionNode(
+          user,
+          sessionId,
+          nodeId,
+          accessToken,
+        );
         const nextSnapshot = transition.snapshot;
         playerScenarioLoadKeyRef.current = createPlayerScenarioLoadKey(
           sessionId,
@@ -150,7 +162,7 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
         setCombatError(null);
         setSelectedExplorationMapSelection(null);
         if (!didApplyMap) {
-          const savedMap = await getVttMap(user, sessionId);
+          const savedMap = await getVttMap(user, sessionId, accessToken);
           if (savedMap.scenarioNodeId !== nextSnapshot.state.currentNodeId) {
             throw new Error('현재 노드와 다른 맵 응답을 받았습니다.');
           }
@@ -165,6 +177,7 @@ export function useHumanGmSceneActions(params: UseHumanGmSceneActionsParams) {
       }
     },
     [
+      accessToken,
       applySnapshotMap,
       canUseHumanGmView,
       latestConfirmedMapRef,
