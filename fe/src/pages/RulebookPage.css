@@ -240,7 +240,7 @@
 
 .rulebook-page.rulebook-page--fantasy .rulebook-content-grid {
   display: grid;
-  grid-template-columns: 184px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   gap: 14px;
   margin-top: 14px;
   min-height: calc(100vh - 230px);

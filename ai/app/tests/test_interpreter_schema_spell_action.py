@@ -21,15 +21,12 @@ def test_interpreter_output_accepts_backend_actionable_spell_cast():
             "clarificationQuestion": None,
             "mentionedSpellId": "spell.chill_touch",
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [
                 "rule.spellcasting.casting_time.action",
                 "rule.spellcasting.range",
                 "rule.spellcasting.spell_attack",
                 "rule.combat.attack_roll",
             ],
-            "rulesConfidence": 0.91,
-            "safetyNotes": ["명중 여부와 피해는 백엔드 엔진이 확정해야 함"],
         }
     )
 
@@ -59,10 +56,7 @@ def test_interpreter_output_accepts_backend_actionable_class_feature_use():
             "clarificationQuestion": None,
             "mentionedSpellId": None,
             "mentionedItemId": None,
-            "mentionedConditionIds": [],
             "requiredRuleCheckIds": [],
-            "rulesConfidence": 0.88,
-            "safetyNotes": ["회복량과 HP 변경은 백엔드 엔진이 확정해야 함"],
         }
     )
 

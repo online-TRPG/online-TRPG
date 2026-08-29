@@ -16,7 +16,7 @@
 
 P2는 5레벨 플레이, 주문 50개, 몬스터 25종, 지형·오브젝트 상호작용과 시나리오 제작 UI MVP를 완료했다.
 
-P3는 [`../future_plan.md`](../future_plan.md)의 장기 목표를 유지하면서 단편 제작 도구를 실제 공유 가능한 캠페인 제작 흐름으로 확장한다. 완료된 P2 기록은 [`future_plan_p2.md`](future_plan_p2.md)에 보관한다.
+P3는 [`future_plan.md`](future_plan.md)의 장기 목표를 유지하면서 단편 제작 도구를 실제 공유 가능한 캠페인 제작 흐름으로 확장한다. 완료된 P2 기록은 [`future_plan_p2.md`](future_plan_p2.md)에 보관한다.
 
 P3 범위는 다음 여섯 가지로 고정한다.
 

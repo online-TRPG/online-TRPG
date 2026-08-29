@@ -55,6 +55,7 @@ export function useBattleMapPointerInput(params: {
   addPingAt: (point: Point) => Promise<void>;
   handleMeasureClick: (point: Point) => void;
   emitTileSelection: (point: Point) => void;
+  onWorldPointerMove?: (point: Point) => void;
 }) {
   const suppressStageClickRef = useRef(false);
 
@@ -85,6 +86,7 @@ export function useBattleMapPointerInput(params: {
     const isBackgroundTarget = event.target === stage || event.target.name() === 'map-background';
 
     const world = getWorldPointer(pointer);
+    params.onWorldPointerMove?.(world);
     params.setSelectedTokenId(null);
     params.setSelectedFogId(null);
     params.setSelectedMapStructure(null);

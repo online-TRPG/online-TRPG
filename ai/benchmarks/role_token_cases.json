@@ -1,0 +1,177 @@
+[
+  {
+    "caseId": "interpreter-known-attack-001",
+    "description": "확정된 공격 의도에서 선택 대상을 유지한다.",
+    "role": "interpreter",
+    "request": {
+      "rawText": "고블린을 장검으로 공격한다.",
+      "actorCharacterId": "hero-1",
+      "sceneSummary": "좁은 동굴에서 고블린과 대치 중이다.",
+      "availableTargets": ["goblin-1"],
+      "availableTargetDetails": [
+        {"id": "goblin-1", "name": "고블린", "kind": "MONSTER"}
+      ],
+      "requestIntent": "MAP_ATTACK",
+      "targetId": "goblin-1"
+    },
+    "expect": {
+      "requiredPaths": ["action.approach"],
+      "equals": {
+        "action.type": "MAP_ATTACK",
+        "action.targetId": "goblin-1"
+      }
+    }
+  },
+  {
+    "caseId": "interpreter-general-hint-001",
+    "description": "일반 요청에서 힌트 의도를 분류한다.",
+    "role": "interpreter",
+    "request": {
+      "rawText": "지금 뭘 해야 할지 힌트를 줘.",
+      "actorCharacterId": "hero-1",
+      "sceneSummary": "잠긴 철문과 물에 젖은 발자국이 보인다.",
+      "availableTargets": ["iron-door", "wet-footprints"],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "EXPLORATION"
+    },
+    "expect": {
+      "equals": {"action.type": "ASK_HINT"}
+    }
+  },
+  {
+    "caseId": "narrator-confirmed-result-001",
+    "description": "확정된 실패 결과 밖의 사실을 추가하지 않는다.",
+    "role": "narrator",
+    "request": {
+      "rawInput": "석문에서 비밀 장치를 찾는다.",
+      "action": {
+        "type": "INVESTIGATE_OBJECT",
+        "actorCharacterId": "hero-1",
+        "targetId": "stone-door",
+        "approach": "석문의 틈을 조사한다.",
+        "confidence": 1.0,
+        "requiresRoll": true
+      },
+      "diceResult": {
+        "rollerId": "hero-1",
+        "formula": "1d20+2",
+        "total": 6,
+        "naturalD20": 4,
+        "success": false
+      },
+      "stateDiffSummary": {
+        "summary": "조사에 실패했고 새로운 단서나 상태 변화는 없다.",
+        "changedFlags": []
+      },
+      "actionSummary": "조사에 실패했고 새로운 단서는 발견하지 못했다.",
+      "constraints": {"language": "ko", "maxLength": 300, "noNewFacts": true}
+    },
+    "expect": {
+      "requiredPaths": ["narration"],
+      "maxLengths": {"narration": 300},
+      "forbiddenSubstrings": {
+        "narration": ["비밀 장치가 있다", "숨겨진 버튼", "보물을 발견"]
+      }
+    }
+  },
+  {
+    "caseId": "director-public-hint-001",
+    "description": "공개 장면과 단서만으로 힌트를 생성한다.",
+    "role": "director",
+    "request": {
+      "hintLevel": "NORMAL",
+      "question": "다음에 무엇을 살펴볼까?",
+      "sceneSummary": "잠긴 철문 앞에 물에 젖은 발자국이 이어져 있다.",
+      "recentLogs": ["손잡이를 당겼지만 문은 열리지 않았다."],
+      "publicClues": ["물에 젖은 발자국"],
+      "triedApproaches": ["손잡이를 당김"]
+    },
+    "expect": {
+      "requiredPaths": ["content"],
+      "maxLengths": {"content": 700},
+      "requiredSubstrings": {"content": ["발자국"]}
+    }
+  },
+  {
+    "caseId": "summarizer-confirmed-logs-001",
+    "description": "확정 로그 두 개만 사실 요약한다.",
+    "role": "summarizer",
+    "request": {
+      "summaryType": "player_visible",
+      "rangeType": "RECENT",
+      "lastLogCount": 2,
+      "logs": [
+        "일행은 잠긴 철문을 열지 못했다.",
+        "일행은 물에 젖은 발자국을 확인했다."
+      ]
+    },
+    "expect": {
+      "requiredPaths": ["content"],
+      "maxLengths": {"content": 1200},
+      "requiredSubstrings": {"content": ["철문", "발자국"]}
+    }
+  },
+  {
+    "caseId": "actor-allowed-action-001",
+    "description": "허용된 NPC 행동 ID만 선택한다.",
+    "role": "actor",
+    "request": {
+      "npcEntityId": "goblin-1",
+      "npcSummary": "부상당한 고블린 궁수",
+      "disposition": "hostile",
+      "hpStatus": "wounded",
+      "sceneSummary": "고블린은 영웅과 60피트 떨어져 있다.",
+      "allowedActions": [
+        {"id": "goblin.shortbow", "label": "쇼트보우 공격", "actionType": "attack"},
+        {"id": "goblin.retreat", "label": "엄폐물 뒤로 후퇴", "actionType": "move"}
+      ]
+    },
+    "expect": {
+      "requiredPaths": ["selectedActionId"],
+      "allowedValues": {
+        "selectedActionId": ["goblin.shortbow", "goblin.retreat"]
+      }
+    }
+  },
+  {
+    "caseId": "npc-dialogue-bounded-001",
+    "description": "NPC 대사만 요청 길이 안에서 생성한다.",
+    "role": "npc_dialogue",
+    "request": {
+      "npcEntityId": "guard-1",
+      "npcName": "경비병",
+      "npcSummary": "북문을 지키는 신중한 경비병",
+      "disposition": "neutral",
+      "sceneSummary": "북문 앞에서 대화 중이다.",
+      "recentContext": ["영웅이 북문의 상황을 물었다."],
+      "dialogueIntent": "아는 범위 안에서 짧게 답한다.",
+      "maxLength": 120
+    },
+    "expect": {
+      "requiredPaths": ["dialogue"],
+      "maxLengths": {"dialogue": 120}
+    }
+  },
+  {
+    "caseId": "check-result-allowed-fact-001",
+    "description": "허용된 정보 보상만 성공 결과에 포함한다.",
+    "role": "check_result",
+    "request": {
+      "outcome": "SUCCESS",
+      "intent": "SOCIAL_PERSUADE",
+      "actionSummary": "경비병 설득 판정에 성공했다.",
+      "targetName": "경비병",
+      "targetSummary": "북문을 지키는 경비병",
+      "targetDisposition": "neutral",
+      "sceneSummary": "북문 앞에서 대화 중이다.",
+      "allowedRewardFacts": ["경비병은 북문이 비어 있다는 사실을 공개할 수 있다."],
+      "visibleEntities": ["경비병"],
+      "outputMode": "NPC_REPLY"
+    },
+    "expect": {
+      "requiredPaths": ["narration"],
+      "maxLengths": {"narration": 700},
+      "requiredSubstrings": {"narration": ["북문", "비어"]}
+    }
+  }
+]

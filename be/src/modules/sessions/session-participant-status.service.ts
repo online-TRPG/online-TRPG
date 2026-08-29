@@ -3,7 +3,7 @@ import {
   ConnectionStatus as PrismaConnectionStatus,
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
-  SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
 } from "@prisma/client";
 import {
   ConnectionStatus,
@@ -128,7 +128,8 @@ export class SessionParticipantStatusService {
   async updateReadyState(params: {
     sessionId: string;
     userId: string;
-    sessionStatus: PrismaSessionStatus;
+    activityStatus: PrismaSessionActivityStatus;
+    currentPlayId: string | null;
     isReady: boolean;
     getScenarioForReadyValidation: () => Promise<{
       scenario: {
@@ -163,24 +164,29 @@ export class SessionParticipantStatusService {
     });
 
     if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
-      throw new ForbiddenException("You must join the session before updating ready state.");
+      throw new ForbiddenException("세션 구성원만 준비 상태를 변경할 수 있습니다.");
     }
 
-    if (params.sessionStatus !== PrismaSessionStatus.RECRUITING) {
-      throw new ConflictException("Ready state can only be changed while the session is recruiting.");
+    if (params.activityStatus !== PrismaSessionActivityStatus.LOBBY_OPEN || !params.currentPlayId) {
+      throw new ConflictException("준비 완료는 입장 가능한 대기실에서만 변경할 수 있습니다.");
+    }
+    const activePlay = await this.prisma.userActivePlay.findUnique({ where: { userId: params.userId } });
+    if (!activePlay || activePlay.playId !== params.currentPlayId || activePlay.sessionId !== params.sessionId) {
+      throw new ConflictException("대기실에 입장한 뒤 준비 상태를 변경해주세요.");
     }
 
     if (participant.role === PrismaParticipantRole.GM) {
       return this.updateAndEmitReadyParticipant({
         sessionId: params.sessionId,
         participantId: participant.id,
+        playId: params.currentPlayId,
         isReady: true,
         readyAt: participant.readyAt ?? new Date(),
       });
     }
 
     if (params.isReady && !participant.sessionCharacter) {
-      throw new ConflictException("Select a character before marking yourself ready.");
+      throw new ConflictException("준비 완료 전에 사용할 캐릭터를 선택해주세요.");
     }
 
     if (params.isReady && participant.sessionCharacter) {
@@ -195,6 +201,7 @@ export class SessionParticipantStatusService {
     return this.updateAndEmitReadyParticipant({
       sessionId: params.sessionId,
       participantId: participant.id,
+      playId: params.currentPlayId,
       isReady: params.isReady,
       readyAt: params.isReady ? new Date() : null,
     });
@@ -215,24 +222,39 @@ export class SessionParticipantStatusService {
   private async updateAndEmitReadyParticipant(params: {
     sessionId: string;
     participantId: string;
+    playId?: string;
     isReady: boolean;
     readyAt: Date | null;
   }): Promise<SessionParticipantResponseDto> {
-    const updatedParticipant = await this.prisma.sessionParticipant.update({
-      where: { id: params.participantId },
-      data: {
-        isReady: params.isReady,
-        readyAt: params.readyAt,
-      },
-      include: {
-        user: true,
-        sessionCharacter: {
-          select: {
-            id: true,
-            characterId: true,
+    const updatedParticipant = await this.prisma.$transaction(async (tx) => {
+      if (params.playId) {
+        await tx.sessionPlayAttendance.upsert({
+          where: { playId_participantId: { playId: params.playId, participantId: params.participantId } },
+          create: {
+            playId: params.playId,
+            participantId: params.participantId,
+            isReady: params.isReady,
+            readyAt: params.readyAt,
+          },
+          update: { isReady: params.isReady, readyAt: params.readyAt },
+        });
+      }
+      return tx.sessionParticipant.update({
+        where: { id: params.participantId },
+        data: {
+          isReady: params.isReady,
+          readyAt: params.readyAt,
+        },
+        include: {
+          user: true,
+          sessionCharacter: {
+            select: {
+              id: true,
+              characterId: true,
+            },
           },
         },
-      },
+      });
     });
 
     const mappedParticipant = mapParticipant(updatedParticipant);

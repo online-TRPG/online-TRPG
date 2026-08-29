@@ -61,6 +61,15 @@ describe("SessionVttMovementFramePublisherService", () => {
       tokens: value.tokens.map((token) => ({ ...token, hidden: false })),
     }));
 
+    const finalMap: VttMapStateDto = {
+      ...map,
+      tokens: map.tokens.map((token) => ({
+        ...token,
+        x: 128,
+        y: 64,
+      })),
+      updatedAt: "2026-07-31T01:02:03.000Z",
+    };
     await service.publish({
       sessionId: "session-1",
       hostUserId: "host-1",
@@ -70,6 +79,7 @@ describe("SessionVttMovementFramePublisherService", () => {
         { x: 64, y: 0 },
         { x: 128, y: 64 },
       ],
+      finalMap,
       redactVttMapForPlayer,
       delayMs: 0,
     });
@@ -99,9 +109,11 @@ describe("SessionVttMovementFramePublisherService", () => {
         tokens: [expect.objectContaining({ id: "token-1", x: 64, y: 0 })],
       }),
       hostMap: expect.objectContaining({
+        updatedAt: "2026-07-31T01:02:03.000Z",
         tokens: [expect.objectContaining({ id: "token-1", x: 128, y: 64 })],
       }),
       playerMap: expect.objectContaining({
+        updatedAt: "2026-07-31T01:02:03.000Z",
         tokens: [expect.objectContaining({ id: "token-1", x: 128, y: 64 })],
       }),
     });

@@ -17,6 +17,7 @@ import {
   AiNarrationResponseDto,
   AiNpcDialogueRequestDto,
   AiNpcDialogueResponseDto,
+  AiRoleUsageMetricsDto,
   AiSummaryRequestDto,
   AiSummaryResponseDto,
   AiTraceKind,
@@ -31,6 +32,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { SessionGmRuntimeParticipantAccessService } from "../sessions/session-gm-runtime-participant-access.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import {
   ActorRequestPayload,
@@ -59,9 +61,48 @@ type HarnessResponse =
   | ActorResponsePayload
   | CheckResultResponsePayload;
 
+type AiContextSource = "CLIENT_PROVIDED" | "SERVER_VALIDATED";
+
 // NPC 대사 생성 실패가 캐릭터의 행동 선언처럼 보이지 않도록, 재입력을 부탁하는 중립 대사로 통일합니다.
 const NPC_DIALOGUE_FALLBACK_DIALOGUE =
   "잠시만요. 다시 한 번 말해 줄래요?";
+const DIRECTOR_QUESTION_MAX_LENGTH = 500;
+const DIRECTOR_SCENE_SUMMARY_MAX_LENGTH = 1200;
+const DIRECTOR_RECENT_LOG_LIMIT = 5;
+const DIRECTOR_RECENT_LOG_MAX_LENGTH = 1000;
+const DIRECTOR_PUBLIC_CLUE_LIMIT = 10;
+const DIRECTOR_PUBLIC_CLUE_MAX_LENGTH = 500;
+const DIRECTOR_TRIED_APPROACH_LIMIT = 10;
+const DIRECTOR_TRIED_APPROACH_MAX_LENGTH = 500;
+const CHECK_RESULT_INTENT_MAX_LENGTH = 80;
+const CHECK_RESULT_ACTION_SUMMARY_MAX_LENGTH = 1000;
+const CHECK_RESULT_TARGET_NAME_MAX_LENGTH = 120;
+const CHECK_RESULT_TARGET_SUMMARY_MAX_LENGTH = 700;
+const CHECK_RESULT_TARGET_DISPOSITION_MAX_LENGTH = 100;
+const CHECK_RESULT_SCENE_SUMMARY_MAX_LENGTH = 1200;
+const CHECK_RESULT_REWARD_FACT_LIMIT = 10;
+const CHECK_RESULT_REWARD_FACT_MAX_LENGTH = 700;
+const CHECK_RESULT_VISIBLE_ENTITY_LIMIT = 12;
+const CHECK_RESULT_VISIBLE_ENTITY_MAX_LENGTH = 1000;
+const CHECK_RESULT_INFORMATION_REWARD_INTENTS = new Set([
+  "SOCIAL_PERSUADE",
+  "SOCIAL_INTIMIDATE",
+  "SOCIAL_DECEIVE",
+  "READ_EMOTION",
+]);
+const CHECK_RESULT_NO_NEW_FACT_NARRATION =
+  "판정에 성공했지만 새로운 사실은 드러나지 않습니다.";
+const SUMMARY_LOG_LIMIT = 50;
+const SUMMARY_FULL_SCAN_LIMIT = SUMMARY_LOG_LIMIT + 1;
+const SUMMARY_LOG_MAX_LENGTH = 2000;
+const NPC_ENTITY_ID_MAX_LENGTH = 100;
+const NPC_NAME_MAX_LENGTH = 120;
+const NPC_SUMMARY_MAX_LENGTH = 1000;
+const NPC_DISPOSITION_MAX_LENGTH = 80;
+const NPC_SCENE_SUMMARY_MAX_LENGTH = 1200;
+const NPC_RECENT_CONTEXT_LIMIT = 8;
+const NPC_RECENT_CONTEXT_MAX_LENGTH = 1000;
+const NPC_DIALOGUE_INTENT_MAX_LENGTH = 300;
 
 interface PersistTraceParams {
   sessionId: string;
@@ -75,6 +116,27 @@ interface PersistTraceParams {
   failureType?: string | null;
 }
 
+type RoleUsageMetricRow = {
+  kind: PrismaAiTraceKind;
+  promptVersion: string | null;
+  model: string | null;
+  traceCount: number;
+  tokenSampleCount: number;
+  promptTokenSampleCount: number;
+  outputTokenSampleCount: number;
+  totalTokenSampleCount: number;
+  schemaSampleCount: number;
+  promptTokenP50: number | null;
+  promptTokenP95: number | null;
+  outputTokenP50: number | null;
+  outputTokenP95: number | null;
+  totalTokenP50: number | null;
+  totalTokenP95: number | null;
+  providerLatencyP50Ms: number | null;
+  providerLatencyP95Ms: number | null;
+  schemaRetryRate: number | null;
+};
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -85,6 +147,7 @@ export class AiService {
     private readonly aiClient: AiClient,
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly turnLogsService: TurnLogsService,
+    private readonly gmRuntimeParticipantAccess: SessionGmRuntimeParticipantAccessService,
   ) {}
 
   async runNarration(
@@ -93,12 +156,19 @@ export class AiService {
     dto: AiNarrationRequestDto,
   ): Promise<AiNarrationResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
+    await this.gmRuntimeParticipantAccess.ensureJoinedGmRuntimeParticipant(userId, sessionId);
 
     const requestPayload: NarratorRequestPayload = {
-      rawInput: dto.rawInput,
-      actionSummary: dto.actionSummary,
-      diceSummary: dto.diceSummary,
-      sceneTone: dto.sceneTone ?? "mysterious",
+      action: dto.action,
+      checkRequest: dto.checkRequest,
+      diceResult: dto.diceResult,
+      stateDiffSummary: dto.stateDiffSummary,
+      scene: dto.scene,
+      constraints: {
+        language: "ko",
+        maxLength: dto.maxLength ?? 500,
+        noNewFacts: true,
+      },
       sessionId,
       turnId: dto.turnId,
     };
@@ -113,15 +183,27 @@ export class AiService {
     });
 
     const narrationText = result.response.parsed.narration;
+    const visibleSummarySource =
+      dto.stateDiffSummary?.summary?.trim()
+      || narrationText;
+    const visibleSummaryWithoutTerminalPunctuation = visibleSummarySource
+      .replace(/[.!?。！？]+$/u, "")
+      .trim();
+    const visibleSummary = (
+      visibleSummaryWithoutTerminalPunctuation || visibleSummarySource
+    ).slice(0, 300);
     await this.publishNarration(sessionId, narrationText, result.traceId);
     if (dto.turnId) {
       await this.updateTurnLogNarration(sessionId, dto.turnId, narrationText);
     }
 
     return {
-      parsed: result.response.parsed,
-      model: result.response.model,
-      latencyMs: result.response.latencyMs ?? result.elapsedMs,
+      parsed: {
+        narration: narrationText,
+        visibleSummary,
+      },
+      model: result.response.trace.model,
+      latencyMs: result.response.trace.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
       fallback: result.response.fallback ?? result.isBeFallback,
       fallbackReason: result.response.fallbackReason ?? null,
@@ -132,18 +214,36 @@ export class AiService {
     userId: string,
     sessionId: string,
     dto: AiHintRequestDto,
-    options?: { emitSystemMessage?: boolean },
+    options?: {
+      emitSystemMessage?: boolean;
+      trustedPublicClues?: string[];
+      responseMode?: "HINT" | "HUMAN_GM_ASSIST";
+      contextSource?: AiContextSource;
+    },
   ): Promise<AiHintResponseDto> {
-    await this.sessionsService.ensureMembership(userId, sessionId);
-    const publicClues = await this.sessionsService.getPublicClueSummariesForUser(userId, sessionId);
+    await this.ensureAiContextAuthorization(
+      userId,
+      sessionId,
+      options?.contextSource ?? "CLIENT_PROVIDED",
+    );
+    const trustedPublicClues = options?.trustedPublicClues
+      ?? await this.sessionsService.getPublicClueSummariesForUser(userId, sessionId);
+    const publicClues = trustedPublicClues
+      .slice(-DIRECTOR_PUBLIC_CLUE_LIMIT)
+      .map((clue) => clue.slice(0, DIRECTOR_PUBLIC_CLUE_MAX_LENGTH));
 
     const requestPayload: DirectorRequestPayload = {
       hintLevel: dto.hintLevel ?? "NORMAL",
-      question: dto.question,
-      sceneSummary: dto.sceneSummary,
-      recentLogs: dto.recentLogs,
+      question: dto.question?.slice(0, DIRECTOR_QUESTION_MAX_LENGTH),
+      sceneSummary: dto.sceneSummary.slice(0, DIRECTOR_SCENE_SUMMARY_MAX_LENGTH),
+      recentLogs: dto.recentLogs
+        ?.slice(-DIRECTOR_RECENT_LOG_LIMIT)
+        .map((log) => log.slice(0, DIRECTOR_RECENT_LOG_MAX_LENGTH)),
       publicClues,
-      triedApproaches: dto.triedApproaches,
+      triedApproaches: dto.triedApproaches
+        ?.slice(-DIRECTOR_TRIED_APPROACH_LIMIT)
+        .map((approach) => approach.slice(0, DIRECTOR_TRIED_APPROACH_MAX_LENGTH)),
+      responseMode: options?.responseMode ?? "HINT",
       sessionId,
       turnId: dto.turnId,
     };
@@ -157,14 +257,27 @@ export class AiService {
       defaultFactory: (reason) => this.defaultDirectorResponse(reason),
     });
 
+    const parsed: AiHintResponseDto["parsed"] = {
+      hintLevel: requestPayload.hintLevel ?? "NORMAL",
+      content: result.response.parsed.content,
+      sourceScope:
+        !result.isBeFallback
+        && (requestPayload.recentLogs?.length || requestPayload.publicClues?.length)
+          ? "mixed"
+          : "scene",
+      spoilerLevel: result.isBeFallback ? "none" : "low",
+      suggestions: result.response.parsed.suggestions,
+      safetyNotes: [],
+    };
+
     if (options?.emitSystemMessage !== false) {
-      this.safeEmitSystemMessage(sessionId, "AI_HINT", result.response.parsed.content);
+      this.safeEmitSystemMessage(sessionId, "AI_HINT", parsed.content);
     }
 
     return {
-      parsed: result.response.parsed,
-      model: result.response.model,
-      latencyMs: result.response.latencyMs ?? result.elapsedMs,
+      parsed,
+      model: result.response.trace.model,
+      latencyMs: result.response.trace.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
       fallback: result.response.fallback ?? result.isBeFallback,
       fallbackReason: result.response.fallbackReason ?? null,
@@ -186,7 +299,7 @@ export class AiService {
         sceneSummary: dto.sceneSummary,
         recentLogs: dto.recentLogs,
       },
-      { emitSystemMessage: false },
+      { emitSystemMessage: false, responseMode: "HUMAN_GM_ASSIST" },
     );
     const content = this.formatHumanGmAssistContent(result.parsed.content, result.parsed.suggestions);
 
@@ -202,17 +315,57 @@ export class AiService {
     userId: string,
     sessionId: string,
     dto: AiSummaryRequestDto,
-    options?: { emitSystemMessage?: boolean },
+    options?: {
+      emitSystemMessage?: boolean;
+      /** Server-selected public logs from an internal call path. Never pass client input here. */
+      trustedLogs?: string[];
+      contextSource?: AiContextSource;
+    },
   ): Promise<AiSummaryResponseDto> {
-    await this.sessionsService.ensureMembership(userId, sessionId);
+    await this.ensureAiContextAuthorization(
+      userId,
+      sessionId,
+      options?.contextSource ?? "CLIENT_PROVIDED",
+    );
 
+    if (dto.includeHiddenContext) {
+      throw new BadRequestException(
+        "Hidden summary context is unavailable until logs carry server-verified visibility metadata.",
+      );
+    }
+    if (dto.rangeType === "SINCE_NODE") {
+      throw new BadRequestException(
+        "SINCE_NODE summaries are unavailable until turn logs carry server-verified node metadata.",
+      );
+    }
+
+    const rangeType = dto.rangeType ?? "RECENT";
+    const lastLogCount = Math.min(
+      Math.max(dto.lastLogCount ?? SUMMARY_LOG_LIMIT, 1),
+      SUMMARY_LOG_LIMIT,
+    );
+    const trustedLogs = options?.trustedLogs
+      ?? await this.turnLogsService.listConfirmedPublicNarrations(
+        sessionId,
+        rangeType === "FULL" ? SUMMARY_FULL_SCAN_LIMIT : lastLogCount,
+      );
+    if (rangeType === "FULL" && trustedLogs.length > SUMMARY_LOG_LIMIT) {
+      throw new BadRequestException(
+        "FULL summaries are limited to 50 confirmed logs until chunked summarization is available.",
+      );
+    }
+    const appliedLogCount = rangeType === "FULL" ? trustedLogs.length : lastLogCount;
+    const selectedLogs = trustedLogs
+      .slice(-appliedLogCount)
+      .map((log) => log.slice(0, SUMMARY_LOG_MAX_LENGTH));
+    if (selectedLogs.length === 0) {
+      throw new BadRequestException("No confirmed public logs are available to summarize.");
+    }
     const requestPayload: SummarizerRequestPayload = {
       summaryType: dto.summaryType ?? "player_visible",
-      rangeType: dto.rangeType ?? "RECENT",
-      lastLogCount: dto.lastLogCount,
-      nodeId: dto.nodeId,
-      logs: dto.logs,
-      includeHiddenContext: dto.includeHiddenContext ?? false,
+      rangeType,
+      lastLogCount: appliedLogCount,
+      logs: selectedLogs,
       sessionId,
       turnId: dto.turnId,
     };
@@ -226,14 +379,22 @@ export class AiService {
       defaultFactory: (reason) => this.defaultSummarizerResponse(reason),
     });
 
+    const parsed: AiSummaryResponseDto["parsed"] = {
+      summaryType: requestPayload.summaryType ?? "player_visible",
+      coveredTurnRange: requestPayload.rangeType ?? "RECENT",
+      content: result.response.parsed.content,
+      keyFacts: [],
+      safetyNotes: [],
+    };
+
     if (options?.emitSystemMessage !== false) {
-      this.safeEmitSystemMessage(sessionId, "AI_SUMMARY", result.response.parsed.content);
+      this.safeEmitSystemMessage(sessionId, "AI_SUMMARY", parsed.content);
     }
 
     return {
-      parsed: result.response.parsed,
-      model: result.response.model,
-      latencyMs: result.response.latencyMs ?? result.elapsedMs,
+      parsed,
+      model: result.response.trace.model,
+      latencyMs: result.response.trace.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
       fallback: result.response.fallback ?? result.isBeFallback,
       fallbackReason: result.response.fallbackReason ?? null,
@@ -244,21 +405,28 @@ export class AiService {
     userId: string,
     sessionId: string,
     dto: AiNpcDialogueRequestDto,
-    options?: { emitChatMessage?: boolean },
+    options?: {
+      emitChatMessage?: boolean;
+      contextSource?: AiContextSource;
+    },
   ): Promise<AiNpcDialogueResponseDto> {
-    await this.sessionsService.ensureMembership(userId, sessionId);
+    await this.ensureAiContextAuthorization(
+      userId,
+      sessionId,
+      options?.contextSource ?? "CLIENT_PROVIDED",
+    );
 
     const requestPayload: NpcDialogueRequestPayload = {
-      npcEntityId: dto.npcEntityId,
-      npcName: dto.npcName,
-      npcSummary: dto.npcSummary,
-      disposition: dto.disposition ?? "neutral",
-      sceneSummary: dto.sceneSummary,
-      recentContext: dto.recentContext,
-      selectedActionId: dto.selectedActionId,
-      dialogueIntent: dto.dialogueIntent,
-      audienceIds: dto.audienceIds,
-      maxLength: dto.maxLength ?? 160,
+      npcEntityId: dto.npcEntityId.slice(0, NPC_ENTITY_ID_MAX_LENGTH),
+      npcName: dto.npcName?.slice(0, NPC_NAME_MAX_LENGTH),
+      npcSummary: dto.npcSummary.slice(0, NPC_SUMMARY_MAX_LENGTH),
+      disposition: (dto.disposition ?? "neutral").slice(0, NPC_DISPOSITION_MAX_LENGTH),
+      sceneSummary: dto.sceneSummary.slice(0, NPC_SCENE_SUMMARY_MAX_LENGTH),
+      recentContext: dto.recentContext
+        ?.slice(-NPC_RECENT_CONTEXT_LIMIT)
+        .map((entry) => entry.slice(0, NPC_RECENT_CONTEXT_MAX_LENGTH)),
+      dialogueIntent: dto.dialogueIntent.slice(0, NPC_DIALOGUE_INTENT_MAX_LENGTH),
+      maxLength: Math.min(Math.max(dto.maxLength ?? 160, 20), 500),
       sessionId,
       turnId: dto.turnId,
     };
@@ -273,12 +441,17 @@ export class AiService {
     });
 
     const isFallback = result.response.fallback === true || result.isBeFallback;
-    const parsed = isFallback
+    const internalParsed = isFallback
       ? {
           ...result.response.parsed,
           dialogue: NPC_DIALOGUE_FALLBACK_DIALOGUE,
         }
       : result.response.parsed;
+    const parsed: AiNpcDialogueResponseDto["parsed"] = {
+      dialogue: internalParsed.dialogue,
+      tone: requestPayload.disposition ?? "neutral",
+      safetyNotes: [],
+    };
 
     if (options?.emitChatMessage !== false) {
       const speakerName = dto.npcName ?? "NPC";
@@ -294,8 +467,8 @@ export class AiService {
 
     return {
       parsed,
-      model: result.response.model,
-      latencyMs: result.response.latencyMs ?? result.elapsedMs,
+      model: result.response.trace.model,
+      latencyMs: result.response.trace.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
       fallback: result.response.fallback ?? result.isBeFallback,
       fallbackReason: result.response.fallbackReason ?? null,
@@ -308,13 +481,34 @@ export class AiService {
     payload: CheckResultRequestPayload,
   ): Promise<CheckResultResponsePayload> {
     await this.sessionsService.ensureMembership(userId, sessionId);
-    const requestPayload: CheckResultRequestPayload = { ...payload, sessionId };
+    const requestPayload: CheckResultRequestPayload = {
+      outcome: payload.outcome,
+      intent: payload.intent.slice(0, CHECK_RESULT_INTENT_MAX_LENGTH),
+      actionSummary: payload.actionSummary?.slice(0, CHECK_RESULT_ACTION_SUMMARY_MAX_LENGTH),
+      targetName: payload.targetName?.slice(0, CHECK_RESULT_TARGET_NAME_MAX_LENGTH),
+      targetSummary: payload.targetSummary?.slice(0, CHECK_RESULT_TARGET_SUMMARY_MAX_LENGTH),
+      targetDisposition: payload.targetDisposition?.slice(0, CHECK_RESULT_TARGET_DISPOSITION_MAX_LENGTH),
+      sceneSummary: payload.sceneSummary?.slice(0, CHECK_RESULT_SCENE_SUMMARY_MAX_LENGTH),
+      allowedRewardFacts: payload.allowedRewardFacts
+        ?.slice(-CHECK_RESULT_REWARD_FACT_LIMIT)
+        .map((fact) => fact.slice(0, CHECK_RESULT_REWARD_FACT_MAX_LENGTH)),
+      visibleEntities: payload.visibleEntities
+        ?.slice(-CHECK_RESULT_VISIBLE_ENTITY_LIMIT)
+        .map((entity) => entity.slice(0, CHECK_RESULT_VISIBLE_ENTITY_MAX_LENGTH)),
+      outputMode: payload.outputMode,
+      turnId: payload.turnId,
+      model: payload.model,
+      sessionId,
+    };
     const result = await this.invokeAi({
       sessionId,
       userId,
-      kind: PrismaAiTraceKind.NARRATION,
+      kind: PrismaAiTraceKind.CHECK_RESULT,
       requestPayload,
-      call: () => this.aiClient.runCheckResult(requestPayload),
+      call: async () => this.validateCheckResultResponse(
+        await this.aiClient.runCheckResult(requestPayload),
+        requestPayload,
+      ),
       defaultFactory: (reason) => this.defaultCheckResultResponse(reason, requestPayload),
     });
     return result.response;
@@ -332,6 +526,7 @@ export class AiService {
       kind: PrismaAiTraceKind.INTERPRETER,
       requestPayload,
       call: () => this.aiClient.runInterpreter(requestPayload),
+      defaultFactory: (reason) => this.defaultInterpreterResponse(reason, requestPayload),
     });
     return result.response;
   }
@@ -348,6 +543,7 @@ export class AiService {
       kind: PrismaAiTraceKind.ACTOR,
       requestPayload,
       call: () => this.aiClient.runActor(requestPayload),
+      defaultFactory: (reason) => this.defaultActorResponse(reason, requestPayload),
     });
     return result.response;
   }
@@ -412,7 +608,7 @@ export class AiService {
     sessionId: string,
   ): Promise<AiTraceQualityMetricsResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
-    const [summary, groups] = await Promise.all([
+    const [summary, groups, usageRows] = await Promise.all([
       this.prisma.aiTrace.aggregate({
         where: { sessionId },
         _count: { _all: true },
@@ -423,6 +619,40 @@ export class AiService {
         where: { sessionId },
         _count: { _all: true },
       }),
+      this.prisma.$queryRaw<RoleUsageMetricRow[]>(Prisma.sql`
+        SELECT
+          "kind",
+          "promptVersion",
+          "model",
+          COUNT(*)::int AS "traceCount",
+          COUNT("totalTokenCount")::int AS "tokenSampleCount",
+          COUNT("promptTokenCount")::int AS "promptTokenSampleCount",
+          COUNT("outputTokenCount")::int AS "outputTokenSampleCount",
+          COUNT("totalTokenCount")::int AS "totalTokenSampleCount",
+          COUNT("schemaValidationRetries")::int AS "schemaSampleCount",
+          ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "promptTokenCount"))::int AS "promptTokenP50",
+          ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "promptTokenCount"))::int AS "promptTokenP95",
+          ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "outputTokenCount"))::int AS "outputTokenP50",
+          ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "outputTokenCount"))::int AS "outputTokenP95",
+          ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "totalTokenCount"))::int AS "totalTokenP50",
+          ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "totalTokenCount"))::int AS "totalTokenP95",
+          ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "providerLatencyMs"))::int AS "providerLatencyP50Ms",
+          ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "providerLatencyMs"))::int AS "providerLatencyP95Ms",
+          ROUND(
+            AVG(
+              CASE
+                WHEN "schemaValidationRetries" IS NULL THEN NULL
+                WHEN "schemaValidationRetries" > 0 THEN 1.0
+                ELSE 0.0
+              END
+            )::numeric,
+            4
+          )::float AS "schemaRetryRate"
+        FROM "AiTrace"
+        WHERE "sessionId" = ${sessionId}
+        GROUP BY "kind", "promptVersion", "model"
+        ORDER BY "kind", "promptVersion" NULLS LAST, "model" NULLS LAST
+      `),
     ]);
     const rate = (count: number, total: number) =>
       total > 0 ? Number((count / total).toFixed(4)) : 0;
@@ -456,15 +686,22 @@ export class AiService {
       narratorCount,
     );
     const fallbackRate = rate(fallbackCount, totalTraces);
+    const roleUsage: AiRoleUsageMetricsDto[] = usageRows.map((row) => ({
+      ...row,
+      kind: toSharedAiTraceKind(row.kind),
+    }));
     return {
       totalTraces,
       averageLatencyMs: Math.round(summary._avg.latencyMs ?? 0),
       interpreterTimeoutRate,
       narratorTimeoutRate,
       fallbackRate,
-      interpreterTimeoutTargetMet: interpreterTimeoutRate <= 0.1,
-      narratorTimeoutTargetMet: narratorTimeoutRate <= 0.1,
-      fallbackTargetMet: fallbackRate <= 0.15,
+      interpreterTimeoutTargetMet:
+        interpreterCount > 0 && interpreterTimeoutRate <= 0.1,
+      narratorTimeoutTargetMet:
+        narratorCount > 0 && narratorTimeoutRate <= 0.1,
+      fallbackTargetMet: totalTraces > 0 && fallbackRate <= 0.15,
+      roleUsage,
       offlineEvaluationRequired: [
         "interpreter_schema_pass_rate",
         "interpreter_intent_accuracy",
@@ -487,15 +724,23 @@ export class AiService {
       const response = await params.call();
       const elapsedMs = Date.now() - startedAt;
       const isAiFallback = response.fallback === true;
+      const aiFailureType = isAiFallback
+        ? response.trace.failureType ?? "ai_template_fallback"
+        : null;
+      const traceStatus = !isAiFallback
+        ? PrismaAiTraceStatus.SUCCESS
+        : aiFailureType === "timeout"
+          ? PrismaAiTraceStatus.TIMEOUT
+          : PrismaAiTraceStatus.ERROR;
       const traceId = await this.persistTrace({
         sessionId: params.sessionId,
         userId: params.userId,
         kind: params.kind,
-        status: PrismaAiTraceStatus.SUCCESS,
-        latencyMs: response.latencyMs ?? elapsedMs,
+        status: traceStatus,
+        latencyMs: elapsedMs,
         requestPayload: params.requestPayload,
         responsePayload: response,
-        failureType: isAiFallback ? "ai_template_fallback" : null,
+        failureType: aiFailureType,
       });
       if (isAiFallback) {
         this.logger.warn(
@@ -509,17 +754,24 @@ export class AiService {
       const errorMessage = this.extractErrorMessage(error);
 
       if (params.defaultFactory) {
-        const defaultResponse = params.defaultFactory(errorMessage);
+        const defaultResponse = params.defaultFactory(
+          isTimeout ? "timeout" : "upstream_error",
+        );
+        defaultResponse.trace.latencyMs = elapsedMs;
+        defaultResponse.trace.attemptLatenciesMs = [];
+        defaultResponse.trace.failureType = isTimeout
+          ? "timeout"
+          : "be_default_fallback";
         const traceId = await this.persistTrace({
           sessionId: params.sessionId,
           userId: params.userId,
           kind: params.kind,
-          status: PrismaAiTraceStatus.ERROR,
+          status: isTimeout ? PrismaAiTraceStatus.TIMEOUT : PrismaAiTraceStatus.ERROR,
           latencyMs: elapsedMs,
           requestPayload: params.requestPayload,
           responsePayload: defaultResponse,
           errorMessage,
-          failureType: "be_default_fallback",
+          failureType: isTimeout ? "timeout" : "be_default_fallback",
         });
         this.logger.warn(
           `AI call failed (${isTimeout ? "timeout" : "upstream_error"}), returning BE default fallback: session=${params.sessionId} kind=${params.kind} msg=${errorMessage}`,
@@ -542,13 +794,6 @@ export class AiService {
   }
 
   private buildBeFallbackTrace(role: string): {
-    provider: string;
-    model: string;
-    latencyMs: number;
-    promptVersion: string;
-    rawOutput: string;
-    finishReason: string | null;
-    providerRequestId: string | null;
     trace: {
       role: string;
       provider: string;
@@ -560,19 +805,11 @@ export class AiService {
       finishReason: string | null;
       providerRequestId: string | null;
     };
-    logPaths: null;
   } {
     const provider = "be-default-fallback";
     const model = "be-default-fallback";
     const promptVersion = `${role}.fallback.be.v1`;
     return {
-      provider,
-      model,
-      latencyMs: 0,
-      promptVersion,
-      rawOutput: "",
-      finishReason: null,
-      providerRequestId: null,
       trace: {
         role,
         provider,
@@ -584,7 +821,6 @@ export class AiService {
         finishReason: null,
         providerRequestId: null,
       },
-      logPaths: null,
     };
   }
 
@@ -594,7 +830,6 @@ export class AiService {
       parsed: {
         narration:
           "장면이 흐릿하게 이어집니다. (AI 응답을 가져오지 못해 임시 메시지로 대체했습니다.)",
-        visibleSummary: "장면 묘사 보류",
       },
       fallback: true,
       fallbackReason: reason,
@@ -603,13 +838,7 @@ export class AiService {
 
   private buildHumanGmAssistPrompt(dto: AiHumanGmAssistSuggestionRequestDto): string {
     const typeLabel = dto.assistType.replace(/_/g, " ");
-    return [
-      `HUMAN GM assist type: ${typeLabel}.`,
-      `GM request: ${dto.prompt}`,
-      dto.targetId ? `Target id/name: ${dto.targetId}` : null,
-      dto.suggestedActionId ? `Suggested action id: ${dto.suggestedActionId}` : null,
-      "Return a concise Korean suggestion that the GM can review before applying. Do not reveal hidden facts or mutate state.",
-    ].flatMap((line) => line ? [line] : []).join("\n");
+    return `[${typeLabel}] ${dto.prompt}`.slice(0, DIRECTOR_QUESTION_MAX_LENGTH);
   }
 
   private formatHumanGmAssistContent(content: string, suggestions?: string[]): string {
@@ -630,13 +859,9 @@ export class AiService {
     return {
       ...this.buildBeFallbackTrace("director"),
       parsed: {
-        hintLevel: "NORMAL",
         content:
           "지금은 GM이 잠시 자리를 비웠습니다. 잠시 후 다시 시도해주세요.",
-        sourceScope: "scene",
-        spoilerLevel: "none",
         suggestions: [],
-        safetyNotes: [],
       },
       fallback: true,
       fallbackReason: reason,
@@ -647,11 +872,7 @@ export class AiService {
     return {
       ...this.buildBeFallbackTrace("summarizer"),
       parsed: {
-        summaryType: "player_visible",
-        coveredTurnRange: "",
         content: "요약을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
-        keyFacts: [],
-        safetyNotes: [],
       },
       fallback: true,
       fallbackReason: reason,
@@ -663,8 +884,57 @@ export class AiService {
       ...this.buildBeFallbackTrace("npc_dialogue"),
       parsed: {
         dialogue: NPC_DIALOGUE_FALLBACK_DIALOGUE,
-        tone: "neutral",
-        safetyNotes: [],
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+
+  private defaultInterpreterResponse(
+    reason: string,
+    requestPayload: InterpreterRequestPayload,
+  ): InterpreterResponsePayload {
+    return {
+      ...this.buildBeFallbackTrace("interpreter"),
+      parsed: {
+        action: {
+          type: "OUT_OF_SCOPE",
+          actorCharacterId: requestPayload.actorCharacterId,
+          targetId: null,
+          spellId: null,
+          featureId: null,
+          attackKind: null,
+          ability: null,
+          skill: null,
+          approach: requestPayload.rawText,
+          confidence: 0,
+          requiresRoll: false,
+          suggestedDifficulty: null,
+        },
+        needsClarification: true,
+        clarificationQuestion: "AI 해석을 사용할 수 없습니다. 행동과 대상을 조금 더 구체적으로 입력해 주세요.",
+        mentionedSpellId: null,
+        mentionedItemId: null,
+        requiredRuleCheckIds: [],
+        sceneTransition: null,
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+
+  private defaultActorResponse(
+    reason: string,
+    requestPayload: ActorRequestPayload,
+  ): ActorResponsePayload {
+    const selected = requestPayload.allowedActions[0];
+    if (!selected) {
+      throw new Error("Actor fallback requires at least one allowed action.");
+    }
+    return {
+      ...this.buildBeFallbackTrace("actor"),
+      parsed: {
+        selectedActionId: selected.id,
       },
       fallback: true,
       fallbackReason: reason,
@@ -676,21 +946,16 @@ export class AiService {
     requestPayload: CheckResultRequestPayload,
   ): CheckResultResponsePayload {
     const target = requestPayload.targetName ?? "대상";
-    const rewardInfo =
-      requestPayload.targetSummary ??
-      requestPayload.targetDisposition ??
-      requestPayload.publicClues?.[0] ??
-      requestPayload.actionSummary;
     const narration =
       requestPayload.outcome === "SUCCESS"
-        ? `판정에 성공했습니다. ${target}에게서 의미 있는 정보를 얻습니다. ${rewardInfo}`
+        ? requestPayload.allowedRewardFacts?.length
+          ? requestPayload.allowedRewardFacts[0]
+          : `판정에 성공했습니다. ${target}은(는) 시도에 반응하지만 새로운 사실은 드러나지 않습니다.`
         : `판정에 실패했습니다. ${target}의 반응은 확실한 정보로 이어지지 않습니다.`;
     return {
       ...this.buildBeFallbackTrace("check_result"),
       parsed: {
         narration,
-        rewardInfo: requestPayload.outcome === "SUCCESS" ? rewardInfo : "정보 보상 없음",
-        safetyNotes: [],
       },
       fallback: true,
       fallbackReason: reason,
@@ -705,19 +970,32 @@ export class AiService {
       kind: params.kind,
       status: params.status,
       latencyMs: params.latencyMs,
-      provider: params.responsePayload?.provider ?? null,
-      model: params.responsePayload?.model ?? null,
+      providerLatencyMs: params.responsePayload?.trace?.providerLatencyMs ?? null,
+      attemptLatencies: params.responsePayload?.trace?.attemptLatenciesMs ?? Prisma.JsonNull,
+      schemaValidationRetries: params.responsePayload?.trace?.schemaValidationRetries ?? null,
+      provider: params.responsePayload?.trace.provider ?? null,
+      model: params.responsePayload?.trace.model ?? null,
       promptVersion: params.responsePayload?.trace?.promptVersion ?? null,
       attempts: params.responsePayload?.trace?.attempts ?? null,
-      finishReason: params.responsePayload?.finishReason ?? null,
-      providerRequestId: params.responsePayload?.providerRequestId ?? null,
+      finishReason: params.responsePayload?.trace.finishReason ?? null,
+      providerRequestId: params.responsePayload?.trace.providerRequestId ?? null,
+      promptTokenCount: params.responsePayload?.trace?.promptTokenCount ?? null,
+      outputTokenCount: params.responsePayload?.trace?.outputTokenCount ?? null,
+      cachedTokenCount: params.responsePayload?.trace?.cachedTokenCount ?? null,
+      totalTokenCount: params.responsePayload?.trace?.totalTokenCount ?? null,
       failureType,
       fallbackUsed:
         params.responsePayload?.fallback === true ||
         failureType?.toLowerCase().includes("fallback") === true,
       errorMessage: params.errorMessage ?? null,
-      requestJson: JSON.stringify(params.requestPayload),
-      responseJson: params.responsePayload ? JSON.stringify(params.responsePayload) : null,
+      requestJson: JSON.stringify(this.buildTraceRequestReference(params.requestPayload)),
+      responseJson: params.responsePayload
+        ? JSON.stringify({
+            parsed: params.responsePayload.parsed,
+            fallback: params.responsePayload.fallback ?? false,
+            fallbackReason: params.responsePayload.fallbackReason ?? null,
+          })
+        : null,
     };
 
     try {
@@ -731,11 +1009,66 @@ export class AiService {
     }
   }
 
-  private extractErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
+  private validateCheckResultResponse(
+    response: CheckResultResponsePayload,
+    requestPayload: CheckResultRequestPayload,
+  ): CheckResultResponsePayload {
+    if (
+      requestPayload.outcome !== "SUCCESS"
+      || !CHECK_RESULT_INFORMATION_REWARD_INTENTS.has(requestPayload.intent)
+    ) {
+      return response;
     }
-    return String(error);
+
+    const allowedFacts = requestPayload.allowedRewardFacts ?? [];
+    if (allowedFacts.length === 0) {
+      if (response.parsed.narration !== CHECK_RESULT_NO_NEW_FACT_NARRATION) {
+        throw new Error(
+          "CheckResult sensitive success without allowed facts returned generated information",
+        );
+      }
+      return response;
+    }
+
+    if (!allowedFacts.includes(response.parsed.narration)) {
+      throw new Error(
+        "CheckResult sensitive success narration is not an exact allowed fact",
+      );
+    }
+    return response;
+  }
+
+  private buildTraceRequestReference(requestPayload: unknown): Record<string, unknown> {
+    if (!requestPayload || typeof requestPayload !== "object" || Array.isArray(requestPayload)) {
+      return {};
+    }
+    const payload = requestPayload as Record<string, unknown>;
+    return Object.fromEntries(
+      ["sessionId", "turnId", "actorCharacterId"]
+        .filter((key) => payload[key] !== undefined && payload[key] !== null)
+        .map((key) => [key, payload[key]]),
+    );
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return (message || "Unknown error")
+      .replace(/[\r\n\t]+/g, " ")
+      .slice(0, 1000);
+  }
+
+  private async ensureAiContextAuthorization(
+    userId: string,
+    sessionId: string,
+    contextSource: AiContextSource,
+  ): Promise<void> {
+    await this.sessionsService.ensureMembership(userId, sessionId);
+    if (contextSource === "CLIENT_PROVIDED") {
+      await this.gmRuntimeParticipantAccess.ensureJoinedGmRuntimeParticipant(
+        userId,
+        sessionId,
+      );
+    }
   }
 
   private async publishNarration(
@@ -801,6 +1134,8 @@ function toSharedAiTraceKind(value: PrismaAiTraceKind): AiTraceKind {
   switch (value) {
     case PrismaAiTraceKind.NARRATION:
       return AiTraceKind.NARRATION;
+    case PrismaAiTraceKind.CHECK_RESULT:
+      return AiTraceKind.CHECK_RESULT;
     case PrismaAiTraceKind.HINT:
       return AiTraceKind.HINT;
     case PrismaAiTraceKind.SUMMARY:

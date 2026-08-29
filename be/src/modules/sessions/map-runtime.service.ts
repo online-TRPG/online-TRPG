@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
-import { CombatStatus as PrismaCombatStatus, GamePhase as PrismaGamePhase, GmMode as PrismaGmMode } from "@prisma/client";
+import { CombatStatus as PrismaCombatStatus, GamePhase as PrismaGamePhase, GmMode as PrismaGmMode, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import {
   CreateVttMapPingDto,
@@ -14,6 +14,10 @@ import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "./sessions.service";
 import { VttMapInteractionRuntimeService } from "./vtt-map-interaction-runtime.service";
+import {
+  AuthoritativeVttMap,
+  markAuthoritativeVttMap,
+} from "./vtt-map-authority";
 
 @Injectable()
 export class MapRuntimeService {
@@ -34,23 +38,29 @@ export class MapRuntimeService {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     await this.sessionsService.ensureMembership(userId, resolvedSessionId);
+    const isGmOperator = session.gmMode === PrismaGmMode.HUMAN && session.hostUserId === userId;
+    if (!isGmOperator) {
+      throw new ForbiddenException("GM map changes require GM permission.");
+    }
     const { state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const previousMap = await this.sessionsService.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
-    const requestedMap = this.sessionsService.normalizeInputVttMap(dto.map, state.currentNodeId ?? null, "vttMap");
+    const requestedMap = markAuthoritativeVttMap(
+      this.sessionsService.normalizeInputVttMap(
+        dto.map,
+        state.currentNodeId ?? null,
+        "vttMap",
+      ),
+    );
     const hasActiveCombat = Boolean(
       await this.prisma.combat.findFirst({
         where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
         select: { id: true },
       }),
     );
-    const isGmOperator = session.gmMode === PrismaGmMode.HUMAN && (session.gmUserId ?? session.hostUserId) === userId;
     this.logger.debug(
       `[VTT_GM_MAP_UPDATE] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} gmOperator=${isGmOperator} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
-    if (!isGmOperator) {
-      throw new ForbiddenException("GM map changes require GM permission.");
-    }
     if (hasActiveCombat) {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");
     }
@@ -62,6 +72,7 @@ export class MapRuntimeService {
       flags,
       map: requestedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
     return result.map;
   }
@@ -120,7 +131,7 @@ export class MapRuntimeService {
     };
     this.sessionsService.ensureTokenPathIsReachable(previousMap, token, requestedToken);
 
-    const changedMap: VttMapStateDto = {
+    const changedMap: AuthoritativeVttMap = {
       ...previousMap,
       tokens: previousMap.tokens.map((candidate) =>
         candidate.id === token.id ? requestedToken : candidate,
@@ -134,6 +145,7 @@ export class MapRuntimeService {
       flags,
       map: changedMap,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return session.hostUserId === userId ? result.map : result.playerMap;
@@ -151,7 +163,7 @@ export class MapRuntimeService {
     const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
     const previousMap = await this.sessionsService.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const now = Date.now();
-    const map: VttMapStateDto = {
+    const map: AuthoritativeVttMap = {
       ...previousMap,
       pings: [
         ...(previousMap.pings ?? [])
@@ -182,6 +194,7 @@ export class MapRuntimeService {
       flags,
       map,
       previousMap,
+      expectedStateVersion: state.version,
     });
 
     return session.hostUserId === userId ? result.map : result.playerMap;
@@ -195,11 +208,22 @@ export class MapRuntimeService {
     return this.interactionRuntime.runVttMapInteraction(userId, sessionId, dto);
   }
 
-  async saveSystemVttMap(sessionId: string, map: VttMapStateDto): Promise<VttMapStateDto> {
+  async saveSystemVttMap(
+    sessionId: string,
+    map: AuthoritativeVttMap,
+    options: {
+      transactionEffect?: (tx: Prisma.TransactionClient) => Promise<void>;
+    } = {},
+  ): Promise<AuthoritativeVttMap> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
-    const normalizedMap = this.sessionsService.normalizeVttMap(map, state.currentNodeId ?? null);
+    const normalizedMap = markAuthoritativeVttMap(
+      this.sessionsService.normalizeVttMap(
+        map,
+        state.currentNodeId ?? null,
+      ),
+    );
     const previousMap = await this.sessionsService.getVttMapBaseline(session.id, sessionScenario.id, state);
     const result = await this.sessionsService.finalizeRuntimeVttMapChange({
       session,
@@ -208,6 +232,8 @@ export class MapRuntimeService {
       flags,
       map: normalizedMap,
       previousMap,
+      expectedStateVersion: state.version,
+      transactionEffect: options.transactionEffect,
     });
 
     return result.map;

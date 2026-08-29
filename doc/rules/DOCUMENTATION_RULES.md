@@ -25,8 +25,9 @@
 
 - `README.md`
 - `PENDING_WORK_ITEMS.md`
-- `future_plan.md`
-- `future_plan_p3.md`
+- 현재 진행 중인 `*_plan.md`
+- 진행 중인 계획의 실행 현황, 검증 증거와 운영 런북
+- 현재 사용하는 로컬 운영 가이드
 
 이유:
 

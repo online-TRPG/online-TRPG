@@ -12,7 +12,15 @@ interface UseCurrentProfileOptions {
 
 export interface EffectiveProfile extends User {
   sessionAuthModeLabel: string;
+  authProviderLabel: string;
 }
+
+const authProviderLabels = {
+  [AuthProvider.LOCAL]: "이메일",
+  [AuthProvider.KAKAO]: "카카오",
+  [AuthProvider.DISCORD]: "디스코드",
+  [AuthProvider.GUEST]: "게스트",
+} satisfies Record<AuthProvider, string>;
 
 function fallbackProfile(user: StoredUser, authMode: AuthMode | null): User {
   return {
@@ -82,6 +90,7 @@ export function useCurrentProfile({ user, accessToken, authMode }: UseCurrentPro
     return {
       ...base,
       sessionAuthModeLabel: authMode === "guest" ? "게스트 세션" : "회원 세션",
+      authProviderLabel: authProviderLabels[base.authProvider] ?? "알 수 없음",
     };
   }, [authMode, memberProfile, user]);
 

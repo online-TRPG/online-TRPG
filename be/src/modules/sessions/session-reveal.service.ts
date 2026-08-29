@@ -9,6 +9,7 @@ import {
   PlayerScenarioNodeDto,
   PlayerScenarioViewDto,
   PlayerVisibleTargetDto,
+  HumanGmRevealOptionDto,
   RevealSessionContentDto,
   ScenarioClueDto,
   ScenarioCheckOptionDto,
@@ -16,6 +17,8 @@ import {
   SessionRevealResponseDto,
   VttObjectProximityTriggerDto,
   VttObjectRevealFogEffectDto,
+  VttMapStateDto,
+  decodeVttMapState,
   decodeLenientScenarioClueArray,
   decodeScenarioNodeMeta,
 } from "@trpg/shared-types";
@@ -24,6 +27,7 @@ import {
   parseJsonOrFallback,
 } from "../../common/utils/json-runtime";
 import type { SessionsService } from "./sessions.service";
+import { markAuthoritativeVttMap } from "./vtt-map-authority";
 
 type SessionRevealRuntime = ReturnType<SessionsService["createSessionRevealRuntime"]>;
 type HumanGmOverrideLogResult = Awaited<ReturnType<SessionRevealRuntime["createHumanGmOverrideTurnLog"]>>;
@@ -32,6 +36,8 @@ export type RevealContentKind = "clue" | "item" | "event";
 export type RevealScope = "party" | "user" | "character";
 export type RevealClueSnapshot = ScenarioClueDto & {
   nodeId?: string;
+  sourceNodeId?: string;
+  sourceObjectId?: string;
   sourceHazardId?: string;
   sourceHazardName?: string | null;
 };
@@ -45,12 +51,14 @@ export type RevealedClueSnapshot = {
 export type RevealItemSnapshot = {
   id: string;
   name?: string | null;
+  sourceNodeId?: string;
   sourceObjectId?: string;
 };
 export type RevealEventSnapshot = {
   id: string;
   name?: string | null;
   type?: "REVEAL_FOG_ON_PROXIMITY";
+  sourceNodeId?: string;
   sourceObjectId?: string;
   sourceObjectName?: string | null;
   currentNodeId?: string | null;
@@ -75,6 +83,49 @@ export type RevealPolicyMode = "AUTO_REVEAL" | "PLAYER_ACTION" | "CHECK_SUCCESS"
 
 @Injectable()
 export class SessionRevealService {
+  async listHumanGmRevealOptions(
+    runtime: SessionRevealRuntime,
+    userId: string,
+    sessionId: string,
+  ): Promise<HumanGmRevealOptionDto[]> {
+    const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
+    const { sessionScenario, state } = await runtime.getGameStateEntityOrThrow(session.id);
+    await runtime.ensureSessionScenarioNodeSnapshotForScenario(sessionScenario.id, sessionScenario.scenarioId);
+    if (!state.currentNodeId) return [];
+
+    const node = await runtime.prisma.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId: sessionScenario.id,
+          nodeId: state.currentNodeId,
+        },
+      },
+      select: { cluesJson: true },
+    });
+    if (!node) return [];
+
+    const clues = this.parseScenarioCluesJson(node.cluesJson).filter(
+      (clue): clue is ScenarioClueDto & { id: string } => typeof clue.id === "string" && clue.id.length > 0,
+    );
+    if (!clues.length) return [];
+    const revealed = await runtime.prisma.sessionReveal.findMany({
+      where: {
+        sessionScenarioId: sessionScenario.id,
+        contentKind: "clue",
+        contentId: { in: clues.map((clue) => clue.id) },
+      },
+      select: { contentId: true },
+    });
+    const revealedIds = new Set(revealed.map((item) => item.contentId));
+    return clues
+      .filter((clue) => !revealedIds.has(clue.id))
+      .map((clue) => ({
+        contentId: clue.id,
+        title: clue.title?.trim() || "제목 없는 단서",
+        preview: clue.handoutText?.trim() || clue.playerText?.trim() || clue.text?.trim() || null,
+      }));
+  }
+
   async getPlayerScenarioForUser(runtime: SessionRevealRuntime, userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
     const session = await runtime.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
@@ -147,7 +198,50 @@ export class SessionRevealService {
     const scope = dto.scope ?? "party";
     const recipientId = dto.recipientId?.trim() || null;
     const content = await runtime.findSessionScenarioRevealable(activeScenario.id, dto.contentId);
-    const { reveal, gmTurnLog } = await runtime.prisma.$transaction(async (tx) => {
+    const { reveal, gmTurnLog, mapChanged } =
+      await runtime.prisma.$transaction(async (tx) => {
+      if (tx.$executeRaw) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${resolvedSessionId}))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${activeScenario.id}))`;
+      }
+      const sourceSync =
+        scope === "party"
+          ? await this.syncPartyRevealSourceObjects(runtime, tx, {
+              sessionScenarioId: activeScenario.id,
+              nodeId: content.nodeId,
+              contentIds: [dto.contentId],
+              explicitSourceObjectIds: dto.sourceObjectId?.trim()
+                ? new Map([[dto.contentId, dto.sourceObjectId.trim()]])
+                : undefined,
+            })
+          : {
+              sourceObjectIds: new Map<string, string>(),
+              mapChanged: false,
+            };
+      const sourceObjectIds = sourceSync.sourceObjectIds;
+      const sourceObjectId = sourceObjectIds.get(dto.contentId) ?? null;
+      const existingReveal = await tx.sessionReveal.findUnique({
+        where: {
+          sessionScenarioId_contentId_contentKind_scope_recipientKey: {
+            sessionScenarioId: activeScenario.id,
+            contentId: dto.contentId,
+            contentKind,
+            scope,
+            recipientKey: this.buildRecipientKey(
+              runtime,
+              scope,
+              recipientId,
+            ),
+          },
+        },
+      });
+      if (existingReveal) {
+        return {
+          reveal: existingReveal,
+          gmTurnLog: null,
+          mapChanged: sourceSync.mapChanged,
+        };
+      }
       const createdReveal = await this.recordSessionReveal(runtime, tx, {
         sessionScenarioId: activeScenario.id,
         contentId: dto.contentId,
@@ -156,7 +250,11 @@ export class SessionRevealService {
         recipientId,
         revealedBy: "human_gm",
         reason: dto.reason?.trim() || "manual_gm_reveal",
-        snapshot: content,
+        snapshot: {
+          ...content,
+          sourceNodeId: content.nodeId,
+          ...(sourceObjectId ? { sourceObjectId } : {}),
+        },
       });
       const gmTurnLog = await runtime.createHumanGmOverrideTurnLog({
         tx,
@@ -172,19 +270,29 @@ export class SessionRevealService {
           contentKind,
           scope,
           recipientId,
+          sourceObjectId,
         },
+        persistStateDiff: !sourceSync.mapChanged,
         metadata: {
           reason: dto.reason?.trim() || "manual_gm_reveal",
+          sourceObjectId,
+          mapVisibilityChanged: sourceSync.mapChanged,
         },
       });
       await tx.sessionReveal.update({
         where: { id: createdReveal.id },
         data: { turnLogId: gmTurnLog.turnLog.turnLogId },
       });
-      return { reveal: createdReveal, gmTurnLog };
-    });
+      return {
+        reveal: createdReveal,
+        gmTurnLog,
+        mapChanged: sourceSync.mapChanged,
+      };
+      });
 
-    const snapshot = await runtime.buildSnapshot(resolvedSessionId);
+    if (mapChanged) {
+      await runtime.publishCurrentVttMap(resolvedSessionId);
+    }
     const emittedGmTurnLog = gmTurnLog;
     if (emittedGmTurnLog) {
       runtime.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
@@ -192,7 +300,10 @@ export class SessionRevealService {
         runtime.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
       }
     }
-    runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    if (emittedGmTurnLog || mapChanged) {
+      const snapshot = await runtime.buildSnapshot(resolvedSessionId);
+      runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    }
     return this.mapSessionReveal(runtime, reveal);
   }
 
@@ -535,6 +646,16 @@ export class SessionRevealService {
       : [];
     const existingIds = new Set(existingReveals.map((reveal) => reveal.contentId));
     const newRevealInputs = revealInputs.filter((input) => !existingIds.has(input.contentId));
+    const sourceSync = await this.syncPartyRevealSourceObjects(
+      runtime,
+      tx,
+      {
+        sessionScenarioId: params.sessionScenarioId,
+        nodeId: params.nodeId,
+        contentIds: revealInputs.map((input) => input.contentId),
+      },
+    );
+    const { sourceObjectIds } = sourceSync;
 
     await Promise.all(
       newRevealInputs.map((input) =>
@@ -546,10 +667,22 @@ export class SessionRevealService {
           revealedBy: params.revealedBy,
           reason: input.reason,
           turnLogId: params.turnLogId,
-          snapshot: input.snapshot,
+          snapshot: {
+            ...input.snapshot,
+            sourceNodeId: params.nodeId,
+            ...(sourceObjectIds.has(input.contentId)
+              ? { sourceObjectId: sourceObjectIds.get(input.contentId) }
+              : {}),
+          },
         }),
       ),
     );
+    if (newRevealInputs.length > 0 && !sourceSync.mapChanged) {
+      await tx.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: { version: { increment: 1 } },
+      });
+    }
     return newRevealInputs.map((input) => this.toRevealClueSummary(runtime, input.contentId, input.snapshot));
   }
 
@@ -804,6 +937,165 @@ export class SessionRevealService {
         snapshotJson: params.snapshot ? JSON.stringify(params.snapshot) : undefined,
       },
     });
+  }
+
+  private async syncPartyRevealSourceObjects(
+    runtime: SessionRevealRuntime,
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      nodeId: string;
+      contentIds: string[];
+      explicitSourceObjectIds?: Map<string, string>;
+    },
+  ): Promise<{
+    sourceObjectIds: Map<string, string>;
+    mapChanged: boolean;
+  }> {
+    const sourceObjectIds = new Map<string, string>();
+    if (
+      params.contentIds.length === 0 ||
+      !tx.sessionScenarioNodeRuntimeState
+    ) {
+      return { sourceObjectIds, mapChanged: false };
+    }
+    if (tx.$executeRaw) {
+      const link = await tx.sessionScenario.findUnique({
+        where: { id: params.sessionScenarioId },
+        select: { sessionId: true },
+      });
+      if (!link) {
+        throw new BadRequestException({
+          code: "SESSION_NODE_RUNTIME_MAP_INVALID",
+          reason: "SESSION_SCENARIO_MISSING",
+        });
+      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${link.sessionId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.sessionScenarioId}))`;
+    }
+    const [runtimeRow, state] = await Promise.all([
+      tx.sessionScenarioNodeRuntimeState.findUnique({
+        where: {
+          sessionScenarioId_nodeId: {
+            sessionScenarioId: params.sessionScenarioId,
+            nodeId: params.nodeId,
+          },
+        },
+        select: { vttMapJson: true },
+      }),
+      tx.gameState.findUnique({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        select: { currentNodeId: true, flagsJson: true },
+      }),
+    ]);
+    const flags = this.parseFlags(state?.flagsJson);
+    const rawMap = runtimeRow
+      ? this.parseJson(runtimeRow.vttMapJson)
+      : state?.currentNodeId === params.nodeId
+        ? flags.vttMap
+        : null;
+    if (!rawMap) return { sourceObjectIds, mapChanged: false };
+
+    let map: VttMapStateDto;
+    try {
+      map = decodeVttMapState(rawMap);
+    } catch {
+      throw new BadRequestException({
+        code: "SESSION_NODE_RUNTIME_MAP_INVALID",
+        reason: "INVALID_CONTRACT",
+      });
+    }
+    if (map.scenarioNodeId !== params.nodeId) {
+      throw new BadRequestException({
+        code: "SESSION_NODE_RUNTIME_MAP_INVALID",
+        reason: "NODE_ID_MISMATCH",
+      });
+    }
+
+    for (const contentId of params.contentIds) {
+      const explicitSourceObjectId =
+        params.explicitSourceObjectIds?.get(contentId) ?? null;
+      const candidates = (map.objectCells ?? []).filter((objectCell) =>
+        explicitSourceObjectId
+          ? objectCell.id === explicitSourceObjectId
+          : [
+              ...(objectCell.hiddenClueIds ?? []),
+              ...(objectCell.hiddenItemIds ?? []),
+              ...(objectCell.hiddenEventIds ?? []),
+            ].includes(contentId),
+      );
+      if (explicitSourceObjectId && candidates.length === 0) {
+        throw new BadRequestException({
+          code: "SOURCE_OBJECT_NOT_FOUND",
+          contentId,
+          sourceObjectId: explicitSourceObjectId,
+        });
+      }
+      if (candidates.length > 1) {
+        throw new BadRequestException({
+          code: "SOURCE_OBJECT_AMBIGUOUS",
+          contentId,
+          candidateObjectIds: candidates.map((candidate) => candidate.id),
+        });
+      }
+      if (candidates[0]) {
+        sourceObjectIds.set(contentId, candidates[0].id);
+      }
+    }
+    const objectIds = new Set(sourceObjectIds.values());
+    if (objectIds.size === 0) {
+      return { sourceObjectIds, mapChanged: false };
+    }
+    const requiresVisibilityUpdate = (map.objectCells ?? []).some(
+      (objectCell) =>
+        objectIds.has(objectCell.id) &&
+        (!objectCell.visibleToPlayers ||
+          !(objectCell.observedBySessionCharacterIds ?? []).includes("party")),
+    );
+    if (!requiresVisibilityUpdate) {
+      return { sourceObjectIds, mapChanged: false };
+    }
+
+    const nextMap = markAuthoritativeVttMap({
+      ...map,
+      objectCells: (map.objectCells ?? []).map((objectCell) =>
+        objectIds.has(objectCell.id)
+          ? {
+              ...objectCell,
+              visibleToPlayers: true,
+              observedBySessionCharacterIds: Array.from(
+                new Set([
+                  ...(objectCell.observedBySessionCharacterIds ?? []),
+                  "party",
+                ]),
+              ),
+            }
+          : objectCell,
+      ),
+      updatedAt: new Date().toISOString(),
+    });
+    await runtime.saveRuntimeVttMapInTransaction(tx, {
+      sessionScenarioId: params.sessionScenarioId,
+      map: nextMap,
+      fallbackFlags: flags,
+    });
+    return { sourceObjectIds, mapChanged: true };
+  }
+
+  private parseFlags(value: string | null | undefined): Record<string, unknown> {
+    if (!value) return {};
+    const parsed = this.parseJson(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  }
+
+  private parseJson(value: string): unknown {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
   }
 
   private parseScenarioCluesJson(value: string | null | undefined): ScenarioClueDto[] {

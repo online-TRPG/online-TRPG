@@ -18,7 +18,7 @@ describe("AccessTokenAuthMiddleware", () => {
     };
   }
 
-  it("Authorization 헤더가 없으면 기존 게스트/x-user-id 흐름을 위해 통과시킨다.", async () => {
+  it("Authorization 헤더가 없으면 공개 route 판정을 위해 통과시키되 신원을 만들지 않는다.", async () => {
     const { middleware, prisma } = createMiddleware();
     const request = { headers: {} } as AuthenticatedRequest;
     const next = jest.fn();
@@ -42,6 +42,7 @@ describe("AccessTokenAuthMiddleware", () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "user-1",
       email: "user@example.com",
+      tokenVersion: 0,
       deletedAt: null,
     });
 
@@ -53,6 +54,7 @@ describe("AccessTokenAuthMiddleware", () => {
       select: {
         id: true,
         email: true,
+        tokenVersion: true,
         deletedAt: true,
       },
     });
@@ -73,6 +75,7 @@ describe("AccessTokenAuthMiddleware", () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "user-1",
       email: "user@example.com",
+      tokenVersion: 0,
       deletedAt: new Date(),
     });
 
@@ -87,6 +90,23 @@ describe("AccessTokenAuthMiddleware", () => {
         data: null,
       });
     }
+  });
+
+  it("rejects an access token issued for an older token version", async () => {
+    const { middleware, prisma } = createMiddleware();
+    const request = {
+      headers: { authorization: `Bearer ${createAccessToken("user-1", null, 2)}` },
+    } as AuthenticatedRequest;
+    prisma.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      email: null,
+      tokenVersion: 3,
+      deletedAt: null,
+    });
+
+    await expect(middleware.use(request, {} as Response, jest.fn())).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it("잘못된 Bearer access token은 AUTH_401 응답으로 변환한다.", async () => {

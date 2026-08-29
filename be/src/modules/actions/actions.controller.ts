@@ -17,7 +17,7 @@ import { ActionsService } from "./actions.service";
 import { MainCommandsService } from "./main-commands.service";
 
 @ApiTags("actions")
-@ApiSecurity("x-user-id")
+@ApiSecurity("bearer")
 @Controller("sessions/:sessionId/actions")
 export class ActionsController {
   constructor(

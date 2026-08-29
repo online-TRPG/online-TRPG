@@ -384,7 +384,7 @@ AI 런타임은 이미 `srd-data/generated/srd/`를 읽는다. 여기서는 FE/B
 
 - `ai/SRD_DATA_RULES_PIPELINE_PLAN.md`
 - `doc/rules/ARCHITECTURE_RULES.md`
-- `doc/future_plan.md`
+- `doc/completed/future_plan.md`
 - 필요 시 `AGENTS.md`
 
 명시할 규칙:
@@ -1281,7 +1281,7 @@ generated catalog-fingerprint.json equals FE public copy = true
 | FE 캐릭터 빌더에서 class feature fallback이 구조적으로 발생하지 않는다 | 정적 구현 기준 충족, UI 미확인 | `class-features.json`에 canonical `summaryKo`가 있고, FE character feature display 경로가 canonical summary를 우선 사용한다. verifier가 빈 `summaryKo`와 FE fallback drift를 검사한다. | 사용자 환경에서 FE build와 캐릭터 생성 화면 확인 시나리오를 실행해야 한다. |
 | BE RuleCatalog와 canonical class feature manifest가 drift 없이 검증된다 | 정적 구현 기준 충족, 실행 결과 미확인 | `RuleCatalogService`가 `@trpg/srd-data/generated/srd/class-features.json`을 import하고, runtime override id가 canonical manifest에 없으면 실패한다. `verify:rule-data-sync`도 BE class feature id를 검사한다. | 사용자 환경에서 `npm run verify:rule-data-sync`와 BE build/test를 실행해야 한다. |
 | `verify:rule-data-sync`가 루트 script로 제공되고 실패 메시지가 actionable하다 | 구현됨, 실행 결과 미확인 | 루트 `package.json`에 `verify:rule-data-sync`가 있고, verifier는 FE sync, generated stale artifact, class/race/spell/item/monster/seed/AI/fingerprint drift를 구체적인 메시지로 실패시킨다. | 사용자 환경에서 실제 명령을 실행해 현재 checkout에서 성공하는지 확인해야 한다. |
-| 문서에 “SRD 데이터 수정 경로”와 “수동 override 허용 범위”가 명시된다 | 충족 | `doc/rules/ARCHITECTURE_RULES.md`, `doc/README.md`, `doc/future_plan.md`, 본 문서가 `srd-data` source/generated artifact, importer, FE sync, verifier, override 경계를 설명한다. | 최종 검증 명령 결과를 이 문서에 추가하면 운영 기록이 완성된다. |
+| 문서에 “SRD 데이터 수정 경로”와 “수동 override 허용 범위”가 명시된다 | 충족 | `doc/rules/ARCHITECTURE_RULES.md`, `doc/README.md`, `doc/completed/future_plan.md`, 본 문서가 `srd-data` source/generated artifact, importer, FE sync, verifier, override 경계를 설명한다. | 최종 검증 명령 결과를 이 문서에 추가하면 운영 기록이 완성된다. |
 
 현재 goal 관점의 결론:
 
@@ -1847,7 +1847,7 @@ FE/BE 소비 경로:
 문서/워크스페이스 metadata:
 
 - `doc/README.md`
-- `doc/future_plan.md`
+- `doc/completed/future_plan.md`
 - `doc/completed/future_plan_srd_data_consistency.md`
 - `doc/rules/ARCHITECTURE_RULES.md`
 - `doc/rules/README.md`

@@ -901,8 +901,13 @@ function decodeClassFeatureEntries(value: unknown): CanonicalClassFeatureEntry[]
       throw new Error('classFeature.availableAtLevels must contain class levels from 1 to 20.');
     }
     const level = readNumber(record, 'level', 'classFeature.level');
-    if (!Number.isInteger(level) || level < 1 || level > 20) {
-      throw new Error('classFeature.level must be an integer from 1 to 20.');
+    if (!Number.isInteger(level) || level < 0 || level > 20) {
+      throw new Error('classFeature.level must be an integer from 0 to 20.');
+    }
+    if (level === 0 && availableAtLevels.length > 0) {
+      throw new Error(
+        'classFeature.level 0 is only valid when availableAtLevels is empty.',
+      );
     }
     return {
       id: readString(record, 'id', 'classFeature.id'),

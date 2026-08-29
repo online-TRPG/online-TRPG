@@ -1444,8 +1444,10 @@ describe("RuleCatalogService", () => {
 
     expect(service.listMonsterAbilities("dragon whelp").map((entry) => entry.id)).toEqual([
       "monster.red_dragon_wyrmling.ability.bite",
+      "monster.red_dragon_wyrmling.ability.breath_or_bite",
       "monster.red_dragon_wyrmling.ability.dark_blessing",
       "monster.red_dragon_wyrmling.ability.fire_breath",
+      "monster.red_dragon_wyrmling.ability.p6_manifest_passive",
     ]);
 
     expect(service.listMonsterAbilities("giant spider").map((entry) => entry.id)).toEqual([

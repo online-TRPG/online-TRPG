@@ -24,8 +24,7 @@ export class InventoryItemMapRuntimeService {
     terrainEffectId: string;
     sizeFt: number;
   }): Promise<void> {
-    const map = await this.sessionsService.getVttMapForUser(
-      params.userId,
+    const map = await this.sessionsService.getAuthoritativeVttMap(
       params.sessionId,
     );
     const token = findSessionCharacterMapToken(
@@ -64,8 +63,7 @@ export class InventoryItemMapRuntimeService {
     targetSessionCharacterId: string;
     rangeFt: number;
   }): Promise<void> {
-    const map = await this.sessionsService.getVttMapForUser(
-      params.userId,
+    const map = await this.sessionsService.getAuthoritativeVttMap(
       params.sessionId,
     );
     const actorToken = findSessionCharacterMapToken(

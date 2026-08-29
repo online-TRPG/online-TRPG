@@ -33,7 +33,9 @@ export class MainCommandPostActionRevealService {
     const revealCount = await this.revealActionClues(params);
 
     if (revealCount + params.objectReveal.objectRevealCount > 0) {
-      await this.mainCommandPersistence.markScenarioStateChanged(params.context.sessionScenarioId);
+      await this.sessionsService.publishCurrentVttMap(
+        params.context.sessionId,
+      );
       this.realtimeEvents.emitSessionSnapshot(
         params.context.sessionId,
         await this.sessionsService.buildSnapshot(params.context.sessionId),

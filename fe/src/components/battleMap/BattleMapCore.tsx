@@ -16,6 +16,8 @@ import {
 } from '@trpg/shared-types/frontend';
 import { BattleMapBackgroundLayer } from './BattleMapBackgroundLayer';
 import type { BattleMapGridLine } from './BattleMapBackgroundLayer';
+import { BattleMapCombatEffectLayer } from './BattleMapCombatEffectLayer';
+import { BattleMapCombatAttentionLayer } from './BattleMapCombatAttentionLayer';
 import { BattleMapCanvas } from './BattleMapCanvas';
 import {
   BattleMapEditorToolbarControls,
@@ -30,11 +32,15 @@ import { BattleMapPingMarkers } from './BattleMapPingMarkers';
 import type { BattleMapPingMarker } from './BattleMapPingMarkers';
 import { BattleMapRangeOverlayLayer } from './BattleMapRangeOverlayLayer';
 import { BattleMapSessionObstacleLayer } from './BattleMapSessionObstacleLayer';
+import { BattleMapTerrainEffectLayer } from './BattleMapTerrainEffectLayer';
+import { BattleMapTargetPreviewLayer } from './BattleMapTargetPreviewLayer';
+import { getTerrainEffectVisual } from './battleMapTerrainEffects';
 import { BattleMapStageFrame } from './BattleMapStageFrame';
 import { BattleMapStartingPositionLayer } from './BattleMapStartingPositionLayer';
 import { BattleMapStructureInspector } from './BattleMapStructureInspector';
 import { BattleMapSubtoolbar } from './BattleMapSubtoolbar';
 import { BattleMapTokenLayer } from './BattleMapTokenLayer';
+import { BattleMapTokenStatusLayer } from './BattleMapTokenStatusLayer';
 import { BattleMapTokenInspector } from './BattleMapTokenInspector';
 import { BattleMapToolbar } from './BattleMapToolbar';
 import { BattleMapTokenMovePreview } from './BattleMapTokenMovePreview';
@@ -56,6 +62,16 @@ import {
 } from '../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../utils/sessionTokenColors';
 import { getCharacterImage } from '../../features/sessionPlay/utils/characterVisuals';
+import type {
+  CombatEffectPlayback,
+  CombatMapAttentionState,
+  CombatMotionPreference,
+  CombatTargetPreview,
+  CombatTargetingMode,
+  CombatTokenConditionState,
+} from '../../features/sessionPlay/presentation/combatEffectTypes';
+import { projectCombatTokenVisualEffects } from '../../features/sessionPlay/presentation/combatTokenEffectProjection';
+import { projectCombatTargetPreview } from '../../features/sessionPlay/presentation/combatTargetPreviewProjection';
 
 export interface BattleMapProps {
   map: VttMapStateDto;
@@ -82,8 +98,16 @@ export interface BattleMapProps {
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
+  keyboardMoveTokenId?: string | null;
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
+  combatEffectPlaybacks?: CombatEffectPlayback[];
+  combatMapAttention?: CombatMapAttentionState | null;
+  combatTargetingMode?: CombatTargetingMode | null;
+  onCombatTargetPreviewChange?: (preview: CombatTargetPreview | null) => void;
+  combatParticipantTokenIdById?: Record<string, string>;
+  combatTokenConditionStates?: CombatTokenConditionState[];
+  combatMotionPreference?: CombatMotionPreference;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -243,6 +267,7 @@ type TokenMovementPath = {
   extraCostFt: number;
 };
 type TokenDragMeasure = BattleMapTokenDragMeasure;
+type KeyboardMoveKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
 type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number];
 type MapSizeField = 'width' | 'height' | 'gridSize';
 type ScenarioAsset = ScenarioAssetResponseDto;
@@ -258,6 +283,24 @@ type StructurePatch =
   | Partial<WallCell>
   | Partial<DoorCell>
   | Partial<ObjectCell>;
+
+const keyboardMoveDelta: Record<KeyboardMoveKey, { x: number; y: number }> = {
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+};
+
+function isKeyboardMoveKey(key: string): key is KeyboardMoveKey {
+  return (
+    key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'
+  );
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('input, textarea, select, button, a, [contenteditable="true"]'));
+}
 type ObjectShapeCell = NonNullable<ObjectCell['shapeCells']>[number];
 type ObjectEvent = NonNullable<ObjectCell['events']>[number];
 type ObjectHazard = NonNullable<ObjectCell['hazard']>;
@@ -735,8 +778,16 @@ export function BattleMap({
   tokenHealthByTokenId,
   attackRangeOverlay = null,
   combatMovementMode = 'normal',
+  keyboardMoveTokenId = null,
   showHiddenContent = false,
   showPlayerVisionPreview = false,
+  combatEffectPlaybacks = [],
+  combatMapAttention = null,
+  combatTargetingMode = null,
+  onCombatTargetPreviewChange,
+  combatParticipantTokenIdById = {},
+  combatTokenConditionStates = [],
+  combatMotionPreference = 'full',
   onTokenMoveRequest,
   onPingRequest,
 }: BattleMapProps) {
@@ -771,8 +822,15 @@ export function BattleMap({
   const [measureEnd, setMeasureEnd] = useState<MeasurePoint | null>(null);
   const [measurePreview, setMeasurePreview] = useState<MeasurePoint | null>(null);
   const [tokenDragMeasure, setTokenDragMeasure] = useState<TokenDragMeasure | null>(null);
+  const [combatPreviewPoint, setCombatPreviewPoint] = useState<MeasurePoint | null>(null);
   const tokenDragMeasureRef = useRef<TokenDragMeasure | null>(null);
   const tokenDragFrameRef = useRef<number | null>(null);
+  const [keyboardTokenMoveDraft, setKeyboardTokenMoveDraft] = useState<TokenDragMeasure | null>(null);
+  const keyboardTokenMoveDraftRef = useRef<TokenDragMeasure | null>(null);
+  const keyboardMovePendingRef = useRef(false);
+  const [isKeyboardMovePending, setKeyboardMovePending] = useState(false);
+  const [isMapKeyboardFocused, setMapKeyboardFocused] = useState(false);
+  const [keyboardMoveFeedback, setKeyboardMoveFeedback] = useState<string | null>(null);
   const tokenPathCacheRef = useRef<Map<string, TokenMovementPath>>(new Map());
   const [pings, setPings] = useState<PingMarker[]>([]);
   const [pingClock, setPingClock] = useState(Date.now());
@@ -959,6 +1017,58 @@ export function BattleMap({
     [shouldComputePlayerVisionCells, map, partyCharacterIds]
   );
   const visibleVisionCells = isVisionMaskEnabled ? playerVisionCells : null;
+  const accessibleTerrainSummaries = useMemo(() => {
+    const countByLabel = new Map<string, number>();
+    terrainCells.forEach((cell) => {
+      if (!isVisionPointVisible(
+        { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 },
+        map,
+        visibleVisionCells,
+      )) return;
+      const label = getTerrainEffectVisual(cell).accessibleLabel;
+      countByLabel.set(label, (countByLabel.get(label) ?? 0) + 1);
+    });
+    return [...countByLabel].map(([label, count]) => `${label} ${count}곳`);
+  }, [map, terrainCells, visibleVisionCells]);
+  const animatedTerrainCellIds = useMemo(() => {
+    if (interactionMode !== 'session' || combatMotionPreference !== 'full') {
+      return new Set<string>();
+    }
+    const safeScale = Math.max(scale, 0.001);
+    const viewport = {
+      left: -stagePosition.x / safeScale,
+      top: -stagePosition.y / safeScale,
+      right: (displayWidth - stagePosition.x) / safeScale,
+      bottom: (displayHeight - stagePosition.y) / safeScale,
+    };
+    return new Set(
+      terrainCells
+        .filter((cell) => {
+          const intersectsViewport =
+            cell.x + cell.width >= viewport.left &&
+            cell.x <= viewport.right &&
+            cell.y + cell.height >= viewport.top &&
+            cell.y <= viewport.bottom;
+          return intersectsViewport && isVisionPointVisible(
+            { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 },
+            map,
+            visibleVisionCells,
+          );
+        })
+        .map((cell) => cell.id),
+    );
+  }, [
+    combatMotionPreference,
+    displayHeight,
+    displayWidth,
+    interactionMode,
+    map,
+    scale,
+    stagePosition.x,
+    stagePosition.y,
+    terrainCells,
+    visibleVisionCells,
+  ]);
   const activeMeasureEnd = measureEnd ?? measurePreview;
   const selectedJumpMovementToken =
     selectedToken &&
@@ -993,9 +1103,10 @@ export function BattleMap({
     attackRangeOverlay && attackRangeOverlay.rangeFt > 0
       ? (map.tokens.find((token) => token.id === attackRangeOverlay.tokenId) ?? null)
       : null;
-  const visibleTokensForDisplay = useMemo(
-    () =>
-      visibleTokens.filter((token) =>
+  const visibleTokensForDisplay = useMemo(() => {
+    const draftPosition = keyboardTokenMoveDraft?.route[keyboardTokenMoveDraft.route.length - 1];
+    return visibleTokens
+      .filter((token) =>
         isVisionPointVisible(
           {
             x: token.x + token.size / 2,
@@ -1004,9 +1115,64 @@ export function BattleMap({
           map,
           visibleVisionCells
         )
-      ),
-    [map, visibleTokens, visibleVisionCells]
+      )
+      .map((token) =>
+        draftPosition && token.id === keyboardTokenMoveDraft?.tokenId
+          ? { ...token, x: draftPosition.x, y: draftPosition.y }
+          : token
+      );
+  }, [keyboardTokenMoveDraft, map, visibleTokens, visibleVisionCells]);
+  const combatTokenVisualEffects = useMemo(
+    () => projectCombatTokenVisualEffects({
+      effects: combatEffectPlaybacks,
+      participantTokenIdById: combatParticipantTokenIdById,
+      visibleTokenIds: new Set(visibleTokensForDisplay.map((token) => token.id)),
+    }),
+    [combatEffectPlaybacks, combatParticipantTokenIdById, visibleTokensForDisplay],
   );
+  const combatTargetPreview = useMemo(
+    () => combatTargetingMode
+      ? projectCombatTargetPreview({
+          mode: combatTargetingMode,
+          point: combatPreviewPoint,
+          tokens: visibleTokensForDisplay,
+          gridSize: map.gridSize,
+        })
+      : null,
+    [combatPreviewPoint, combatTargetingMode, map.gridSize, visibleTokensForDisplay],
+  );
+  useEffect(() => {
+    setCombatPreviewPoint(null);
+  }, [combatTargetingMode?.actionId, combatTargetingMode?.sourceTokenId]);
+  useEffect(() => {
+    onCombatTargetPreviewChange?.(combatTargetPreview);
+  }, [
+    combatTargetPreview?.actionId,
+    combatTargetPreview?.reasonLabel,
+    combatTargetPreview?.validity,
+    onCombatTargetPreviewChange,
+  ]);
+  const keyboardMoveTarget = keyboardMoveTokenId
+    ? (map.tokens.find((token) => token.id === keyboardMoveTokenId) ?? null)
+    : null;
+  const isKeyboardMoveEnabled = Boolean(
+    interactionMode === 'session' &&
+      map.gridType === 'square' &&
+      onTokenMoveRequest &&
+      keyboardMoveTarget &&
+      canControlToken(keyboardMoveTarget) &&
+      !isInteractionLocked &&
+      !isMeasureMode &&
+      !isPanMode &&
+      !isPingMode
+  );
+  const keyboardMoveStatus = isKeyboardMovePending
+    ? '이동을 처리하고 있습니다.'
+    : keyboardTokenMoveDraft
+      ? keyboardMoveFeedback ?? '이동 경로 설정 중 · Enter 이동 · Esc 취소 · Backspace 한 칸 취소'
+      : isMapKeyboardFocused && isKeyboardMoveEnabled
+        ? keyboardMoveFeedback ?? '방향키로 이동 경로를 설정할 수 있습니다.'
+        : null;
   const gridLines = useMemo(() => {
     const lines: BattleMapGridLine[] = [];
     for (let x = 0, index = 0; x <= map.width; x += map.gridSize, index += 1) {
@@ -1033,6 +1199,19 @@ export function BattleMap({
   useEffect(() => {
     tokenPathCacheRef.current.clear();
   }, [map]);
+
+  useEffect(() => {
+    keyboardTokenMoveDraftRef.current = null;
+    setKeyboardTokenMoveDraft(null);
+    setKeyboardMoveFeedback(null);
+  }, [
+    isInteractionLocked,
+    isMeasureMode,
+    isPanMode,
+    isPingMode,
+    keyboardMoveTokenId,
+    map.updatedAt,
+  ]);
 
   useEffect(() => {
     if (!visibleVisionCells) return;
@@ -1616,19 +1795,23 @@ export function BattleMap({
     tokenId: string,
     x: number,
     y: number,
-    snap = isTokenSnapEnabled
+    snap = isTokenSnapEnabled,
+    routeOverride?: Array<{ x: number; y: number }>
   ): Promise<boolean> {
     const targetToken = map.tokens.find((token) => token.id === tokenId);
     if (!targetToken || !canControlToken(targetToken)) return false;
 
     const nextPosition = getTokenMovePosition(targetToken, x, y, snap);
 
-    const movementPath = getCachedTokenMovementPath(
-      targetToken,
-      nextPosition.x,
-      nextPosition.y,
-      combatMovementMode
-    );
+    const movementPath =
+      routeOverride && routeOverride.length > 1
+        ? buildKeyboardTokenMoveDraft(targetToken, routeOverride).path
+        : getCachedTokenMovementPath(
+            targetToken,
+            nextPosition.x,
+            nextPosition.y,
+            combatMovementMode
+          );
     if (movementPath.blocked) {
       return false;
     }
@@ -1639,15 +1822,18 @@ export function BattleMap({
 
     if (onTokenMoveRequest) {
       const trackedRoute =
-        tokenDragMeasureRef.current?.tokenId === tokenId && tokenDragMeasureRef.current.route.length > 1
-          ? expandTokenRoute(
-              compactTokenRoute(
-                appendTokenRoutePoint(tokenDragMeasureRef.current.route, nextPosition),
+        routeOverride && routeOverride.length > 1
+          ? routeOverride
+          : tokenDragMeasureRef.current?.tokenId === tokenId &&
+              tokenDragMeasureRef.current.route.length > 1
+            ? expandTokenRoute(
+                compactTokenRoute(
+                  appendTokenRoutePoint(tokenDragMeasureRef.current.route, nextPosition),
+                  map
+                ),
                 map
-              ),
-              map
-            )
-          : movementPath.cells;
+              )
+            : movementPath.cells;
       const requestedMap = await onTokenMoveRequest(
         targetToken,
         nextPosition,
@@ -1990,6 +2176,184 @@ export function BattleMap({
     return path;
   }
 
+  function replaceKeyboardTokenMoveDraft(nextDraft: TokenDragMeasure | null) {
+    keyboardTokenMoveDraftRef.current = nextDraft;
+    setKeyboardTokenMoveDraft(nextDraft);
+  }
+
+  function buildKeyboardTokenMoveDraft(
+    token: VttMapStateDto['tokens'][number],
+    route: Array<{ x: number; y: number }>
+  ): TokenDragMeasure {
+    const destination = route[route.length - 1] ?? { x: token.x, y: token.y };
+    const distanceFt = route.slice(1).reduce((total, point, index) => {
+      return total + getGridMovementDistanceFt(route[index], point, map);
+    }, 0);
+    const extraCostFt = combatMovementMode === 'jump' && distanceFt > 0 ? jumpExtraMovementFt : 0;
+    const remainingMovementFt = getTokenRemainingMovementFt(token);
+    const cells = route.map((point, index) => ({
+      ...point,
+      blocked:
+        index > 0 &&
+        isTokenPositionBlocked(token, point.x, point.y, {
+          ignoreTokens: combatMovementMode === 'jump' && index < route.length - 1,
+        }),
+    }));
+    const isOverRange =
+      remainingMovementFt !== null && distanceFt + extraCostFt > remainingMovementFt;
+
+    return {
+      tokenId: token.id,
+      from: {
+        x: token.x + token.size / 2,
+        y: token.y + token.size / 2,
+      },
+      to: {
+        x: destination.x + token.size / 2,
+        y: destination.y + token.size / 2,
+      },
+      route,
+      path: {
+        cells,
+        blocked: cells.some((cell) => cell.blocked) || isOverRange,
+        distanceFt,
+        extraCostFt,
+      },
+    };
+  }
+
+  function cancelKeyboardTokenMove(feedback: string | null = null) {
+    replaceKeyboardTokenMoveDraft(null);
+    setKeyboardMoveFeedback(feedback);
+  }
+
+  function extendKeyboardTokenMove(key: KeyboardMoveKey) {
+    if (!isKeyboardMoveEnabled || !keyboardMoveTarget || keyboardMovePendingRef.current) return;
+
+    const currentDraft = keyboardTokenMoveDraftRef.current;
+    const route =
+      currentDraft?.tokenId === keyboardMoveTarget.id
+        ? currentDraft.route
+        : [{ x: keyboardMoveTarget.x, y: keyboardMoveTarget.y }];
+    const currentPosition = route[route.length - 1];
+    const delta = keyboardMoveDelta[key];
+    const nextPosition = {
+      x: clamp(
+        currentPosition.x + delta.x * map.gridSize,
+        0,
+        Math.max(0, map.width - keyboardMoveTarget.size)
+      ),
+      y: clamp(
+        currentPosition.y + delta.y * map.gridSize,
+        0,
+        Math.max(0, map.height - keyboardMoveTarget.size)
+      ),
+    };
+
+    if (nextPosition.x === currentPosition.x && nextPosition.y === currentPosition.y) {
+      setKeyboardMoveFeedback('지도 경계를 넘어 이동할 수 없습니다.');
+      return;
+    }
+
+    const existingRouteIndex = route.findIndex(
+      (point) => point.x === nextPosition.x && point.y === nextPosition.y
+    );
+    const nextRoute =
+      existingRouteIndex >= 0
+        ? route.slice(0, existingRouteIndex + 1)
+        : [...route, nextPosition];
+
+    if (nextRoute.length <= 1) {
+      cancelKeyboardTokenMove();
+      return;
+    }
+
+    const nextDraft = buildKeyboardTokenMoveDraft(keyboardMoveTarget, nextRoute);
+    if (nextDraft.path.blocked) {
+      setKeyboardMoveFeedback('장애물 또는 남은 이동 거리 때문에 해당 칸으로 이동할 수 없습니다.');
+      return;
+    }
+
+    replaceKeyboardTokenMoveDraft(nextDraft);
+    setKeyboardMoveFeedback(null);
+  }
+
+  function undoKeyboardTokenMoveStep() {
+    const currentDraft = keyboardTokenMoveDraftRef.current;
+    if (!currentDraft || !keyboardMoveTarget) return;
+    const nextRoute = currentDraft.route.slice(0, -1);
+    if (nextRoute.length <= 1) {
+      cancelKeyboardTokenMove();
+      return;
+    }
+    replaceKeyboardTokenMoveDraft(buildKeyboardTokenMoveDraft(keyboardMoveTarget, nextRoute));
+    setKeyboardMoveFeedback(null);
+  }
+
+  async function commitKeyboardTokenMove() {
+    const currentDraft = keyboardTokenMoveDraftRef.current;
+    if (
+      !currentDraft ||
+      !keyboardMoveTarget ||
+      currentDraft.tokenId !== keyboardMoveTarget.id ||
+      keyboardMovePendingRef.current
+    ) {
+      return;
+    }
+
+    const destination = currentDraft.route[currentDraft.route.length - 1];
+    keyboardMovePendingRef.current = true;
+    setKeyboardMovePending(true);
+    setKeyboardMoveFeedback(null);
+    try {
+      const moved = await handleTokenMove(
+        keyboardMoveTarget.id,
+        destination.x,
+        destination.y,
+        true,
+        currentDraft.route
+      );
+      cancelKeyboardTokenMove(moved ? null : '이동 요청을 반영하지 못했습니다.');
+    } catch (error) {
+      cancelKeyboardTokenMove(
+        error instanceof Error ? error.message : '토큰 이동 요청에 실패했습니다.'
+      );
+    } finally {
+      keyboardMovePendingRef.current = false;
+      setKeyboardMovePending(false);
+    }
+  }
+
+  function handleKeyboardTokenMoveKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (isEditableKeyboardTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+
+    const hasDraft = Boolean(keyboardTokenMoveDraftRef.current);
+    const handlesKey =
+      (isKeyboardMoveKey(event.key) && (isKeyboardMoveEnabled || isKeyboardMovePending)) ||
+      (hasDraft && (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Backspace'));
+    if (!handlesKey) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || keyboardMovePendingRef.current) return;
+
+    if (isKeyboardMoveKey(event.key)) {
+      extendKeyboardTokenMove(event.key);
+      return;
+    }
+    if (event.key === 'Enter') {
+      void commitKeyboardTokenMove();
+      return;
+    }
+    if (event.key === 'Backspace') {
+      undoKeyboardTokenMoveStep();
+      return;
+    }
+    cancelKeyboardTokenMove();
+  }
+
   function getTileFromPoint(point: { x: number; y: number }) {
     return {
       column: Math.floor(clamp(point.x, 0, map.width - 1) / map.gridSize) + 1,
@@ -2196,6 +2560,9 @@ export function BattleMap({
     addPingAt,
     handleMeasureClick,
     emitTileSelection,
+    onWorldPointerMove: combatTargetingMode
+      ? setCombatPreviewPoint
+      : undefined,
   });
 
   function beginObjectExtensionDrag(
@@ -2231,16 +2598,23 @@ export function BattleMap({
   }
 
   function beginTokenDragMeasure(token: VttMapStateDto['tokens'][number]) {
+    cancelKeyboardTokenMove();
+    const authoritativeToken = map.tokens.find((candidate) => candidate.id === token.id) ?? token;
     const center = {
-      x: token.x + token.size / 2,
-      y: token.y + token.size / 2,
+      x: authoritativeToken.x + authoritativeToken.size / 2,
+      y: authoritativeToken.y + authoritativeToken.size / 2,
     };
     const nextMeasure = {
-      tokenId: token.id,
+      tokenId: authoritativeToken.id,
       from: center,
       to: center,
-      path: getCachedTokenMovementPath(token, token.x, token.y, combatMovementMode),
-      route: [{ x: token.x, y: token.y }],
+      path: getCachedTokenMovementPath(
+        authoritativeToken,
+        authoritativeToken.x,
+        authoritativeToken.y,
+        combatMovementMode
+      ),
+      route: [{ x: authoritativeToken.x, y: authoritativeToken.y }],
     };
     tokenDragMeasureRef.current = nextMeasure;
     setTokenDragMeasure(nextMeasure);
@@ -2390,6 +2764,24 @@ export function BattleMap({
         isFullscreen ? ' vtt-fullscreen' : ''
       }`}
     >
+      {!canEditMap && accessibleTerrainSummaries.length ? (
+        <ul
+          aria-label="현재 보이는 지속 지형"
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: 'hidden',
+            clip: 'rect(0, 0, 0, 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+          }}
+        >
+          {accessibleTerrainSummaries.map((summary) => <li key={summary}>{summary}</li>)}
+        </ul>
+      ) : null}
       <BattleMapToolbar
         title={title}
         tokenCountLabel={mapText.tokenCount(map.tokens.length)}
@@ -2454,6 +2846,11 @@ export function BattleMap({
           isPanMode={isPanMode}
           showSessionViewControls={showSessionViewControls}
           onTogglePan={() => setExclusiveTool('pan')}
+          keyboardMoveEnabled={isKeyboardMoveEnabled}
+          keyboardMoveStatus={keyboardMoveStatus}
+          keyboardMoveLabel={`${title} · 방향키로 이동 경로 설정, Enter로 이동, Esc로 취소`}
+          onKeyboardMoveKeyDown={handleKeyboardTokenMoveKeyDown}
+          onKeyboardFocusChange={setMapKeyboardFocused}
         >
           <BattleMapCanvas
             width={displayWidth}
@@ -2466,6 +2863,7 @@ export function BattleMap({
             onDragEnd={handleStageDragEnd}
             onMouseDown={handleStagePointerDown}
             onMouseMove={handleStageMouseMove}
+            onMouseLeave={() => setCombatPreviewPoint(null)}
             onMouseUp={handleStagePointerUp}
             onWheel={(event) => {
               event.evt.preventDefault();
@@ -2496,7 +2894,14 @@ export function BattleMap({
             ) : null}
 
             {!canEditMap ? (
-              <BattleMapSessionObstacleLayer map={map} terrainCells={terrainCells} wallCells={wallCells} />
+              <>
+                <BattleMapSessionObstacleLayer map={map} terrainCells={terrainCells} wallCells={wallCells} />
+                <BattleMapTerrainEffectLayer
+                  terrainCells={terrainCells}
+                  animatedTerrainCellIds={animatedTerrainCellIds}
+                  motionPreference={combatMotionPreference}
+                />
+              </>
             ) : null}
 
             <BattleMapObjectMarkerLayer
@@ -2525,6 +2930,16 @@ export function BattleMap({
                 attackRangeOverlay={attackRangeOverlay}
                 attackRangeOverlayToken={attackRangeOverlayToken}
               />
+              <BattleMapTargetPreviewLayer
+                preview={combatTargetPreview}
+                tokens={visibleTokensForDisplay}
+                gridSize={map.gridSize}
+              />
+              <BattleMapCombatAttentionLayer
+                tokens={visibleTokensForDisplay}
+                attention={combatMapAttention}
+                motionPreference={combatMotionPreference}
+              />
               <BattleMapTokenLayer
                 tokens={visibleTokensForDisplay}
                 characters={characters}
@@ -2534,6 +2949,8 @@ export function BattleMap({
                 isMeasureMode={isMeasureMode}
                 isPingMode={isPingMode}
                 tokenHealthByTokenId={tokenHealthByTokenId}
+                tokenVisualEffectByTokenId={combatTokenVisualEffects}
+                combatMotionPreference={combatMotionPreference}
                 getTokenColor={getBattleTokenColor}
                 canControlToken={canControlToken}
                 constrainTokenDragPosition={(token, x, y) => getTokenDragPosition(token, x, y)}
@@ -2563,6 +2980,17 @@ export function BattleMap({
                   return wasMoved;
                 }}
               />
+              <BattleMapTokenStatusLayer
+                tokens={visibleTokensForDisplay}
+                conditionStates={combatTokenConditionStates}
+              />
+              <BattleMapCombatEffectLayer
+                effects={combatEffectPlaybacks}
+                tokens={visibleTokensForDisplay}
+                participantTokenIdById={combatParticipantTokenIdById}
+                motionPreference={combatMotionPreference}
+                mapWidth={map.width}
+              />
             </Layer>
 
             <BattleMapVisionMaskLayer
@@ -2584,7 +3012,7 @@ export function BattleMap({
               />
 
               <BattleMapTokenMovePreview
-                measure={tokenDragMeasure}
+                measure={keyboardTokenMoveDraft ?? tokenDragMeasure}
                 gridSize={map.gridSize}
                 formatPathCost={formatTokenMovementPathCost}
               />

@@ -16,13 +16,14 @@
 
 - 플랫폼 코어가 먼저이고 AI는 보조 계층이다.
 - AI GM 세션과 사람 GM 세션은 같은 세션/캐릭터/룰/로그 구조를 공유한다.
-- 방장, 사람 GM, 플레이어 권한은 분리한다.
+- 사람 GM 세션에서는 세션 관리자와 GM을 통합하고, AI GM 세션에서는 사람 세션 관리자와 AI GM의 책임을 구분한다.
 - 세부 기준은 이 문서가 아니라 각 구조 문서와 `../rules/` 문서를 따른다.
 
 ## 핵심 방향
 
 - 같은 플랫폼 코어에서 `AI GM`과 `HUMAN GM` 세션을 모두 지원한다.
-- 세션 방장과 사람 GM 권한은 분리해서 다룬다.
+- 사람 GM 세션의 생성자는 세션 관리자이자 GM이며 별도 GM 교체는 지원하지 않는다.
+- AI GM 세션의 생성자는 세션 관리자로 남고 AI가 GM을 맡는다.
 - 캐릭터와 세션 진행 상태는 서버가 authoritative state로 관리한다.
 - 일반 채팅과 게임 행동 입력은 분리한다.
 - AI 출력은 구조화, 검증, fallback 과정을 거친 뒤 사용한다.
@@ -48,7 +49,7 @@
 ## 관련 원칙
 
 - [../rules/ARCHITECTURE_RULES.md](../rules/ARCHITECTURE_RULES.md): 플랫폼 코어와 서버 권위성 원칙
-- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): AI GM / 사람 GM / 방장 권한 분리 원칙
+- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): 세션 관리자와 AI/사람 GM 권한 원칙
 - [../rules/AI_RUNTIME_RULES.md](../rules/AI_RUNTIME_RULES.md): AI 보조 계층 원칙
 
 ## 관련 문서

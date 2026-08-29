@@ -49,11 +49,13 @@ type CampaignCalendarStateView = {
 };
 
 interface SessionCampaignCalendarPanelProps {
+  isOpen: boolean;
   calendar: CampaignCalendarStateView | null;
   characters: SessionCharacterResponseDto[];
   canManageCampaign: boolean;
   isBusy: boolean;
   feedback?: string | null;
+  onClose: () => void;
   onApply: (payload: ApplyCampaignCalendarActionDto) => Promise<void> | void;
 }
 
@@ -62,11 +64,32 @@ const actionLabels: Record<ApplyCampaignCalendarActionDto["actionType"], string>
   respond_schedule: "참석 응답",
   confirm_schedule: "일정 확정",
   advance_game_time: "게임 시간 경과",
-  start_downtime: "Downtime 시작",
-  pause_downtime: "Downtime 중단",
-  resume_downtime: "Downtime 재개",
-  complete_downtime: "Downtime 완료",
+  start_downtime: "휴식기 활동 시작",
+  pause_downtime: "휴식기 활동 중단",
+  resume_downtime: "휴식기 활동 재개",
+  complete_downtime: "휴식기 활동 완료",
 };
+
+const scheduleStatusLabels: Record<string, string> = {
+  proposed: "조율 중",
+  confirmed: "확정",
+};
+
+const downtimeStatusLabels: Record<string, string> = {
+  active: "진행 중",
+  paused: "중단",
+  completed: "완료",
+};
+
+const timelineTypeLabels: Record<string, string> = {
+  schedule_proposed: "일정 후보 등록",
+  schedule_confirmed: "일정 확정",
+  game_time_advanced: "게임 시간 경과",
+};
+
+function readDisplayLabel(labels: Record<string, string>, value: string | null | undefined): string {
+  return value && labels[value] ? labels[value] : "알 수 없음";
+}
 
 const calendarActionEntries: ReadonlyArray<readonly [ApplyCampaignCalendarActionDto["actionType"], string]> = [
   ["propose_schedule", actionLabels.propose_schedule],
@@ -146,14 +169,15 @@ function readOptionalOptionId(value: string, allowedIds: readonly string[]): str
 }
 
 export function SessionCampaignCalendarPanel({
+  isOpen,
   calendar,
   characters,
   canManageCampaign,
   isBusy,
   feedback,
+  onClose,
   onApply,
 }: SessionCampaignCalendarPanelProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const [actionType, setActionType] =
     useState<ApplyCampaignCalendarActionDto["actionType"]>("propose_schedule");
   const [scheduleId, setScheduleId] = useState("");
@@ -243,22 +267,29 @@ export function SessionCampaignCalendarPanel({
     void onApply(payload);
   }
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <aside className={`session-campaign-calendar-panel${collapsed ? " collapsed" : ""}`}>
+    <aside
+      id="session-campaign-calendar-panel"
+      className="session-campaign-calendar-panel"
+      aria-label="캠페인 일정"
+    >
       <button
         type="button"
         className="session-campaign-calendar-toggle"
-        onClick={() => setCollapsed((current) => !current)}
-        aria-expanded={!collapsed}
+        onClick={onClose}
+        aria-expanded="true"
       >
-        {collapsed ? "캘린더" : "캠페인 캘린더 접기"}
+        캠페인 일정 접기
       </button>
-      {!collapsed ? (
-        <div className="session-campaign-calendar-body">
-          <header>
-            <strong>캠페인 캘린더 · Downtime</strong>
-            <span>현실 일정과 게임 내 시간을 분리하고 서버 감사 로그로 기록합니다.</span>
-          </header>
+      <div className="session-campaign-calendar-body">
+          <div className="session-campaign-calendar-heading">
+            <strong>캠페인 일정 · 휴식기 활동</strong>
+            <span>다음 플레이 일정과 게임 안에서 흐른 시간을 함께 관리합니다.</span>
+          </div>
 
           <section className="session-campaign-calendar-summary">
             <div>
@@ -269,23 +300,23 @@ export function SessionCampaignCalendarPanel({
               <b>일정 후보</b>
               {schedules.length ? schedules.map((schedule) => (
                 <span key={schedule.id}>
-                  {schedule.title ?? schedule.id} · {schedule.status ?? "proposed"} · {schedule.responses?.length ?? 0}명 응답
+                  {schedule.title ?? "제목 없는 일정"} · {readDisplayLabel(scheduleStatusLabels, schedule.status ?? "proposed")} · {schedule.responses?.length ?? 0}명 응답
                 </span>
               )) : <span>등록된 후보 없음</span>}
             </div>
             <div>
-              <b>Downtime</b>
+              <b>휴식기 활동</b>
               {downtimeTasks.length ? downtimeTasks.map((task) => (
                 <span key={task.id}>
-                  {task.title ?? task.id} · {task.status ?? "active"} · {characterNameById.get(task.sessionCharacterId) ?? task.sessionCharacterId}
+                  {task.title ?? "제목 없는 활동"} · {readDisplayLabel(downtimeStatusLabels, task.status ?? "active")} · {characterNameById.get(task.sessionCharacterId) ?? "캐릭터 정보 없음"}
                 </span>
               )) : <span>진행 중인 작업 없음</span>}
             </div>
             <div>
-              <b>Timeline</b>
+              <b>최근 기록</b>
               {timeline.slice(-3).length ? timeline.slice(-3).map((event) => (
                 <span key={event.id}>
-                  {event.type} · {event.inGameDate ?? "날짜 없음"} · +{event.elapsedDays ?? 0}일
+                  {readDisplayLabel(timelineTypeLabels, event.type)} · {event.inGameDate ?? "날짜 없음"} · +{event.elapsedDays ?? 0}일
                 </span>
               )) : <span>기록 없음</span>}
             </div>
@@ -320,7 +351,7 @@ export function SessionCampaignCalendarPanel({
               >
                 <option value="">일정 선택</option>
                 {schedules.map((schedule) => (
-                  <option key={schedule.id} value={schedule.id}>{schedule.title ?? schedule.id}</option>
+                  <option key={schedule.id} value={schedule.id}>{schedule.title ?? "제목 없는 일정"}</option>
                 ))}
               </select>
             ) : null}
@@ -430,9 +461,9 @@ export function SessionCampaignCalendarPanel({
                     }
                   }}
                 >
-                  <option value="">Downtime 선택</option>
+                  <option value="">휴식기 활동 선택</option>
                   {downtimeTasks.map((task) => (
-                    <option key={task.id} value={task.id}>{task.title ?? task.id}</option>
+                    <option key={task.id} value={task.id}>{task.title ?? "제목 없는 활동"}</option>
                   ))}
                 </select>
                 {actionType === "complete_downtime" ? (
@@ -446,14 +477,13 @@ export function SessionCampaignCalendarPanel({
                 ) : null}
               </>
             ) : null}
-            <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="감사 로그 메모" />
+            <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="기록 메모" />
             <button type="button" disabled={isBusy} onClick={submit}>
               {isBusy ? "처리 중" : actionLabels[actionType]}
             </button>
           </section>
           {feedback ? <p className="session-campaign-calendar-feedback">{feedback}</p> : null}
-        </div>
-      ) : null}
+      </div>
     </aside>
   );
 }

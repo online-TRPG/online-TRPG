@@ -9,9 +9,13 @@ import type {
   HumanGmAiAssistSuggestionDto,
   HumanGmMessageDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmRevealOptionDto,
   HumanGmPrivateNoteDto,
   RemoveHumanGmInventoryItemDto,
   ReportHumanGmAiAssistApplicationFailureDto,
+  RevealSessionContentDto,
+  SessionNodeTransitionResponseDto,
+  SessionRevealResponseDto,
   SessionSnapshotDto,
   SetHumanGmDifficultyClassDto,
   UpdateSessionNodeDto,
@@ -20,49 +24,39 @@ import {
   decodeHumanGmAiAssistSuggestion,
   decodeHumanGmAiAssistSuggestionArray,
   decodeHumanGmNodeMoveOptionArray,
+  decodeHumanGmRevealOptionArray,
   decodeHumanGmPrivateNoteArray,
+  decodeSessionNodeTransitionResponse,
   decodeSessionSnapshot,
+  decodeSessionRevealResponse,
 } from '@trpg/shared-types/frontend';
 import type {
+  PlayerScenarioView,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
 import { normalizeSessionSnapshot } from '../types/session';
 import { requestJson } from './httpClient';
 
-export async function updateHumanGm(
-  user: StoredUser,
-  sessionId: string,
-  gmUserId: string,
-  accessToken?: string | null
-): Promise<SessionSnapshot> {
-  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm`, {
-    method: 'PATCH',
-    user,
-    accessToken,
-    body: { gmUserId },
-    decode: decodeSessionSnapshot,
-  });
-
-  return normalizeSessionSnapshot(snapshot);
-}
-
 export async function updateHumanGmSessionNode(
   user: StoredUser,
   sessionId: string,
   nodeId: string,
   accessToken?: string | null
-): Promise<SessionSnapshot> {
+): Promise<{ snapshot: SessionSnapshot; playerScenario: PlayerScenarioView }> {
   const payload: UpdateSessionNodeDto = { nodeId };
-  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/node`, {
+  const transition = await requestJson<SessionNodeTransitionResponseDto>(`/sessions/${sessionId}/gm/node`, {
     method: 'PATCH',
     user,
     accessToken,
     body: payload,
-    decode: decodeSessionSnapshot,
+    decode: decodeSessionNodeTransitionResponse,
   });
 
-  return normalizeSessionSnapshot(snapshot);
+  return {
+    snapshot: normalizeSessionSnapshot(transition.snapshot),
+    playerScenario: transition.playerScenario,
+  };
 }
 
 export async function createHumanGmMessage(
@@ -92,6 +86,34 @@ export function getHumanGmNodeMoveOptions(
     user,
     accessToken,
     decode: decodeHumanGmNodeMoveOptionArray,
+  });
+}
+
+export function getHumanGmRevealOptions(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null,
+): Promise<HumanGmRevealOptionDto[]> {
+  return requestJson<HumanGmRevealOptionDto[]>(`/sessions/${sessionId}/gm/reveal-options`, {
+    method: 'GET',
+    user,
+    accessToken,
+    decode: decodeHumanGmRevealOptionArray,
+  });
+}
+
+export function revealHumanGmContent(
+  user: StoredUser,
+  sessionId: string,
+  payload: RevealSessionContentDto,
+  accessToken?: string | null,
+): Promise<SessionRevealResponseDto> {
+  return requestJson<SessionRevealResponseDto>(`/sessions/${sessionId}/gm/reveals`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+    decode: decodeSessionRevealResponse,
   });
 }
 

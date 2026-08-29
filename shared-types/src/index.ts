@@ -1,5 +1,7 @@
 export * from "./constants/enums";
 export * from "./constants/combat-reasons";
+export * from "./constants/combat-presentation";
+export * from "./constants/combat-targeting";
 export * from "./constants/main-command-check-effects";
 export * from "./constants/runtime-limits";
 export * from "./constants/skills";
@@ -18,6 +20,7 @@ export * from "./types/common/ability-scores";
 export * from "./types/api-envelope";
 export * from "./types/domain/models";
 export * from "./utils/inventory-display";
+export * from "./utils/combat-targeting-geometry";
 export * from "./utils/main-command-response";
 export * from "./utils/api-decoders";
 export * from "./utils/runtime-guards";

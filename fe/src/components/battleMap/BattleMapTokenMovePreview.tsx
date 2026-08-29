@@ -31,6 +31,14 @@ export function BattleMapTokenMovePreview({
     return null;
   }
 
+  const routeOrigin = measure.route[0];
+  const routeLinePoints = routeOrigin && measure.route.length > 1
+    ? measure.route.flatMap((point) => [
+        point.x + (measure.from.x - routeOrigin.x),
+        point.y + (measure.from.y - routeOrigin.y),
+      ])
+    : [measure.from.x, measure.from.y, measure.to.x, measure.to.y];
+
   return (
     <>
       {measure.path.cells.map((cell, index) => (
@@ -47,7 +55,7 @@ export function BattleMapTokenMovePreview({
         />
       ))}
       <Line
-        points={[measure.from.x, measure.from.y, measure.to.x, measure.to.y]}
+        points={routeLinePoints}
         stroke={measure.path.blocked ? '#ff7771' : '#9ee6a8'}
         strokeWidth={3}
         dash={[10, 8]}

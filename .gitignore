@@ -26,8 +26,17 @@ coverage/
 .env
 .env.*
 !**/.env.example
+ai/.env.example
 .env.local
 .env.test
 *.log
 *.db
 *.db-journal
+
+# local database backups and AI diagnostic payloads
+*.dump
+/tmp/
+exec/dump/*
+!exec/dump/.gitkeep
+runtime_logs/*
+!runtime_logs/.gitkeep

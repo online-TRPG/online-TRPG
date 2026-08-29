@@ -1,6 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { APP_GUARD } from "@nestjs/core";
+import { AccessTokenAuthGuard } from "./common/auth/access-token-auth.guard";
 import { AccessTokenAuthMiddleware } from "./common/auth/access-token-auth.middleware";
+import { SecurityRateLimitMiddleware } from "./common/security/security-rate-limit.middleware";
 import { getRuntimeEnvFilePaths } from "./common/utils/runtime-env";
 import { DatabaseModule } from "./database/database.module";
 import { ActionsModule } from "./modules/actions/actions.module";
@@ -39,9 +42,15 @@ import { UsersModule } from "./modules/users/users.module";
     CombatModule,
     AiModule,
   ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: AccessTokenAuthGuard,
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(AccessTokenAuthMiddleware).forRoutes("*");
+    consumer.apply(AccessTokenAuthMiddleware, SecurityRateLimitMiddleware).forRoutes("*");
   }
 }

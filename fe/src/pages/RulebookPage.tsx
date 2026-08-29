@@ -5,6 +5,7 @@ import type {
 } from '@trpg/shared-types';
 import { decodeArray, isRecord, readNumber, readString } from '@trpg/shared-types/frontend';
 import dndLogo from '../assets/images/DnD5e_Logo.webp';
+import { getRuleSetLabel } from '../presentation/ruleSetLabels';
 import './RulebookPage.css';
 
 interface RulebookPageProps {
@@ -31,9 +32,21 @@ function readNullableStringField(record: Record<string, unknown>, key: string): 
   return value;
 }
 
-function decodeStaticRulebookDocument(value: unknown): RulebookDocumentResponseDto {
+function decodeStaticRulebookDocument(
+  value: unknown,
+  collectionRuleSetId: string,
+): RulebookDocumentResponseDto {
   if (!isRecord(value)) {
     throw new Error('rulebook document must be an object.');
+  }
+  const documentRuleSetId = value.ruleSetId;
+  if (documentRuleSetId !== undefined) {
+    if (typeof documentRuleSetId !== 'string') {
+      throw new Error('ruleSetId must be a string when provided.');
+    }
+    if (documentRuleSetId !== collectionRuleSetId) {
+      throw new Error('ruleSetId must match the containing rulebook.');
+    }
   }
   return {
     slug: readString(value, 'slug'),
@@ -41,7 +54,7 @@ function decodeStaticRulebookDocument(value: unknown): RulebookDocumentResponseD
     description: readNullableStringField(value, 'description'),
     category: readString(value, 'category'),
     updatedAt: readString(value, 'updatedAt'),
-    ruleSetId: readString(value, 'ruleSetId'),
+    ruleSetId: collectionRuleSetId,
     content: readString(value, 'content'),
   };
 }
@@ -50,17 +63,22 @@ function decodeStaticRulebookCollection(value: unknown): StaticRulebookCollectio
   if (!isRecord(value)) {
     throw new Error('rulebook collection must be an object.');
   }
+  const ruleSetId = readString(value, 'ruleSetId');
   return {
-    ruleSetId: readString(value, 'ruleSetId'),
+    ruleSetId,
     title: readString(value, 'title'),
     description: readNullableStringField(value, 'description'),
     attribution: readNullableStringField(value, 'attribution'),
     defaultDocumentSlug: readString(value, 'defaultDocumentSlug'),
-    documents: decodeArray(value.documents, decodeStaticRulebookDocument, 'rulebook.documents'),
+    documents: decodeArray(
+      value.documents,
+      (document) => decodeStaticRulebookDocument(document, ruleSetId),
+      'rulebook.documents',
+    ),
   };
 }
 
-function decodeStaticRulebookExport(value: unknown): StaticRulebookExport {
+export function decodeStaticRulebookExport(value: unknown): StaticRulebookExport {
   if (!isRecord(value)) {
     throw new Error('rulebook export must be an object.');
   }
@@ -408,7 +426,7 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
 
         const nextRulebook = payload.rulebooks.find((entry) => entry.ruleSetId === ruleSetId);
         if (!nextRulebook) {
-          throw new Error(`룰셋 "${ruleSetId}"에 해당하는 룰북을 찾을 수 없습니다.`);
+          throw new Error(`${getRuleSetLabel(ruleSetId)} 룰북을 찾을 수 없습니다.`);
         }
 
         setRulebook(nextRulebook);

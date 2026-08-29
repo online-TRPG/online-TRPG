@@ -7,11 +7,25 @@
 | 문서 | 역할 |
 | --- | --- |
 | `README.md` | 문서 지도 |
-| `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
-| `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
+| `PENDING_WORK_ITEMS.md` | 현재 계획과 완료 보관 문서에서 남긴 후속 작업 목록 |
+| `LOCAL_CLOUDFLARE_TUNNEL.md` | 로컬 서비스를 임시 Cloudflare Tunnel로 공유하는 현재 운영 가이드 |
 | `user_experience_remediation_plan.md` | 사용자 온보딩, 세션 운영, 안전, 접근성, AI 신뢰를 포함한 공개 베타 준비 개선 계획 |
-| `performance_scalability_remediation_plan.md` | 데이터 10배·100배 증가 대비 성능·확장성 개선 계획 |
-| `performance_scalability_followup_remediation_plan.md` | 성능 확장성 변경 정적 검토에서 확인된 데이터·실시간 동기화 문제의 후속 보완 계획 |
+| `ux_validation_evidence.md` | UX 자동·수동 검증 결과와 외부 구성 상태 |
+| `security_remediation_execution.md` | 완료된 SEC-01~SEC-10 구현 상태와 로컬 스테이징 검증 증거 |
+| `security_operations_runbook.md` | 보안 변경의 스테이징 검증·롤백과 범위 제외 운영 절차 참고 기록 |
+
+## 완료된 계획
+
+| 문서 | 역할 |
+| --- | --- |
+| `completed/future_plan.md` | 완료된 SRD 5e 룰·콘텐츠 장기 확장 로드맵 |
+| `completed/type_runtime_safety_audit.md` | 완료된 런타임 타입 안전성 감사와 231차 개선 기록 |
+| `completed/vtt_combat_effects_implementation_plan.md` | 완료된 VTT 기본 전투 효과 구현 계획 |
+| `completed/vtt_visual_effects_followup_plan.md` | 완료된 VTT 후속 시각효과 구현 계획 |
+| `completed/security_remediation_plan.md` | 완료된 인증·토큰·CORS·민감 데이터·의존성·남용 방지 보안 개선 계획 |
+| `completed/ai_server_reliability_remediation_plan.md` | 완료된 AI 서버 timeout, fallback, trace, Google AI Studio 입출력 계약·토큰 비용 개선 기록 |
+| `completed/performance_scalability_remediation_plan.md` | 완료된 데이터 1x·10x·100x 성능·확장성 개선 기록 |
+| `completed/performance_scalability_followup_remediation_plan.md` | 완료된 데이터·실시간 동기화 후속 보완 기록 |
 | `completed/future_plan_srd_character_rules_single_source.md` | 완료된 캐릭터 생성/레벨업/주문 진행 규칙 단일 원천화 계획 기록 |
 | `completed/future_plan_srd_data_consistency.md` | 완료된 SRD 데이터 단일 원천화 및 FE/BE/AI 정합성 보장 계획 기록 |
 | `completed/future_plan_mvp.md` | 완료된 End-to-End Playable MVP 로드맵 기록 |
@@ -56,7 +70,7 @@
 | --- | --- |
 | `rules/README.md` | rules 폴더의 목적과 문서 목록 |
 | `rules/ARCHITECTURE_RULES.md` | 상태, 턴 처리, 서버 권위성, 동시성 원칙 |
-| `rules/PERMISSION_RULES.md` | 방장, 사람 GM, AI GM, 플레이어 권한 분리 원칙 |
+| `rules/PERMISSION_RULES.md` | 세션 관리자, 사람 GM, AI GM, 플레이어 권한 원칙 |
 | `rules/AI_RUNTIME_RULES.md` | AI 호출, 검증, fallback, 로깅 원칙 |
 | `rules/CONTENT_LICENSE_RULES.md` | SRD, 시나리오, 이미지, 룰 데이터 사용 원칙 |
 | `rules/DOCUMENTATION_RULES.md` | 문서 분류, 중복 관리, 완료 문서 보관 원칙 |
@@ -77,6 +91,8 @@
 `dev-notes/`는 특정 날짜의 구현 배경과 당시 확인 결과를 보관하는 기록이다. 현재 API, 실행법, 모델 구조의 기준으로 삼지 않는다. 현재 기준과 충돌하면 `structure/` 문서와 실제 코드가 우선이다.
 
 성능 확장성 작업의 동적 검증 상태는 `dev-notes/PERFORMANCE_ACCEPTANCE_EVIDENCE.md`, 1x·10x·100x 측정값은 `dev-notes/PERFORMANCE_SCALE_RESULT_TEMPLATE.md`에 기록한다.
+
+AI 서버 개선 작업의 구현·검증 상태와 사용자 실행 결과는 `dev-notes/AI_SERVER_REMEDIATION_ACCEPTANCE_EVIDENCE.md`에 기록한다.
 
 `completed/`는 구현 계획, UI 설계, 점검표 중 대응 작업이 끝나 현재 작업 체크리스트로 보지 않아도 되는 문서를 보관한다.
 

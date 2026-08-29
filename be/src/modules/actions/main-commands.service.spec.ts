@@ -97,6 +97,9 @@ function createMainCommandsService(
   aiService: never,
   turnLogsService: never,
   realtimeEvents: never,
+  overrides?: {
+    sceneTransitionState?: MainCommandSceneTransitionStateService;
+  },
 ) {
   const checkEffectParser = new MainCommandCheckEffectParserService();
   const contextLoader = new MainCommandContextLoaderService(prisma, sessionsService);
@@ -127,7 +130,10 @@ function createMainCommandsService(
   const interpreterRouter = new MainCommandInterpreterRouterService(validator, sceneEntity);
   const inventoryLabel = new MainCommandInventoryLabelService();
   const npcDialogue = new MainCommandNpcDialogueService(aiService, sceneEntity);
-  const persistence = new MainCommandPersistenceService(prisma, turnLogsService, realtimeEvents);
+  const persistence = new MainCommandPersistenceService(
+    turnLogsService,
+    realtimeEvents,
+  );
   const interpreterRouteResponse = new MainCommandInterpreterRouteResponseService(
     interpreterRouter,
     persistence,
@@ -135,7 +141,6 @@ function createMainCommandsService(
   const checkRevealSync = new MainCommandCheckRevealSyncService(
     sessionsService,
     realtimeEvents,
-    persistence,
   );
   const postActionReveal = new MainCommandPostActionRevealService(
     sessionsService,
@@ -149,7 +154,10 @@ function createMainCommandsService(
     prisma,
     transitionEvaluator,
   );
-  const sceneTransitionState = new MainCommandSceneTransitionStateService(prisma);
+  const sceneTransitionState = overrides?.sceneTransitionState
+    ?? new MainCommandSceneTransitionStateService({
+      transition: jest.fn().mockResolvedValue(undefined),
+    } as never);
   const sceneTransitionResponse = new MainCommandSceneTransitionResponseService();
   const sceneTransitionResolution = new MainCommandSceneTransitionResolutionService(
     sessionsService,
@@ -232,7 +240,7 @@ function createMainCommandHarness(options?: {
     runSummary: jest.fn().mockResolvedValue({ parsed: { content: "Recent summary." } }),
     runNpcDialogue: jest.fn().mockResolvedValue({ parsed: { dialogue: "Hello." } }),
     runCheckResult: jest.fn().mockResolvedValue({
-      parsed: { narration: "판정에 성공했습니다. 의미 있는 정보를 얻습니다.", rewardInfo: "정보" },
+      parsed: { narration: "판정에 성공했습니다. 의미 있는 정보를 얻습니다." },
     }),
   };
   const sessionsService = {
@@ -261,6 +269,7 @@ function createMainCommandHarness(options?: {
     revealCurrentNodeCluesAfterActionWithDetails: jest.fn().mockResolvedValue([]),
     completeSessionFromEndingNode: jest.fn().mockResolvedValue({}),
     buildSnapshot: jest.fn().mockResolvedValue({}),
+    publishCurrentVttMap: jest.fn().mockResolvedValue({}),
     describeVttObjectAtPoint: jest.fn().mockResolvedValue(null),
     getVttMapForSessionScenario: jest.fn().mockResolvedValue(
       options?.vttMap ?? {
@@ -535,12 +544,14 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     expect(aiService.runHint).toHaveBeenCalledWith(
       "user-1",
       "session-1",
+      expect.not.objectContaining({ publicClues: expect.anything() }),
       expect.objectContaining({
-        publicClues: expect.arrayContaining([
+        emitSystemMessage: false,
+        contextSource: "SERVER_VALIDATED",
+        trustedPublicClues: expect.arrayContaining([
           expect.stringContaining("수상한 석상"),
         ]),
       }),
-      { emitSystemMessage: false },
     );
   });
 
@@ -964,7 +975,10 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
         npcEntityId: "npc-mila",
         npcName: "밀라 보스턴",
       }),
-      { emitChatMessage: false },
+      {
+        emitChatMessage: false,
+        contextSource: "SERVER_VALIDATED",
+      },
     );
   });
 
@@ -1480,10 +1494,14 @@ describe("MainCommandsService scene transition branch resolution", () => {
   const createService = () => {
     const sessionsService = {
       buildSnapshot: jest.fn().mockResolvedValue({ currentNodeId: "node-next" }),
+      publishCurrentVttMap: jest.fn().mockResolvedValue({}),
       completeSessionFromEndingNode: jest.fn().mockResolvedValue({ session: { status: "completed" } }),
     };
     const realtimeEvents = {
       emitSessionSnapshot: jest.fn(),
+    };
+    const sceneTransitionState = {
+      applySceneTransition: jest.fn().mockResolvedValue(undefined),
     };
     const service = createMainCommandsService(
       {} as never,
@@ -1491,8 +1509,9 @@ describe("MainCommandsService scene transition branch resolution", () => {
       { runInterpreter: jest.fn() } as never,
       {} as never,
       realtimeEvents as never,
+      { sceneTransitionState: sceneTransitionState as never },
     );
-    return { service, sessionsService, realtimeEvents };
+    return { service, sessionsService, realtimeEvents, sceneTransitionState };
   };
 
   const context: {
@@ -1606,7 +1625,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
   });
 
   it("auto-advances to the only branch whose condition is already satisfied", async () => {
-    const { service } = createService();
+    const { service, sessionsService, sceneTransitionState } = createService();
     const internals = service as unknown as {
       handleSceneTransition: (
         requestId: string,
@@ -1617,7 +1636,6 @@ describe("MainCommandsService scene transition branch resolution", () => {
       loadTransitionCandidates: jest.Mock;
       matchTransitionCandidate: jest.Mock;
       evaluateTransitionCandidatesWithRevealedClues: jest.Mock;
-      applySceneTransition: jest.Mock;
     };
     internals.loadTransitionCandidates = jest.fn().mockResolvedValue([leftCandidate, rightCandidate]);
     internals.matchTransitionCandidate = jest.fn().mockReturnValue(null);
@@ -1625,7 +1643,6 @@ describe("MainCommandsService scene transition branch resolution", () => {
       { target: leftCandidate, conditionResult: blockedCondition },
       { target: rightCandidate, conditionResult: satisfiedCondition },
     ]);
-    internals.applySceneTransition = jest.fn().mockResolvedValue(undefined);
 
     const response = await internals.handleSceneTransition(
       "request-1",
@@ -1637,7 +1654,10 @@ describe("MainCommandsService scene transition branch resolution", () => {
     expect(response.status).toBe(MainCommandStatus.RESOLVED);
     expect(response.statePatch?.currentNodeId).toBe("node-right");
     expect(response.message).toContain("오른쪽 방");
-    expect(internals.applySceneTransition).toHaveBeenCalledWith(context, "node-right");
+    expect(sceneTransitionState.applySceneTransition).toHaveBeenCalledWith(context, "node-right");
+    expect(sessionsService.publishCurrentVttMap).toHaveBeenCalledWith(
+      "session-1",
+    );
   });
 
   it("asks for a destination when more than one branch is already satisfied", async () => {
@@ -1716,6 +1736,80 @@ describe("MainCommandsService check result narration", () => {
     expect(message).toContain("버티");
     expect(message).not.toContain("원하는 성과");
     expect(message).not.toContain("사실대로 말하지 않으면");
+  });
+
+  it("does not call Check Result AI when a social success has no allowed fact", async () => {
+    const aiService = { runCheckResult: jest.fn() };
+    const service = new MainCommandCheckResultNarrationService(aiService as never);
+
+    const message = await service.buildMessageForOutcome(
+      "user-1",
+      "session-1",
+      {
+        ...baseEffect,
+        intent: MainCommandIntent.SOCIAL_PERSUADE,
+        publicClues: [],
+      },
+      ActionOutcome.SUCCESS,
+    );
+
+    expect(aiService.runCheckResult).not.toHaveBeenCalled();
+    expect(message).toContain("태도를 누그러뜨립니다");
+  });
+
+  it("does not call Check Result AI when emotion reading has no allowed fact", async () => {
+    const aiService = { runCheckResult: jest.fn() };
+    const service = new MainCommandCheckResultNarrationService(aiService as never);
+
+    const message = await service.buildMessageForOutcome(
+      "user-1",
+      "session-1",
+      {
+        ...baseEffect,
+        intent: MainCommandIntent.READ_EMOTION,
+        publicClues: [],
+      },
+      ActionOutcome.SUCCESS,
+    );
+
+    expect(aiService.runCheckResult).not.toHaveBeenCalled();
+    expect(message).toContain("감정의 결을 읽어냅니다");
+  });
+
+  it("sends only the backend allowlist and public target label for a sensitive success", async () => {
+    const aiService = {
+      runCheckResult: jest.fn().mockResolvedValue({
+        parsed: { narration: "북문은 비어 있다." },
+      }),
+    };
+    const service = new MainCommandCheckResultNarrationService(aiService as never);
+
+    const message = await service.buildMessageForOutcome(
+      "user-1",
+      "session-1",
+      {
+        ...baseEffect,
+        intent: MainCommandIntent.SOCIAL_PERSUADE,
+        targetSummary: "지하 감옥 열쇠를 숨기고 있다.",
+        targetDisposition: "불안함",
+        sceneText: "GM만 아는 비밀 통로가 있다.",
+        publicClues: ["북문은 비어 있다."],
+      },
+      ActionOutcome.SUCCESS,
+    );
+
+    expect(message).toBe("북문은 비어 있다.");
+    expect(aiService.runCheckResult).toHaveBeenCalledWith(
+      "session-1",
+      "user-1",
+      {
+        outcome: "SUCCESS",
+        intent: MainCommandIntent.SOCIAL_PERSUADE,
+        targetName: "밀라 보스턴",
+        allowedRewardFacts: ["북문은 비어 있다."],
+        outputMode: "NPC_REPLY",
+      },
+    );
   });
 
   it("has success and failure narration for every intent that can require a check", () => {

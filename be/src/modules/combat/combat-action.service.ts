@@ -21,6 +21,10 @@ import type { ConditionInstance } from "../rules/condition-runtime.service";
 import type { RuleCatalogEntry } from "../rules/rule-catalog.types";
 import type { SpellScalingResult } from "../rules/spell-scaling.service";
 import type { SessionsService } from "../sessions/sessions.service";
+import {
+  AuthoritativeVttMap,
+  markAuthoritativeVttMap,
+} from "../sessions/vtt-map-authority";
 import type { CombatService } from "./combat.service";
 import type {
   PendingScorchingRayContinuation,
@@ -47,16 +51,22 @@ export class CombatActionService {
     await runtime.sessionsService.ensureMembership(userId, session.id);
     await runtime.ensureHost(userId, session.id);
 
+    const { sessionScenario } = await runtime.sessionsService.getGameStateEntityOrThrow(session.id);
     const combat = await runtime.getActiveCombatEntity(session.id);
     const target = runtime.findCombatParticipantOrThrow(combat, dto.targetParticipantId);
     const amount = Math.max(0, Math.floor(dto.amount));
     const healing = dto.healing === true;
+    const hpBefore = target.currentHp ?? 0;
 
     let concentrationCheck: CombatConcentrationCheckResult | null = null;
+    let appliedAmount = amount;
     if (healing) {
       await runtime.applyHitPointDelta(combat, target, amount);
+      appliedAmount = Math.max(0, (target.currentHp ?? hpBefore) - hpBefore);
     } else {
-      concentrationCheck = (await runtime.finalizeCombatDamage(combat, target, amount)).concentrationCheck;
+      const damageResult = await runtime.finalizeCombatDamage(combat, target, amount);
+      concentrationCheck = damageResult.concentrationCheck;
+      appliedAmount = damageResult.damageApplied;
     }
     const updated = await runtime.getActiveCombatEntity(session.id);
     const response = await runtime.completeCombatIfResolved(session.id, updated);
@@ -66,6 +76,26 @@ export class CombatActionService {
       );
       runtime.realtimeEvents.emitDiceRolled(session.id, concentrationCheck.diceResult);
     }
+    const message = `${target.nameSnapshot} ${healing ? "회복" : "피해"} ${appliedAmount}`;
+    const turnLog = await runtime.turnLogsService.createTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: userId,
+      sessionCharacterId: target.sessionCharacterId ?? null,
+      rawInput: null,
+      structuredAction: {
+        type: "combat_damage_adjustment",
+        targetParticipantId: target.id,
+        amount,
+        appliedAmount,
+        healing,
+        damageType: "untyped",
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+    runtime.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     runtime.realtimeEvents.emitCombatUpdated(session.id, response);
     if (response.status !== CombatStatus.ACTIVE) {
       runtime.realtimeEvents.emitSessionSnapshot(
@@ -76,9 +106,10 @@ export class CombatActionService {
 
     return {
       combat: response,
-      message: `${target.nameSnapshot} ${healing ? "회복" : "피해"} ${amount}`,
+      message,
       attackTotal: null,
-      damageTotal: amount,
+      damageTotal: appliedAmount,
+      turnLogId: turnLog?.turnLogId ?? null,
     };
   }
 
@@ -116,7 +147,7 @@ export class CombatActionService {
     const spellDefinition = runtime.combatSpells.resolveCombatSpellDefinition(spellId);
     runtime.combatSpells.assertMvpSpellKnown(casterSessionCharacter, spellId);
 
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const casterToken = runtime.combatTargeting.findParticipantToken(map, caster);
     if (!casterToken) {
       throw conflict("COMBAT_409", "시전자 토큰을 찾을 수 없습니다.", {
@@ -292,10 +323,11 @@ export class CombatActionService {
     let message = "";
     let attackTotal: number | null = null;
     let damageTotal: number | null = null;
-    let responseMap: VttMapStateDto | null = null;
+    let responseMap: AuthoritativeVttMap | null = null;
     let spellScaling: SpellScalingResult | null = null;
     const diceResults: DiceRollResponseDto[] = [];
     const concentrationChecks: Array<CombatConcentrationCheckResult & { targetParticipantId: string }> = [];
+    const presentationResults: Array<Record<string, unknown>> = [];
 
     if (isFlamingSphereMove) {
       const point =
@@ -900,6 +932,17 @@ export class CombatActionService {
               }),
             );
             affected.push(target.nameSnapshot);
+            presentationResults.push({
+              targetParticipantId: target.id,
+              outcome: "failed_save",
+              conditionChanges: [{ operation: "added", conditionId: "condition.prone" }],
+            });
+          } else {
+            presentationResults.push({
+              targetParticipantId: target.id,
+              outcome: "saved",
+              conditionChanges: [],
+            });
           }
         }
       } else {
@@ -1034,6 +1077,20 @@ export class CombatActionService {
             }),
           );
           affected.push(target.nameSnapshot);
+          presentationResults.push({
+            targetParticipantId: target.id,
+            outcome: "failed_save",
+            conditionChanges: [{
+              operation: "added",
+              conditionId: "condition.spell.faerie_fire",
+            }],
+          });
+        } else {
+          presentationResults.push({
+            targetParticipantId: target.id,
+            outcome: "saved",
+            conditionChanges: [],
+          });
         }
       }
       await runtime.startCombatConcentration(combat, caster, {
@@ -1148,6 +1205,17 @@ export class CombatActionService {
             }),
           );
           restrained.push(target.nameSnapshot);
+          presentationResults.push({
+            targetParticipantId: target.id,
+            outcome: "failed_save",
+            conditionChanges: [{ operation: "added", conditionId: "condition.restrained" }],
+          });
+        } else {
+          presentationResults.push({
+            targetParticipantId: target.id,
+            outcome: "saved",
+            conditionChanges: [],
+          });
         }
       }
       await runtime.startCombatConcentration(combat, caster, {
@@ -1279,6 +1347,28 @@ export class CombatActionService {
           });
         }
         damageTotal = (damageTotal ?? 0) + targetResult.finalDamage;
+        const presentationConditionChanges: Array<Record<string, string>> = [];
+        const presentationDamageModifiers = targetResult.ruleResults.flatMap(
+          (ruleResult) =>
+            isRecord(ruleResult.produced) &&
+            Array.isArray(ruleResult.produced.appliedDamageModifiers)
+              ? ruleResult.produced.appliedDamageModifiers.filter(
+                  (modifier): modifier is string => typeof modifier === "string",
+                )
+              : [],
+        );
+        if (targetResult.savingThrow.success && targetResult.finalDamage > 0) {
+          presentationDamageModifiers.unshift("saved_half");
+        }
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: targetResult.savingThrow.success ? "saved" : "failed_save",
+          damageType,
+          rolledAmount: resolution.damageRoll.total,
+          appliedAmount: targetResult.finalDamage,
+          damageModifiers: presentationDamageModifiers,
+          conditionChanges: presentationConditionChanges,
+        });
         applied.push(
           targetResult.savingThrow.success
             ? `${target.nameSnapshot} 내성 성공`
@@ -1323,6 +1413,10 @@ export class CombatActionService {
               ],
             }),
           );
+          presentationConditionChanges.push({
+            operation: "added",
+            conditionId: `condition.${spellId}`,
+          });
         }
       }
       if (spellDefinition.concentration) {
@@ -1367,6 +1461,15 @@ export class CombatActionService {
         }
         applied.push(`${target.nameSnapshot} ${roll.total}`);
         damageTotal = (damageTotal ?? 0) + roll.total;
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "hit",
+          damageType: "force",
+          rolledAmount: roll.total,
+          appliedAmount: roll.total,
+          damageModifiers: [],
+          conditionChanges: [],
+        });
       }
       message = `Magic Missile: ${applied.join(", ")} 역장 피해`;
     } else if (spellId === "spell.cure_wounds" || spellId === "spell.healing_word") {
@@ -1394,8 +1497,17 @@ export class CombatActionService {
       const healingDice = `${healingBaseDice}${healingModifier >= 0 ? "+" : ""}${healingModifier}`;
       const healingRoll = runtime.diceService.roll(healingDice);
       diceResults.push(healingRoll);
+      const hpBefore = target.currentHp ?? 0;
       await runtime.applyHitPointDelta(combat, target, healingRoll.total);
       damageTotal = healingRoll.total;
+      presentationResults.push({
+        targetParticipantId: target.id,
+        outcome: "applied",
+        healingKind: "hp",
+        healingRolledAmount: healingRoll.total,
+        healingAppliedAmount: Math.max(0, (target.currentHp ?? hpBefore) - hpBefore),
+        conditionChanges: [],
+      });
       message = `${this.resolveSpellDisplayName(spellId)}: ${target.nameSnapshot} ${healingRoll.total} 회복`;
     } else if (spellId === "spell.revivify") {
       const target = runtime.findCombatParticipantOrThrow(
@@ -1422,6 +1534,14 @@ export class CombatActionService {
         spellSlotMaximum,
       );
       await runtime.applyHitPointDelta(combat, target, 1);
+      presentationResults.push({
+        targetParticipantId: target.id,
+        outcome: "applied",
+        healingKind: "revive",
+        healingRolledAmount: null,
+        healingAppliedAmount: 1,
+        conditionChanges: [],
+      });
       const revivedTokenId = target.tokenId;
       if (revivedTokenId) {
         responseMap = await runtime.mapRuntimeService.saveSystemVttMap(session.id, {
@@ -1477,6 +1597,14 @@ export class CombatActionService {
             tags: ["falling_speed:60", "immunity:fall_damage"],
           }),
         );
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "applied",
+          conditionChanges: [{
+            operation: "added",
+            conditionId: "condition.spell.feather_fall",
+          }],
+        });
       }
       message = `Feather Fall: ${targets.map((target) => target.nameSnapshot).join(", ")}의 추락 속도를 낮췄습니다.`;
     } else if (
@@ -1548,6 +1676,17 @@ export class CombatActionService {
             tags: effect.tags,
           }),
         );
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "applied",
+          conditionChanges: [{
+            operation: "added",
+            conditionId:
+              spellId === "spell.invisibility"
+                ? "condition.invisible"
+                : `condition.${spellId}`,
+          }],
+        });
       }
       if (effect.concentration) {
         await runtime.startCombatConcentration(combat, caster, {
@@ -1611,6 +1750,14 @@ export class CombatActionService {
           tags: ["condition:hunters_mark", `marked_by:${caster.id}`],
         }),
       );
+      presentationResults.push({
+        targetParticipantId: target.id,
+        outcome: "applied",
+        conditionChanges: [{
+          operation: "added",
+          conditionId: "condition.spell.hunters_mark",
+        }],
+      });
       await runtime.startCombatConcentration(combat, caster, {
         spellId,
         targetIds: [target.id],
@@ -1651,6 +1798,7 @@ export class CombatActionService {
       );
       const effectId = `${spellId}:${caster.id}:${Date.now()}`;
       for (const target of targets) {
+        const hpBefore = target.currentHp ?? 0;
         await runtime.combatConditions.addCombatConditionInstance(
           target,
           runtime.conditionRuntime.createCondition({
@@ -1663,6 +1811,17 @@ export class CombatActionService {
           }),
         );
         await runtime.applyHitPointDelta(combat, target, hitPointBonus);
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "applied",
+          healingKind: "hp",
+          healingRolledAmount: hitPointBonus,
+          healingAppliedAmount: Math.max(0, (target.currentHp ?? hpBefore) - hpBefore),
+          conditionChanges: [{
+            operation: "added",
+            conditionId: "condition.spell.aid",
+          }],
+        });
       }
       damageTotal = hitPointBonus * targets.length;
       message = `Aid: ${targets.map((target) => target.nameSnapshot).join(", ")}의 최대 HP와 현재 HP가 ${hitPointBonus} 증가했습니다.`;
@@ -1707,6 +1866,22 @@ export class CombatActionService {
         target,
         currentEntries.filter((entry) => !removedSet.has(entry)),
       );
+      const removedConditionIds = Array.from(new Set(
+        removed.flatMap((entry) =>
+          runtime.combatConditions.conditionEntryTags(entry).flatMap((tag) => {
+            const match = /^condition[.:](blinded|deafened|paralyzed|poisoned)$/.exec(tag);
+            return match ? [`condition.${match[1]}`] : [];
+          }),
+        ),
+      ));
+      presentationResults.push({
+        targetParticipantId: target.id,
+        outcome: "applied",
+        conditionChanges: removedConditionIds.map((conditionId) => ({
+          operation: "removed",
+          conditionId,
+        })),
+      });
       message = removed.length
         ? `Lesser Restoration: ${target.nameSnapshot}의 상태 ${removed.length}개를 제거했습니다.`
         : `Lesser Restoration: ${target.nameSnapshot}에게 제거할 상태가 없습니다.`;
@@ -1755,8 +1930,21 @@ export class CombatActionService {
         });
         diceResults.push(...(saveTarget.modifierRolls ?? []), saveRoll);
         if (saveResult.produced.success) {
+          presentationResults.push({
+            targetParticipantId: target.id,
+            outcome: "saved",
+            conditionChanges: [],
+          });
           continue;
         }
+        const presentationConditionId =
+          spellId === "spell.hold_person"
+            ? "condition.paralyzed"
+            : spellId === "spell.charm_person"
+              ? "condition.charmed"
+              : spellId === "spell.blindness_deafness"
+                ? "condition.blinded"
+                : "condition.spell.command";
         await runtime.combatConditions.addCombatConditionInstance(
           target,
           runtime.conditionRuntime.createCondition({
@@ -1791,6 +1979,14 @@ export class CombatActionService {
                     : ["condition:commanded", "action:limited_by_command"],
           }),
         );
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "failed_save",
+          conditionChanges: [{
+            operation: "added",
+            conditionId: presentationConditionId,
+          }],
+        });
         affected.push(target.nameSnapshot);
       }
       if (spellId === "spell.hold_person" && affected.length) {
@@ -1840,6 +2036,14 @@ export class CombatActionService {
             tags: [COMBAT_CONDITION_UNCONSCIOUS, "condition:incapacitated"],
           }),
         );
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "applied",
+          conditionChanges: [{
+            operation: "added",
+            conditionId: "condition.sleep",
+          }],
+        });
         slept.push(target.nameSnapshot);
       }
       damageTotal = poolRoll.total;
@@ -1973,6 +2177,27 @@ export class CombatActionService {
         }
         applied.push(`${target.nameSnapshot} ${targetResult.finalDamage}`);
         damageTotal = (damageTotal ?? 0) + targetResult.finalDamage;
+        const presentationDamageModifiers = targetResult.ruleResults.flatMap(
+          (ruleResult) =>
+            isRecord(ruleResult.produced) &&
+            Array.isArray(ruleResult.produced.appliedDamageModifiers)
+              ? ruleResult.produced.appliedDamageModifiers.filter(
+                  (modifier): modifier is string => typeof modifier === "string",
+                )
+              : [],
+        );
+        if (targetResult.savingThrow.success && targetResult.finalDamage > 0) {
+          presentationDamageModifiers.unshift("saved_half");
+        }
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: targetResult.savingThrow.success ? "saved" : "failed_save",
+          damageType,
+          rolledAmount: aoeResolution.damageRoll.total,
+          appliedAmount: targetResult.finalDamage,
+          damageModifiers: presentationDamageModifiers,
+          conditionChanges: [],
+        });
         if (spellId === "spell.thunderwave" && !targetResult.savingThrow.success && target.isAlive) {
           const movement = await runtime.resolveForcedMovementEffect({
             sessionId: session.id,
@@ -2527,8 +2752,18 @@ export class CombatActionService {
           saveSucceeded = saveResult.produced.success;
         }
         if (saveSucceeded) {
+          presentationResults.push({
+            targetParticipantId: target.id,
+            outcome: "saved",
+            damageType: null,
+            rolledAmount: null,
+            appliedAmount: 0,
+            damageModifiers: [],
+            conditionChanges: [],
+          });
           continue;
         }
+        let temporaryHpAppliedAmount = 0;
         if (
           temporaryHpAmount !== null &&
           target.sessionCharacterId
@@ -2544,8 +2779,9 @@ export class CombatActionService {
           ) {
             await runtime.prisma.sessionCharacter.update({
               where: { id: target.sessionCharacterId },
-              data: { tempHp: temporaryHpAmount },
-            });
+                data: { tempHp: temporaryHpAmount },
+              });
+            temporaryHpAppliedAmount = temporaryHpAmount - sessionCharacter.tempHp;
           }
         }
         await runtime.combatConditions.addCombatConditionInstance(
@@ -2570,6 +2806,24 @@ export class CombatActionService {
             tags: spellDefinition.runtimeEffect.tags,
           }),
         );
+        presentationResults.push({
+          targetParticipantId: target.id,
+          outcome: "applied",
+          damageType: null,
+          rolledAmount: null,
+          appliedAmount: 0,
+          damageModifiers: [],
+          healingKind: temporaryHpAmount !== null ? "temporary_hp" : null,
+          healingRolledAmount: temporaryHpAmount,
+          healingAppliedAmount:
+            temporaryHpAmount !== null ? temporaryHpAppliedAmount : null,
+          conditionChanges: [
+            {
+              operation: "added",
+              conditionId: `condition.${spellId}`,
+            },
+          ],
+        });
         affected.push(target.nameSnapshot);
       }
       if (spellDefinition.concentration) {
@@ -2632,10 +2886,14 @@ export class CombatActionService {
       structuredAction: {
         type: "spell_cast",
         spellId,
+        casterParticipantId: caster.id,
         baseSpellLevel: runtime.combatSpells.resolveCombatBaseSpellLevel(spellId),
         slotLevel,
         persistentRepeat: isFlamingSphereMove,
         spellScaling,
+        damageTotal,
+        damageType: spellDefinition?.damage?.type ?? null,
+        presentationResults,
         targetParticipantIds: dto.targetParticipantIds ?? [],
         point: dto.point ?? null,
         aoe:
@@ -2680,7 +2938,13 @@ export class CombatActionService {
       attackTotal,
       damageTotal,
       turnLogId: turnLog.turnLogId,
-      map: responseMap,
+      map: responseMap
+        ? runtime.sessionsService.projectVttMapForUser(
+            userId,
+            session,
+            responseMap,
+          )
+        : null,
       pendingReaction: readySpellCastTriggers.prompts[0] ?? null,
       pendingReactions: readySpellCastTriggers.prompts,
     };
@@ -3094,7 +3358,7 @@ export class CombatActionService {
 
     const attackerConditions = runtime.parseConditions(attacker.conditionsJson ?? "[]");
     const targetConditions = runtime.parseConditions(target.conditionsJson ?? "[]");
-    const vttMap = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const vttMap = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const targetHeavilyObscured = runtime.isParticipantInHeavilyObscuredTerrain(vttMap, target);
     const attackAdvantageState = runtime.resolveAttackAdvantageState({
       attackerConditions,
@@ -3346,6 +3610,14 @@ export class CombatActionService {
       type: "ally_attacked",
     });
     const response = await runtime.completeCombatIfResolved(session.id, updated);
+    const attackerToken = runtime.combatTargeting.findParticipantToken(vttMap, attacker);
+    const targetToken = runtime.combatTargeting.findParticipantToken(vttMap, target);
+    const delivery =
+      !options.spellId && attackerToken && targetToken &&
+      runtime.combatMovement.getTokenGridDistanceFt(vttMap, attackerToken, targetToken) >
+        DEFAULT_MELEE_ATTACK_DISTANCE_FT
+        ? "projectile"
+        : "melee";
     const baseMessage = hit
       ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageTotal ?? 0} 피해${huntersMarkDamage > 0 ? ` (Hunter's Mark +${huntersMarkDamage})` : ""}${sneakAttackDamage > 0 ? ` (암습 +${sneakAttackDamage})` : ""}`
       : `${attacker.nameSnapshot} 공격 빗나감: ${attackRoll.total} vs AC ${targetArmorClass}`;
@@ -3368,6 +3640,9 @@ export class CombatActionService {
         criticalHit,
         criticalMiss,
         advantageState: attackAdvantageState,
+        spellId: options.spellId ?? null,
+        delivery,
+        rolledDamageTotal,
         damageTotal,
         damageType: options.damageType ?? null,
         damageModifiers:
@@ -3449,7 +3724,7 @@ export class CombatActionService {
     }
 
     const weapon = await runtime.resolveEquippedWeaponProfile(attacker.sessionCharacterId);
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const attackerToken = attacker.tokenId
       ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
       : map.tokens.find((token) => token.sessionCharacterId === attacker.sessionCharacterId && token.hidden !== true);
@@ -3547,7 +3822,7 @@ export class CombatActionService {
       });
     }
 
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const attackerToken = runtime.combatTargeting.findParticipantToken(map, attacker);
     const targetToken = runtime.combatTargeting.findParticipantToken(map, target);
     if (!attackerToken || !targetToken) {
@@ -3653,7 +3928,7 @@ export class CombatActionService {
         reason: "OFFHAND_WEAPON_MUST_BE_DIFFERENT",
       });
     }
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const attackerToken = attacker.tokenId
       ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
       : map.tokens.find((token) => token.sessionCharacterId === attacker.sessionCharacterId && token.hidden !== true);
@@ -3746,6 +4021,7 @@ export class CombatActionService {
 
     const roll = runtime.diceService.roll("1d10");
     const healingAmount = roll.total + sessionCharacter.character.level;
+    const hpBefore = sessionCharacter.currentHp;
     await runtime.spendCurrentBonusActionIfNeeded(combat, actor);
     await runtime.characterResources.spendSecondWind(actor.sessionCharacterId);
     await runtime.combatConditions.addCombatCondition(actor, SECOND_WIND_EXPENDED_TAG);
@@ -3764,7 +4040,12 @@ export class CombatActionService {
       structuredAction: {
         type: "use_class_feature",
         featureId: "class.fighter.feature.second_wind",
+        actorParticipantId: actor.id,
         healingAmount,
+        healingAppliedAmount: Math.max(
+          0,
+          (healedActor?.currentHp ?? hpBefore) - hpBefore,
+        ),
       },
       diceResult: { ...roll },
       outcome: ActionOutcome.SUCCESS,
@@ -3837,7 +4118,10 @@ export class CombatActionService {
       actorUserId: userId,
       sessionCharacterId: actor.sessionCharacterId ?? null,
       rawInput: null,
-      structuredAction: { type: "combat_dash", movementBonusFt: speedFt },
+      structuredAction: {
+        type: "combat_dash",
+        movementBonusFt: speedFt,
+      },
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: message,
@@ -3879,6 +4163,7 @@ export class CombatActionService {
         type: "combat_dodge",
         condition: COMBAT_CONDITION_DODGE,
       },
+      presentationContext: { sourceParticipantId: actor.id },
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: message,
@@ -3931,6 +4216,7 @@ export class CombatActionService {
         success,
         condition: success ? COMBAT_CONDITION_HIDDEN : null,
       },
+      presentationContext: { sourceParticipantId: actor.id },
       diceResult: { ...diceResult },
       outcome: success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: message,
@@ -3978,7 +4264,7 @@ export class CombatActionService {
       !runtime.combatConditions.isCombatParticipantIncapacitated(actor)
     ) {
       await runtime.ensureActorCanAct(userId, session.id, combat, actor);
-      const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+      const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
       const actorToken = runtime.combatTargeting.findParticipantToken(map, actor);
       const monsterAction = runtime.combatMonsterActions.resolveMonsterActionForParticipant(actor, actorToken, dto.actionId);
       if (monsterAction.attackKind === "special") {

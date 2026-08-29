@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type {
   AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
+  CombatReactionPromptDto,
   CombatResponseDto,
   CreateHumanGmAiAssistSuggestionDto,
   HumanGmAiAssistSuggestionDto,
@@ -28,6 +29,15 @@ import {
   getCombatTurnCardColorStyle,
   useCombatNodeSurfacePresentation,
 } from '../hooks/useCombatNodeSurfacePresentation';
+import { useCombatEffectQueue } from '../hooks/useCombatEffectQueue';
+import type {
+  CombatPresentationEnvelope,
+  CombatTargetPreview,
+  CombatTargetingMode,
+  CombatTokenConditionState,
+} from '../presentation/combatEffectTypes';
+import { projectCombatMapAttention } from '../presentation/combatMapAttention';
+import { getCombatConditionPresentation } from '../presentation/combatConditionPresentation';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
 import { formatInternalIdAsReadableName, getUserFacingItemName } from '../utils/displayNames';
@@ -70,6 +80,7 @@ import {
   type CombatSpellSlotResource,
   getCombatSpellActionCostKind,
   getCombatCatalogSpellMetadataById,
+  getCombatSpellTargetShapeMetadata,
   getLegacyCombatSpellTargetKind,
   getKnownMvpSpellActions,
   getSelectedSlotLevelForSpell,
@@ -111,6 +122,8 @@ interface CombatNodeSurfaceProps {
   isGmView?: boolean;
   map: VttMapStateDto | null;
   combat: CombatResponseDto | null;
+  combatPresentationEvents?: CombatPresentationEnvelope[];
+  pendingCombatReaction?: CombatReactionPromptDto | null;
   combatError?: string | null;
   isCombatBusy?: boolean;
   inventory: InventoryItemDto[];
@@ -199,6 +212,7 @@ interface CombatNodeSurfaceProps {
   recentGmAiAssistLogs?: string[];
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
+  headerUtilities?: ReactNode;
 }
 
 const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
@@ -263,6 +277,8 @@ export function CombatNodeSurface({
   isGmView = false,
   map,
   combat,
+  combatPresentationEvents = [],
+  pendingCombatReaction = null,
   combatError = null,
   isCombatBusy = false,
   inventory,
@@ -297,6 +313,7 @@ export function CombatNodeSurface({
   recentGmAiAssistLogs = [],
   onEndCombat,
   onEndTurn,
+  headerUtilities,
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
   const [isInventoryExpanded, setInventoryExpanded] = useState(false);
@@ -318,10 +335,46 @@ export function CombatNodeSurface({
   const [gmForcedMovementDistanceFt, setGmForcedMovementDistanceFt] = useState(10);
   const [targetingMonsterActionId, setTargetingMonsterActionId] = useState<string | null>(null);
   const [combatMovementMode, setCombatMovementMode] = useState<CombatMovementMode>('normal');
+  const [combatTargetPreviewAnnouncement, setCombatTargetPreviewAnnouncement] = useState<string | null>(null);
   const [spellFilter, setSpellFilter] = useState<SpellFilter>('all');
   const combatPresentation = useCombatNodeSurfacePresentation({
     phase,
   });
+  const combatEffects = useCombatEffectQueue(combatPresentationEvents);
+  const combatParticipantTokenIdById = useMemo(
+    () => Object.fromEntries(
+      (combat?.participants ?? []).flatMap((participant) =>
+        participant.tokenId
+          ? [[participant.sessionEntityId, participant.tokenId] as const]
+          : [],
+      ),
+    ),
+    [combat],
+  );
+  const combatTokenConditionStates = useMemo(
+    () => (combat?.participants ?? []).flatMap((participant) =>
+      participant.tokenId
+        ? (participant.conditionStates ?? []).map((condition) => ({
+            ...condition,
+            participantId: participant.sessionEntityId,
+            tokenId: participant.tokenId as string,
+          } satisfies CombatTokenConditionState))
+        : [],
+    ),
+    [combat],
+  );
+  const combatMapAttention = useMemo(
+    () => projectCombatMapAttention({
+      combat,
+      pendingReaction: pendingCombatReaction,
+      visibleTokenIds: new Set(
+        (map?.tokens ?? [])
+          .filter((token) => isGmView || !token.hidden)
+          .map((token) => token.id),
+      ),
+    }),
+    [combat, isGmView, map?.tokens, pendingCombatReaction],
+  );
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const catalogSpellMetadataById = useMemo(
     () => getCombatCatalogSpellMetadataById(ruleCatalog),
@@ -812,6 +865,7 @@ export function CombatNodeSurface({
                 {
                   currentHp: participant.currentHp,
                   maxHp: participant.maxHp,
+                  tempHp: participant.tempHp,
                   armorClass: participant.armorClass,
                   isAlive: participant.isAlive,
                 },
@@ -826,6 +880,7 @@ export function CombatNodeSurface({
             {
               currentHp: number | null;
               maxHp: number | null;
+              tempHp: number | null;
               armorClass: number | null;
               isAlive: boolean;
             },
@@ -851,6 +906,88 @@ export function CombatNodeSurface({
     isSneakAttackTargeting,
     map?.tokens,
     myCombatParticipant,
+    targetingSpellId,
+  ]);
+  const combatTargetingMode = useMemo<CombatTargetingMode | null>(() => {
+    if (!combat || !map || (!isAttackTargeting && !isSneakAttackTargeting && !targetingSpellId)) {
+      return null;
+    }
+    const sourceParticipant = targetingSpellId ? myCombatParticipant : activeCombatActor;
+    if (!sourceParticipant) return null;
+    const sourceTokenId = getParticipantTokenId(sourceParticipant);
+    if (!sourceTokenId) return null;
+    const defeatedTokenIds = combat.participants.flatMap((participant) => {
+      const tokenId = getParticipantTokenId(participant);
+      return tokenId && !participant.isAlive ? [tokenId] : [];
+    });
+
+    if (!targetingSpellId) {
+      const eligibleTokenIds = combat.participants.flatMap((participant) => {
+        const tokenId = getParticipantTokenId(participant);
+        if (!tokenId) return [];
+        const eligible = isSneakAttackTargeting
+          ? isParticipantSneakAttackEligible(participant)
+          : isOpposingParticipant(participant);
+        return eligible ? [tokenId] : [];
+      });
+      return {
+        sourceTokenId,
+        actionId: targetingMonsterActionId ?? (isSneakAttackTargeting ? 'attack.sneak' : 'attack.weapon'),
+        shape: 'single',
+        rangeFt: attackRangeFt,
+        geometryKnown: true,
+        eligibleTokenIds,
+        defeatedTokenIds,
+      };
+    }
+
+    const p3Spell = p3CombatSpellMetadataById.get(targetingSpellId);
+    const legacyTargetKind = getLegacyCombatSpellTargetKind(targetingSpellId);
+    const catalogSpell = catalogSpellMetadataById.get(targetingSpellId);
+    const isSingle = p3Spell?.targeting === 'token' ||
+      legacyTargetKind === 'token' ||
+      catalogSpell?.targetingType === 'creature';
+    const explicitShape = getCombatSpellTargetShapeMetadata(targetingSpellId);
+    const eligibleTokenIds = isSingle
+      ? combat.participants.flatMap((participant) => {
+          const tokenId = getParticipantTokenId(participant);
+          if (!tokenId || !participant.isAlive) return [];
+          if (p3Spell?.targeting === 'token') {
+            if (p3Spell.targetDisposition === 'ally' && participant.isHostile) return [];
+            if (p3Spell.targetDisposition === 'enemy' && !participant.isHostile) return [];
+            return [tokenId];
+          }
+          if (legacyTargetKind === 'token') {
+            return canLegacyCombatSpellTargetParticipant(targetingSpellId, participant)
+              ? [tokenId]
+              : [];
+          }
+          return [tokenId];
+        })
+      : [];
+    return {
+      sourceTokenId,
+      actionId: targetingSpellId,
+      shape: isSingle ? 'single' : explicitShape?.shape ?? 'circle',
+      rangeFt: getSpellRangeFt(targetingSpellId),
+      radiusFt: explicitShape?.radiusFt,
+      lengthFt: explicitShape?.lengthFt,
+      widthFt: explicitShape?.widthFt,
+      angleDegrees: explicitShape?.angleDegrees,
+      geometryKnown: isSingle || Boolean(explicitShape),
+      eligibleTokenIds,
+      defeatedTokenIds,
+    };
+  }, [
+    activeCombatActor,
+    attackRangeFt,
+    catalogSpellMetadataById,
+    combat,
+    isAttackTargeting,
+    isSneakAttackTargeting,
+    map,
+    myCombatParticipant,
+    targetingMonsterActionId,
     targetingSpellId,
   ]);
 
@@ -1209,6 +1346,33 @@ export function CombatNodeSurface({
     }
   }, [canStartSneakAttackTargeting]);
 
+  useEffect(() => {
+    if (
+      !isAttackTargeting &&
+      !isSneakAttackTargeting &&
+      !isBardicInspirationTargeting &&
+      !isDragonbornBreathTargeting &&
+      !targetingSpellId
+    ) return;
+    const cancelTargeting = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setAttackTargeting(false);
+      setSneakAttackTargeting(false);
+      setBardicInspirationTargeting(false);
+      setDragonbornBreathTargeting(false);
+      setTargetingSpellId(null);
+      setTargetingMonsterActionId(null);
+    };
+    window.addEventListener('keydown', cancelTargeting);
+    return () => window.removeEventListener('keydown', cancelTargeting);
+  }, [
+    isAttackTargeting,
+    isBardicInspirationTargeting,
+    isDragonbornBreathTargeting,
+    isSneakAttackTargeting,
+    targetingSpellId,
+  ]);
+
   const combatTargetingHint = isAttackTargeting
     ? `${attackName} 사거리 안의 적 토큰을 선택하세요.`
     : isSneakAttackTargeting
@@ -1218,6 +1382,10 @@ export function CombatNodeSurface({
         : targetingSpellId
           ? getSpellTargetingHint(targetingSpellId, p3CombatSpellMetadataById)
           : '';
+  const combatTargetingLiveHint = combatTargetPreviewAnnouncement ?? combatTargetingHint;
+  const handleCombatTargetPreviewChange = useCallback((preview: CombatTargetPreview | null) => {
+    setCombatTargetPreviewAnnouncement(preview?.reasonLabel ?? null);
+  }, []);
 
   return (
     <div className="combat-node-surface">
@@ -1237,6 +1405,7 @@ export function CombatNodeSurface({
           </span>
           <span>현재 턴 {currentParticipant?.name ?? '-'}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
+          {headerUtilities}
         </div>
       </NodeHeaderScroll>
 
@@ -1358,6 +1527,23 @@ export function CombatNodeSurface({
                 getCharacterColorStyle={getCharacterColorStyle}
                 onCharacterClick={(character) => setSelectedTurnCharacterId(character.id)}
               />
+              <div className="combat-effect-preference">
+                <label htmlFor="combat-effect-motion">전투 효과</label>
+                <select
+                  id="combat-effect-motion"
+                  value={combatEffects.motionPreference}
+                  onChange={(event) => combatEffects.setMotionPreference(
+                    event.target.value as 'full' | 'reduced' | 'off',
+                  )}
+                >
+                  <option value="full">전체</option>
+                  <option value="reduced">간소화</option>
+                  <option value="off">끄기</option>
+                </select>
+              </div>
+              <p className="combat-effect-announcement" aria-live="polite" aria-atomic="true">
+                {combatEffects.announcement}
+              </p>
               <SessionBattleMap
                 map={map}
                 characters={characters}
@@ -1369,8 +1555,16 @@ export function CombatNodeSurface({
                 tokenHealthByTokenId={enemyTokenHealthByTokenId}
                 attackRangeOverlay={attackRangeOverlay}
                 combatMovementMode={combatMovementMode}
+                keyboardMoveTokenId={canControlActiveActor && !isCombatBusy ? activeActorToken?.id : null}
                 showHiddenContent={isGmView}
                 showPlayerVisionPreview={isGmView}
+                combatEffectPlaybacks={combatEffects.activeEffects}
+                combatMapAttention={combatMapAttention}
+                combatTargetingMode={combatTargetingMode}
+                onCombatTargetPreviewChange={handleCombatTargetPreviewChange}
+                combatParticipantTokenIdById={combatParticipantTokenIdById}
+                combatTokenConditionStates={combatTokenConditionStates}
+                combatMotionPreference={combatEffects.motionPreference}
                 onMapChange={onMapChange}
                 onPingRequest={onPingRequest}
                 onTokenMoveRequest={handleTokenMoveRequest}
@@ -1396,6 +1590,22 @@ export function CombatNodeSurface({
                   <div className="combat-monster-observation-body">
                     <p>{selectedHostileObservation.healthText}</p>
                     <p>{selectedHostileObservation.conditionText}</p>
+                    {(selectedMapParticipant.conditionStates ?? []).length ? (
+                      <ul className="combat-monster-observation-conditions">
+                        {(selectedMapParticipant.conditionStates ?? []).map((condition) => {
+                          const presentation = getCombatConditionPresentation(condition.conditionId);
+                          return (
+                            <li key={`${condition.conditionId}:${condition.sourceId ?? ''}`}>
+                              <img src={presentation.iconUrl} alt="" aria-hidden="true" />
+                              <span>{presentation.label}</span>
+                              {condition.remainingRounds !== null ? (
+                                <small>{condition.remainingRounds}라운드</small>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
                   </div>
                 </aside>
               ) : null}
@@ -2149,11 +2359,12 @@ export function CombatNodeSurface({
             )}
           </div>
           <p
-            className={`combat-targeting-hint${combatTargetingHint ? '' : ' empty'}`}
-            title={combatTargetingHint || undefined}
-            aria-hidden={combatTargetingHint ? undefined : true}
+            className={`combat-targeting-hint${combatTargetingLiveHint ? '' : ' empty'}`}
+            aria-live="polite"
+            title={combatTargetingLiveHint || undefined}
+            aria-hidden={combatTargetingLiveHint ? undefined : true}
           >
-            {combatTargetingHint || '대상 안내'}
+            {combatTargetingLiveHint || '대상 안내'}
           </p>
         </div>
 

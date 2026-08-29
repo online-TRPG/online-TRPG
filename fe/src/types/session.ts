@@ -46,12 +46,27 @@ export interface AvailableSessionListItem {
   scenarioId: string;
   scenarioTitle: string;
   scenarioThumbnailUrl?: string | null;
+  scenarioDescription?: string | null;
+  scenarioDifficulty?: string | null;
+  scenarioTags?: string[];
+  scenarioEstimatedMinutes?: number | null;
+  scenarioRecommendedPlayersMin?: number | null;
+  scenarioRecommendedPlayersMax?: number | null;
+  scenarioStartLevel?: number;
+  scenarioRecommendedEndLevel?: number | null;
   ruleSetName: string;
   currentPlayers: number;
   maxPlayers: number;
   status: string;
+  activityStatus: SessionResponseDto['activityStatus'];
+  recruitmentStatus: SessionResponseDto['recruitmentStatus'];
+  joinPolicy: SessionResponseDto['joinPolicy'];
+  currentPlayId: string | null;
   gmMode?: string;
   role?: string;
+  currentSceneTitle: string | null;
+  lastActivityAt: string;
+  nextSessionAt: string | null;
 }
 
 export type StoredUser = Pick<User, "id" | "publicId" | "displayName" | "createdAt" | "role">;

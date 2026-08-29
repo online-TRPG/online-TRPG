@@ -353,6 +353,9 @@ export class ConditionRuntimeService {
   }
 
   private toNullableInteger(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
     const numberValue = Number(value);
     return Number.isInteger(numberValue) ? numberValue : null;
   }

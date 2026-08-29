@@ -2,6 +2,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import { SessionSnapshotDto, VttMapStateDto } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
+import { SessionNodeRuntimeMapService } from "./session-node-runtime-map.service";
+import {
+  AuthoritativeVttMap,
+  PublicVttMap,
+} from "./vtt-map-authority";
 
 @Injectable()
 export class SessionVttMapPersistenceService {
@@ -9,9 +14,10 @@ export class SessionVttMapPersistenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeEvents: RealtimeEventsService,
+    private readonly runtimeMaps: SessionNodeRuntimeMapService,
   ) {}
 
-  buildMapFlags(flags: Record<string, unknown>, map: VttMapStateDto): Record<string, unknown> {
+  buildMapFlags(flags: Record<string, unknown>, map: AuthoritativeVttMap): Record<string, unknown> {
     return {
       ...flags,
       vttMap: map,
@@ -21,17 +27,21 @@ export class SessionVttMapPersistenceService {
   async saveMap(params: {
     sessionScenarioId: string;
     flags: Record<string, unknown>;
-    map: VttMapStateDto;
+    map: AuthoritativeVttMap;
+    expectedStateVersion?: number;
   }): Promise<void> {
     const startedAt = performance.now();
-    const flagsJson = JSON.stringify(this.buildMapFlags(params.flags, params.map));
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: params.sessionScenarioId },
-      data: {
-        version: { increment: 1 },
-        flagsJson,
-      },
+    const persisted = await this.prisma.$transaction(async (tx) => {
+      return this.runtimeMaps.saveCurrentMap(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: params.map,
+        fallbackFlags: params.flags,
+        expectedStateVersion: params.expectedStateVersion,
+      });
     });
+    const flagsJson = JSON.stringify(
+      this.buildMapFlags(params.flags, persisted.map),
+    );
     if (process.env.PERFORMANCE_DIAGNOSTICS === "1") {
       this.logger.debug({
         event: "vtt_map_persisted",
@@ -49,9 +59,11 @@ export class SessionVttMapPersistenceService {
     sessionId: string;
     hostUserId: string;
     hostMap: VttMapStateDto;
-    playerMap: VttMapStateDto;
+    playerMap: PublicVttMap;
     previousHostMap?: VttMapStateDto | null;
-    previousPlayerMap?: VttMapStateDto | null;
+    previousPlayerMap?: PublicVttMap | null;
+    stateVersion?: number;
+    runtimeVersion?: number;
   }): void {
     this.realtimeEvents.emitVttMapUpdated(params.sessionId, {
       hostUserId: params.hostUserId,
@@ -59,6 +71,12 @@ export class SessionVttMapPersistenceService {
       playerMap: params.playerMap,
       ...(params.previousHostMap ? { previousHostMap: params.previousHostMap } : {}),
       ...(params.previousPlayerMap ? { previousPlayerMap: params.previousPlayerMap } : {}),
+      ...(params.stateVersion === undefined
+        ? {}
+        : { stateVersion: params.stateVersion }),
+      ...(params.runtimeVersion === undefined
+        ? {}
+        : { runtimeVersion: params.runtimeVersion }),
     });
   }
 

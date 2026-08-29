@@ -17,6 +17,7 @@ import profileBorderStats from '../components/Profile_Border_Stats.webp';
 import sidePanelImage from '../components/Side_Panel.webp';
 import { splitScenariosBySource } from '../data/sessionVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
+import { useDialogFocusTrap } from '../hooks/useDialogFocusTrap';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import type {
   ClassDefinitionResponseDto,
@@ -254,6 +255,7 @@ export function CharacterPage({
     usedCharacterIds,
     onDeleteCharacter,
   });
+  const createDialogFocus = useDialogFocusTrap<HTMLDivElement>(isCreateModalOpen, dismissCreateModal);
   const levelUpDraftState = useCharacterLevelUpDraft({
     selectedCharacter,
   });
@@ -263,6 +265,9 @@ export function CharacterPage({
     formValidationError,
     externalError: error,
   });
+  const createDialogPresentation = editingCharacterId
+    ? { eyebrow: '캐릭터 수정', title: '캐릭터 수정', submitLabel: '저장' }
+    : { eyebrow: '캐릭터 생성', title: '새 캐릭터', submitLabel: '생성' };
 
   const {
     avatarPickerViewModel,
@@ -1154,9 +1159,12 @@ export function CharacterPage({
             onClick={(event) => event.stopPropagation()}
           >
             <div
+              ref={createDialogFocus.dialogRef}
+              tabIndex={-1}
               className="modal-card modal-card-wide character-create-modal"
               role="dialog"
               aria-modal="true"
+              onKeyDown={createDialogFocus.onDialogKeyDown}
             >
             {createToast ? (
               <div
@@ -1171,9 +1179,9 @@ export function CharacterPage({
             <div className="modal-header">
               <div>
                 <span className="eyebrow">
-                  {editingCharacterId ? '캐릭터 수정' : '캐릭터 생성'}
+                  {createDialogPresentation.eyebrow}
                 </span>
-                <h2>{editingCharacterId ? '캐릭터 수정' : '새 캐릭터'}</h2>
+                <h2>{createDialogPresentation.title}</h2>
               </div>
               <button type="button" className="modal-close" onClick={dismissCreateModal}>
                 닫기
@@ -2296,7 +2304,7 @@ export function CharacterPage({
                       void submitCreateCharacter();
                     }}
                   >
-                    {editingCharacterId ? '저장' : '생성'}
+                    {createDialogPresentation.submitLabel}
                   </button>
                 ) : (
                   <button

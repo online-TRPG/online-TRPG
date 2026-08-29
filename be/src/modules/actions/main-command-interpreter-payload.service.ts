@@ -16,28 +16,31 @@ export class MainCommandInterpreterPayloadService {
     recentLogs?: string[],
   ): InterpreterRequestPayload {
     const resolvedTarget = dto.targetId ? this.mainCommandSceneEntity.resolveEntity(dto, visibleEntities, dto.targetType) : null;
+    const prioritizedEntities = resolvedTarget
+      ? [resolvedTarget, ...visibleEntities.filter((entity) => entity.id !== resolvedTarget.id)]
+      : visibleEntities;
 
     return {
-      rawText: dto.playerText,
-      actorCharacterId: context.actorCharacterId,
-      sceneSummary: `${context.currentNodeTitle}: ${context.currentNodeSceneText}`,
-      recentLogs,
-      availableTargets: visibleEntities.map((entity) => entity.id),
-      availableTargetDetails: visibleEntities.map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        kind: entity.kind,
-        summary: entity.summary,
-        disposition: entity.disposition,
+      rawText: dto.playerText.slice(0, 4000),
+      actorCharacterId: context.actorCharacterId.slice(0, 100),
+      sceneSummary: `${context.currentNodeTitle}: ${context.currentNodeSceneText}`.slice(0, 1000),
+      recentLogs: recentLogs?.slice(-6).map((log) => log.slice(0, 1000)),
+      availableTargets: prioritizedEntities.slice(0, 50).map((entity) => entity.id.slice(0, 120)),
+      availableTargetDetails: prioritizedEntities.slice(0, 12).map((entity) => ({
+        id: entity.id.slice(0, 120),
+        name: entity.name.slice(0, 120),
+        kind: entity.kind?.slice(0, 40),
+        summary: entity.summary?.slice(0, 500),
+        disposition: entity.disposition?.slice(0, 80),
       })),
-      requestIntent: dto.intent,
-      screenType: dto.screenType,
-      targetId: dto.targetId ?? null,
-      targetType: dto.targetType ?? resolvedTarget?.kind ?? null,
-      itemId: dto.itemId ?? null,
-      spellId: dto.spellId ?? null,
+      requestIntent: dto.intent?.slice(0, 80),
+      screenType: dto.screenType?.slice(0, 40),
+      targetId: dto.targetId?.slice(0, 120) ?? null,
+      targetType: (dto.targetType ?? resolvedTarget?.kind)?.slice(0, 40) ?? null,
+      itemId: dto.itemId?.slice(0, 120) ?? null,
+      spellId: dto.spellId?.slice(0, 120) ?? null,
       mapPoint: dto.mapPoint ?? null,
-      relatedIntent: dto.relatedIntent ?? null,
+      relatedIntent: dto.relatedIntent?.slice(0, 80) ?? null,
     };
   }
 }

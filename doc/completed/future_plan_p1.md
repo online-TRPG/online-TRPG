@@ -7,7 +7,7 @@
 
 P0는 end-to-end playable MVP의 수직 경로를 닫는 단계였다. P1은 그 엔진을 유지한 채 실제 플레이에서 선택지와 재미를 넓히는 단계다.
 
-이 문서는 [`../future_plan.md`](../future_plan.md)의 장기 목표 중 P1에서 완료한 범위를 기록한다. 완료된 P0 기록은 [`future_plan_mvp.md`](future_plan_mvp.md)에 보관한다.
+이 문서는 [`future_plan.md`](future_plan.md)의 장기 목표 중 P1에서 완료한 범위를 기록한다. 완료된 P0 기록은 [`future_plan_mvp.md`](future_plan_mvp.md)에 보관한다.
 
 P1 범위는 다음 네 가지로 고정한다.
 

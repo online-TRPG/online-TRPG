@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { SessionCharacterStatus as PrismaSessionCharacterStatus } from "@prisma/client";
+import {
+  Prisma,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
+} from "@prisma/client";
 import { VttMapStateDto } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 
@@ -7,12 +10,16 @@ import { PrismaService } from "../../database/prisma.service";
 export class SessionVttMapBootstrapService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async buildDefaultMap(sessionId: string, scenarioNodeId: string | null): Promise<VttMapStateDto> {
+  async buildDefaultMap(
+    sessionId: string,
+    scenarioNodeId: string | null,
+    client: Pick<Prisma.TransactionClient, "sessionCharacter"> = this.prisma,
+  ): Promise<VttMapStateDto> {
     const gridSize = 64;
     const width = 1280;
     const height = 832;
     const startingPositions = this.createDefaultStartingPositions(gridSize, width, height, 4);
-    const tokens = await this.buildSessionCharacterTokens(sessionId, {
+    const tokens = await this.buildSessionCharacterTokens(client, sessionId, {
       gridSize,
       width,
       height,
@@ -38,8 +45,12 @@ export class SessionVttMapBootstrapService {
     };
   }
 
-  async applyScenarioStartingPositions(sessionId: string, map: VttMapStateDto): Promise<VttMapStateDto> {
-    const tokens = await this.buildSessionCharacterTokens(sessionId, map, map.tokens);
+  async applyScenarioStartingPositions(
+    sessionId: string,
+    map: VttMapStateDto,
+    client: Pick<Prisma.TransactionClient, "sessionCharacter"> = this.prisma,
+  ): Promise<VttMapStateDto> {
+    const tokens = await this.buildSessionCharacterTokens(client, sessionId, map, map.tokens);
     return {
       ...map,
       tokens,
@@ -47,11 +58,12 @@ export class SessionVttMapBootstrapService {
   }
 
   private async buildSessionCharacterTokens(
+    client: Pick<Prisma.TransactionClient, "sessionCharacter">,
     sessionId: string,
     map: Pick<VttMapStateDto, "gridSize" | "width" | "height" | "startingPositions">,
     existingTokens: VttMapStateDto["tokens"] = [],
   ): Promise<VttMapStateDto["tokens"]> {
-    const sessionCharacters = await this.prisma.sessionCharacter.findMany({
+    const sessionCharacters = await client.sessionCharacter.findMany({
       where: {
         sessionId,
         status: PrismaSessionCharacterStatus.ACTIVE,
@@ -65,6 +77,14 @@ export class SessionVttMapBootstrapService {
         typeof token.sessionCharacterId === "string" ? [[token.sessionCharacterId, token] as const] : [],
       ),
     );
+    const usedStartingPositionIds = new Set(
+      existingTokens.flatMap((token) =>
+        typeof token.sessionCharacterId === "string" &&
+        typeof token.startingPositionId === "string"
+          ? [token.startingPositionId]
+          : [],
+      ),
+    );
 
     const playerTokens = sessionCharacters.slice(0, 12).map((sessionCharacter, index) => {
       const existingToken = existingPlayerTokenByCharacterId.get(sessionCharacter.id);
@@ -73,6 +93,7 @@ export class SessionVttMapBootstrapService {
           ...existingToken,
           id: existingToken.id || `token:${sessionCharacter.id}`,
           sessionCharacterId: sessionCharacter.id,
+          startingPositionId: existingToken.startingPositionId ?? null,
           name: existingToken.name || sessionCharacter.character.name,
           imageUrl: existingToken.imageUrl ?? sessionCharacter.character.avatarUrl ?? null,
           x: this.clampNumber(existingToken.x, 0, map.width - map.gridSize),
@@ -83,12 +104,19 @@ export class SessionVttMapBootstrapService {
         };
       }
 
-      const slot = map.startingPositions?.[index] ?? null;
+      const slot =
+        map.startingPositions?.find(
+          (position) => !usedStartingPositionIds.has(position.id),
+        ) ?? null;
+      if (slot) {
+        usedStartingPositionIds.add(slot.id);
+      }
       const fallback = this.getDefaultPlayerTokenPosition(index, map.gridSize, map.width, map.height);
 
       return {
         id: `token:${sessionCharacter.id}`,
         sessionCharacterId: sessionCharacter.id,
+        startingPositionId: slot?.id ?? null,
         name: sessionCharacter.character.name,
         imageUrl: sessionCharacter.character.avatarUrl ?? null,
         x: slot ? this.clampNumber(slot.x, 0, map.width - map.gridSize) : fallback.x,

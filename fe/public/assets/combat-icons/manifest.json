@@ -1,0 +1,59 @@
+{
+  "source": {
+    "name": "GameIcons",
+    "url": "https://github.com/game-icons/icons"
+  },
+  "license": {
+    "title": "CC BY 3.0",
+    "spdx": "CC-BY-3.0",
+    "url": "https://github.com/game-icons/icons/blob/master/license.txt"
+  },
+  "selections": {
+    "damage": {
+      "acid": "acid-blob",
+      "bludgeoning": "hammer-drop",
+      "cold": "snowflake-1",
+      "fire": "flame",
+      "force": "mighty-force",
+      "lightning": "lightning-frequency",
+      "necrotic": "death-skull",
+      "piercing": "piercing-sword",
+      "poison": "poison-bottle",
+      "psychic": "brain",
+      "radiant": "sun-radiations",
+      "slashing": "crossed-slashes",
+      "thunder": "sonic-boom",
+      "untyped": "abstract-084"
+    },
+    "condition": {
+      "blinded": "blindfold",
+      "charmed": "charm",
+      "deafened": "sound-off",
+      "exhaustion": "sleepy",
+      "frightened": "terror",
+      "grappled": "grab",
+      "incapacitated": "knocked-out-stars",
+      "invisible": "invisible",
+      "paralyzed": "frozen-body",
+      "petrified": "stone-bust",
+      "poisoned": "poison",
+      "prone": "falling",
+      "restrained": "crossed-chains",
+      "stunned": "stun-grenade",
+      "unconscious": "coma",
+      "dodge": "dodge",
+      "disengage": "run",
+      "hidden": "hidden",
+      "sleep": "night-sleep",
+      "burning": "burning-round-shot",
+      "concentration": "meditation",
+      "rage": "muscle-up",
+      "fallback": "aura"
+    },
+    "healing": {
+      "hp": "health-increase",
+      "temporary_hp": "shield",
+      "revive": "life-support"
+    }
+  }
+}

@@ -98,6 +98,6 @@ describe("SessionJoinPolicyService", () => {
         sessionStatus: PrismaSessionStatus.RECRUITING,
         maxParticipants: 4,
       }),
-    ).rejects.toThrow("This session is already full.");
+    ).rejects.toThrow("세션 정원이 모두 찼습니다.");
   });
 });

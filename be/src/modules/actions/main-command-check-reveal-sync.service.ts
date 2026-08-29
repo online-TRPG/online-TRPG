@@ -3,14 +3,12 @@ import { ActionOutcome } from "@trpg/shared-types";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
 import type { RevealCountSummary } from "./main-command-check-reveal.service";
-import { MainCommandPersistenceService } from "./main-command-persistence.service";
 
 @Injectable()
 export class MainCommandCheckRevealSyncService {
   constructor(
     private readonly sessionsService: SessionsService,
     private readonly realtimeEvents: RealtimeEventsService,
-    private readonly mainCommandPersistence: MainCommandPersistenceService,
   ) {}
 
   async syncSuccessfulCheckReveals(params: {
@@ -23,7 +21,7 @@ export class MainCommandCheckRevealSyncService {
       return;
     }
 
-    await this.mainCommandPersistence.markScenarioStateChanged(params.sessionScenarioId);
+    await this.sessionsService.publishCurrentVttMap(params.sessionId);
     this.realtimeEvents.emitSessionSnapshot(params.sessionId, await this.sessionsService.buildSnapshot(params.sessionId));
   }
 

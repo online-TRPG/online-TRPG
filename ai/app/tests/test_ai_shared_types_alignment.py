@@ -153,15 +153,13 @@ def test_trace_adapters_map_status_to_backend_validation_status():
         session_id="session-1",
         turn_id="turn-1",
         actor_character_id="player-1",
-        raw_output='{"ok":true}',
-        parsed_output={"ok": True},
-        log_paths={"latest": "runtime_logs/interpreter.latest.json"},
     )
 
     assert payload["id"] == "trace-1"
     assert payload["validationStatus"] == "passed"
-    assert payload["rawOutput"] == '{"ok":true}'
-    assert payload["parsedOutput"] == {"ok": True}
+    assert "rawOutput" not in payload
+    assert "parsedOutput" not in payload
+    assert "logPaths" not in payload
 
     item_payload = trace_list_item_to_backend(
         TraceListItem(

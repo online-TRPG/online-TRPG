@@ -6,6 +6,7 @@ import {
   CombatStatus as PrismaCombatStatus,
   DiceAdvantageState as PrismaDiceAdvantageState,
   Prisma,
+  SessionActivityStatus as PrismaSessionActivityStatus,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import {
@@ -51,6 +52,7 @@ import {
   parseJsonRecordOrThrow,
 } from "../../common/utils/json-runtime";
 import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
+import { markAuthoritativeVttMap } from "../sessions/vtt-map-authority";
 
 type RuntimeTurnStateKey = {
   combatId: string;
@@ -245,6 +247,17 @@ export class ActionProcessorService {
       }
     } catch (error) {
       const errorMessage = this.toErrorMessage(error);
+      if (errorMessage === "PLAY_FINISHED") {
+        await this.prisma.playerAction.updateMany({
+          where: { id: action.id, queueStatus: PrismaActionQueueStatus.PROCESSING },
+          data: {
+            queueStatus: PrismaActionQueueStatus.FAILED,
+            failureReason: errorMessage,
+            processedAt: new Date(),
+          },
+        });
+        return;
+      }
       await this.prisma.playerAction.update({
         where: { id: action.id },
         data: {
@@ -374,6 +387,17 @@ export class ActionProcessorService {
     };
     await this.assertRuntimeEffectPreconditions(resolution, runtimeEffectParams);
     const mutation = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.id}))`;
+      const [currentSession, currentAction] = await Promise.all([
+        tx.session.findUnique({ where: { id: session.id }, select: { activityStatus: true } }),
+        tx.playerAction.findUnique({ where: { id: action.id }, select: { queueStatus: true } }),
+      ]);
+      if (
+        currentSession?.activityStatus !== PrismaSessionActivityStatus.PLAYING ||
+        currentAction?.queueStatus !== PrismaActionQueueStatus.PROCESSING
+      ) {
+        throw new Error("PLAY_FINISHED");
+      }
       const earlyRuntimeStateChanged = await this.applyEarlyRuntimeEffects(
         resolution,
         runtimeEffectParams,
@@ -469,8 +493,11 @@ export class ActionProcessorService {
       if (mutation.stateDiff) {
         this.realtimeEvents.emitStateDiffApplied(session.id, mutation.stateDiff);
       }
-      if (mutation.mapUpdate) {
+      if (mutation.mapUpdate && mutation.revealCount === 0) {
         this.realtimeEvents.emitVttMapUpdated(session.id, mutation.mapUpdate);
+      }
+      if (mutation.revealCount > 0) {
+        await this.sessionsService.publishCurrentVttMap(session.id);
       }
       if (mutation.runtimeSnapshotRequired || mutation.revealCount > 0) {
         const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
@@ -649,6 +676,8 @@ export class ActionProcessorService {
       previousPlayerMap: VttMapStateDto;
       hostMap: VttMapStateDto;
       playerMap: VttMapStateDto;
+      stateVersion: number;
+      runtimeVersion: number;
     } | null;
   }> {
     let changed = false;
@@ -658,6 +687,8 @@ export class ActionProcessorService {
       previousPlayerMap: VttMapStateDto;
       hostMap: VttMapStateDto;
       playerMap: VttMapStateDto;
+      stateVersion: number;
+      runtimeVersion: number;
     } | null = null;
     const allEffects = resolution.runtimeEffects ?? [];
     let effects = allEffects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
@@ -1042,6 +1073,8 @@ export class ActionProcessorService {
     previousPlayerMap: VttMapStateDto;
     hostMap: VttMapStateDto;
     playerMap: VttMapStateDto;
+    stateVersion: number;
+    runtimeVersion: number;
   }> {
     const session = await this.sessionsService.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
@@ -1063,29 +1096,19 @@ export class ActionProcessorService {
       }
       const flags = parseJsonRecordOrThrow(currentState?.flagsJson, {}, "gameState.flagsJson");
       const currentVersion = currentState.version ?? state.version;
-      const normalizedMap = this.sessionsService.normalizeVttMap(
-        nextMap,
-        currentState?.currentNodeId ?? state.currentNodeId ?? null,
+      const normalizedMap = markAuthoritativeVttMap(
+        this.sessionsService.normalizeVttMap(
+          nextMap,
+          currentState?.currentNodeId ?? state.currentNodeId ?? null,
+        ),
       );
-      const updatedState = await tx.gameState.updateMany({
-        where: {
-          sessionScenarioId: params.sessionScenarioId,
-          version: currentVersion,
-        },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: normalizedMap,
-          }),
-        },
+      const persisted =
+        await this.sessionsService.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: normalizedMap,
+        fallbackFlags: flags,
+        expectedStateVersion: currentVersion,
       });
-      if (updatedState.count !== 1) {
-        throw conflict("VTT_409", "다른 요청이 맵 상태를 먼저 변경했습니다.", {
-          reason: "MAP_STATE_VERSION_CONFLICT",
-          expectedVersion: currentVersion,
-        });
-      }
 
       for (const effect of effects) {
         if (effect.type === "SPEND_ACTION") {
@@ -1100,15 +1123,19 @@ export class ActionProcessorService {
       }
 
       await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
-      return normalizedMap;
+      return { map: normalizedMap, persisted };
     };
-    const savedMap = client ? await mutate(client) : await this.prisma.$transaction(mutate);
+    const saved = client
+      ? await mutate(client)
+      : await this.prisma.$transaction(mutate);
     const mapUpdate = {
       hostUserId: session.hostUserId,
       previousHostMap: baselineMap,
       previousPlayerMap: this.sessionsService.redactVttMapForPlayer(baselineMap),
-      hostMap: savedMap,
-      playerMap: this.sessionsService.redactVttMapForPlayer(savedMap),
+      hostMap: saved.map,
+      playerMap: this.sessionsService.redactVttMapForPlayer(saved.map),
+      stateVersion: saved.persisted.stateVersion,
+      runtimeVersion: saved.persisted.runtimeVersion,
     };
     if (!client) {
       this.realtimeEvents.emitVttMapUpdated(params.sessionId, mapUpdate);

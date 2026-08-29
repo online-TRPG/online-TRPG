@@ -71,10 +71,15 @@ import {
   parseUnknownJsonOrFallback,
 } from '../../common/utils/json-runtime';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  getSafePublicAssetBaseUrl,
+  validateAndSanitizeRasterImage,
+} from '../../common/security/image-upload-security';
 import { mapScenario, mapScenarioSummary } from '../../common/mappers/domain.mapper';
 import {
   DEFAULT_PROVIDED_SCENARIO_ID,
   PROVIDED_SCENARIO_IDS,
+  isInternalValidationScenarioId,
   isProvidedScenarioId,
 } from './provided-scenario.constants';
 import {
@@ -236,6 +241,7 @@ export class ScenariosService {
             ];
     const scenarios = await this.prisma.scenario.findMany({
       where: {
+        deletedAt: null,
         OR: [
           { id: { in: PROVIDED_SCENARIO_IDS } },
           {
@@ -284,6 +290,7 @@ export class ScenariosService {
     await this.ensureScenarioProjectionReadReady();
     const scenarios = await this.prisma.scenario.findMany({
       where: {
+        deletedAt: null,
         sourceType: { not: PrismaScenarioSourceType.CLONED },
         OR: [
           { createdByUserId: userId },
@@ -360,6 +367,12 @@ export class ScenariosService {
     const npcs = this.decodeScenarioNpcsInput(dto.npcs ?? [], "scenario.npcs");
     const startNodeId =
       this.resolveStartNodeId(dto.startNodeId, nodes) ?? nodes[0]?.id ?? `${scenarioId}_start`;
+    this.ensureRecommendedPlayerRange(
+      dto.recommendedPlayersMin,
+      dto.recommendedPlayersMax,
+    );
+    const attribution = this.nullableTrim(dto.attribution);
+    const publicationMetadata = this.resolveScenarioPublicationMetadata(dto, attribution);
 
     const scenario = await this.prisma.scenario.create({
       data: {
@@ -374,11 +387,11 @@ export class ScenariosService {
         startLevel,
         recommendedEndLevel: dto.recommendedEndLevel ?? null,
         license: this.toPrismaScenarioLicense(dto.license ?? ScenarioLicense.ORIGINAL),
-        attribution: this.nullableTrim(dto.attribution),
+        attribution,
         startNodeId,
         npcsJson: JSON.stringify(npcs),
         publication: {
-          create: this.buildScenarioPublicationProjection(this.nullableTrim(dto.attribution)),
+          create: this.buildScenarioPublicationProjection(attribution, publicationMetadata),
         },
         nodes: {
           create: nodes.map(({ scenarioId: _scenarioId, ...node }) => node),
@@ -404,6 +417,10 @@ export class ScenariosService {
     dto: UpdateScenarioDto
   ): Promise<ScenarioResponseDto> {
     const existing = await this.getEditableScenarioEntity(userId, id, { access: "edit" });
+    this.ensureRecommendedPlayerRange(
+      dto.recommendedPlayersMin,
+      dto.recommendedPlayersMax,
+    );
     if (
       dto.expectedUpdatedAt &&
       new Date(dto.expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()
@@ -440,6 +457,15 @@ export class ScenariosService {
       dto.attribution === undefined
         ? existing.attribution
         : this.nullableTrim(dto.attribution);
+    const publicationMetadata = this.resolveScenarioPublicationMetadata(
+      dto,
+      nextAttribution,
+      existing.publication,
+    );
+    this.ensureRecommendedPlayerRange(
+      publicationMetadata.recommendedPlayersMin,
+      publicationMetadata.recommendedPlayersMax,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.scenario.update({
@@ -467,8 +493,14 @@ export class ScenariosService {
           attribution: nextAttribution,
           publication: {
             upsert: {
-              create: this.buildScenarioPublicationProjection(nextAttribution),
-              update: this.buildScenarioPublicationProjection(nextAttribution),
+              create: this.buildScenarioPublicationProjection(
+                nextAttribution,
+                publicationMetadata,
+              ),
+              update: this.buildScenarioPublicationProjection(
+                nextAttribution,
+                publicationMetadata,
+              ),
             },
           },
           startNodeId: nextStartNodeId,
@@ -502,6 +534,10 @@ export class ScenariosService {
     dto: PublishScenarioDto,
   ): Promise<ScenarioResponseDto> {
     const draft = await this.getEditableScenarioEntity(userId, id);
+    this.ensureRecommendedPlayerRange(
+      dto.recommendedPlayersMin,
+      dto.recommendedPlayersMax,
+    );
     const visibility = dto.visibility ?? "public";
     const isSharedPublication = visibility === "public" || visibility === "link";
     if (isSharedPublication && dto.rightsConfirmed !== true) {
@@ -554,8 +590,36 @@ export class ScenariosService {
       },
     );
     const publicMetadata = this.parseScenarioPublicEcosystemMetadata(attribution);
+    const publicationMetadata = {
+      tags: dto.tags === undefined
+        ? draft.publication?.tags ?? publicMetadata.tags
+        : this.compactTrimmedStrings(dto.tags).slice(0, 10),
+      estimatedMinutes:
+        dto.estimatedMinutes === undefined
+          ? draft.publication?.estimatedMinutes ?? publicMetadata.estimatedMinutes
+          : dto.estimatedMinutes,
+      recommendedPlayersMin:
+        dto.recommendedPlayersMin === undefined
+          ? draft.publication?.recommendedPlayersMin
+          : dto.recommendedPlayersMin,
+      recommendedPlayersMax:
+        dto.recommendedPlayersMax === undefined
+          ? draft.publication?.recommendedPlayersMax
+          : dto.recommendedPlayersMax,
+      gmMode:
+        dto.gmMode === undefined
+          ? this.normalizeScenarioPublicGmMode(draft.publication?.gmMode) ?? publicMetadata.gmMode
+          : dto.gmMode,
+    };
+    this.ensureRecommendedPlayerRange(
+      publicationMetadata.recommendedPlayersMin,
+      publicationMetadata.recommendedPlayersMax,
+    );
     const publishedAttribution = this.appendScenarioPublicEcosystemMetadata(attribution, {
       ...publicMetadata,
+      tags: publicationMetadata.tags,
+      estimatedMinutes: publicationMetadata.estimatedMinutes,
+      gmMode: publicationMetadata.gmMode,
       forkAllowed: dto.forkAllowed === true,
       rightsDeclaration: {
         confirmed: dto.rightsConfirmed === true,
@@ -585,7 +649,10 @@ export class ScenariosService {
           : null,
         npcsJson: draft.npcsJson,
         publication: {
-          create: this.buildScenarioPublicationProjection(publishedAttribution),
+          create: this.buildScenarioPublicationProjection(
+            publishedAttribution,
+            publicationMetadata,
+          ),
         },
         nodes: {
           create: draft.nodes.map((node) => ({
@@ -641,7 +708,7 @@ export class ScenariosService {
         },
       },
     });
-    if (!revision) {
+    if (!revision || revision.deletedAt) {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
     if (revision.createdByUserId !== userId) {
@@ -809,6 +876,11 @@ export class ScenariosService {
     const now = new Date().toISOString();
     const sourceRevision = this.parseScenarioRevisionMetadata(scenario.attribution);
     const sourceMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const sourcePublicationMetadata = this.resolveScenarioPublicationMetadata(
+      {},
+      scenario.attribution,
+      scenario.publication,
+    );
     if (!sourceMetadata.forkAllowed) {
       throw new BadRequestException("이 공개 시나리오는 작성자가 fork를 허용하지 않았습니다.");
     }
@@ -844,7 +916,10 @@ export class ScenariosService {
         startNodeId: scenario.startNodeId ? nodeIdMap.get(scenario.startNodeId) ?? scenario.startNodeId : null,
         npcsJson: scenario.npcsJson,
         publication: {
-          create: this.buildScenarioPublicationProjection(attribution),
+          create: this.buildScenarioPublicationProjection(
+            attribution,
+            sourcePublicationMetadata,
+          ),
         },
         nodes: {
           create: scenario.nodes.map((node) => ({
@@ -881,8 +956,14 @@ export class ScenariosService {
         attribution: sourceAttribution,
         publication: {
           upsert: {
-            create: this.buildScenarioPublicationProjection(sourceAttribution),
-            update: this.buildScenarioPublicationProjection(sourceAttribution),
+            create: this.buildScenarioPublicationProjection(
+              sourceAttribution,
+              sourcePublicationMetadata,
+            ),
+            update: this.buildScenarioPublicationProjection(
+              sourceAttribution,
+              sourcePublicationMetadata,
+            ),
           },
         },
       },
@@ -995,6 +1076,7 @@ export class ScenariosService {
     await this.ensureScenarioProjectionReadReady();
     const scenarios = await this.prisma.scenario.findMany({
       where: {
+        deletedAt: null,
         OR: [
           { id: { in: PROVIDED_SCENARIO_IDS } },
           { sourceType: PrismaScenarioSourceType.CLONED },
@@ -1203,67 +1285,25 @@ export class ScenariosService {
   async deleteScenario(userId: string, id: string): Promise<void> {
     await this.getEditableScenarioEntity(userId, id);
 
-    const linkedSessionScenarios = await this.prisma.sessionScenario.findMany({
+    const linkedSessionScenarioCount = await this.prisma.sessionScenario.count({
       where: { scenarioId: id },
-      include: { session: true },
     });
 
-    const deletableLinkedSessionStatuses: PrismaSessionStatus[] = [
-      PrismaSessionStatus.RECRUITING,
-      PrismaSessionStatus.COMPLETED,
-      PrismaSessionStatus.DISBANDED,
-    ];
-    const blockingSession = linkedSessionScenarios.find(
-      ({ session }) =>
-        session.hostUserId !== userId ||
-        !deletableLinkedSessionStatuses.includes(session.status)
-    );
-
-    if (blockingSession) {
-      throw new ConflictException(
-        '진행 중이거나 다른 사용자의 세션에 연결된 시나리오는 삭제할 수 없습니다.'
-      );
+    if (linkedSessionScenarioCount > 0) {
+      await this.prisma.$transaction([
+        this.prisma.scenario.update({
+          where: { id },
+          data: { deletedAt: new Date() },
+        }),
+        this.prisma.scenarioPublication.updateMany({
+          where: { scenarioId: id },
+          data: { visibility: "UNPUBLISHED" },
+        }),
+      ]);
+      return;
     }
 
-    const linkedRecruitingSessionIds = Array.from(
-      new Set(
-        linkedSessionScenarios
-          .filter(
-            ({ session }) =>
-              session.hostUserId === userId && session.status === PrismaSessionStatus.RECRUITING
-          )
-          .map(({ sessionId }) => sessionId)
-      )
-    );
-
-    await this.prisma.$transaction([
-      ...(linkedRecruitingSessionIds.length > 0
-        ? [
-            this.prisma.sessionCharacter.deleteMany({
-              where: { sessionId: { in: linkedRecruitingSessionIds } },
-            }),
-            this.prisma.sessionParticipant.updateMany({
-              where: {
-                sessionId: { in: linkedRecruitingSessionIds },
-                status: PrismaParticipantStatus.JOINED,
-              },
-              data: {
-                status: PrismaParticipantStatus.LEFT,
-                leftAt: new Date(),
-                connectionStatus: PrismaConnectionStatus.OFFLINE,
-                isReady: false,
-                readyAt: null,
-              },
-            }),
-            this.prisma.session.updateMany({
-              where: { id: { in: linkedRecruitingSessionIds } },
-              data: { status: PrismaSessionStatus.DISBANDED },
-            }),
-          ]
-        : []),
-      this.prisma.sessionScenario.deleteMany({ where: { scenarioId: id } }),
-      this.prisma.scenario.delete({ where: { id } }),
-    ]);
+    await this.prisma.scenario.delete({ where: { id } });
   }
 
   async uploadScenarioAsset(
@@ -1348,7 +1388,7 @@ export class ScenariosService {
       },
     });
 
-    if (!scenario) {
+    if (!scenario || scenario.deletedAt) {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
 
@@ -1363,13 +1403,14 @@ export class ScenariosService {
     const scenario = await this.prisma.scenario.findUnique({
       where: { id },
       include: {
+        publication: true,
         nodes: {
           orderBy: { createdAt: 'asc' },
         },
       },
     });
 
-    if (!scenario) {
+    if (!scenario || scenario.deletedAt) {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
 
@@ -1425,7 +1466,17 @@ export class ScenariosService {
 
     const canViewProvidedScenario =
       isDefaultProvidedScenario && (!scenario.publication || !projectionBlocksPublicAccess);
-    if (canViewProvidedScenario || isOwnScenario || isPublishedRevision || canViewCollaborativeDraft) {
+    const canViewInternalValidationScenario =
+      process.env.NODE_ENV === "test" &&
+      process.env.TRPG_E2E === "1" &&
+      isInternalValidationScenarioId(scenario.id);
+    if (
+      canViewProvidedScenario ||
+      canViewInternalValidationScenario ||
+      isOwnScenario ||
+      isPublishedRevision ||
+      canViewCollaborativeDraft
+    ) {
       return;
     }
 
@@ -1487,6 +1538,9 @@ export class ScenariosService {
         forkCount: number;
         gmMode: string | null;
         tags: string[];
+        estimatedMinutes: number | null;
+        recommendedPlayersMin: number | null;
+        recommendedPlayersMax: number | null;
       } | null;
     },
     summary: T,
@@ -1520,14 +1574,7 @@ export class ScenariosService {
     const isOwner = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
     const isVisibleToPublicActions =
       moderationStatus !== "hidden" && moderationStatus !== "removed";
-    const tags = scenario.publication?.tags.length
-      ? scenario.publication.tags
-      : metadata.tags.length
-        ? metadata.tags
-        : this.compactTrimmedStrings([
-            scenario.difficulty,
-            summary.sourceType === "SYSTEM" ? "provided" : null,
-          ]);
+    const tags = scenario.publication ? scenario.publication.tags : metadata.tags;
     const forkCount = scenario.publication?.forkCount ?? metadata.forkCount;
     return {
       ...summary,
@@ -1535,8 +1582,12 @@ export class ScenariosService {
       publishedAt: scenario.publication?.publishedAt?.toISOString() ?? summary.publishedAt,
       publishStatus,
       tags,
-      estimatedMinutes: metadata.estimatedMinutes,
-      gmMode: scenario.publication?.gmMode ?? metadata.gmMode,
+      estimatedMinutes: scenario.publication
+        ? scenario.publication.estimatedMinutes
+        : metadata.estimatedMinutes,
+      recommendedPlayersMin: scenario.publication?.recommendedPlayersMin ?? null,
+      recommendedPlayersMax: scenario.publication?.recommendedPlayersMax ?? null,
+      gmMode: scenario.publication ? scenario.publication.gmMode : metadata.gmMode,
       contentWarnings: metadata.contentWarnings,
       forkCount,
       forkAllowed: metadata.forkAllowed,
@@ -2017,7 +2068,16 @@ export class ScenariosService {
     }
   }
 
-  private buildScenarioPublicationProjection(attribution: string | null | undefined) {
+  private buildScenarioPublicationProjection(
+    attribution: string | null | undefined,
+    overrides?: {
+      tags: string[];
+      estimatedMinutes: number | null;
+      recommendedPlayersMin?: number | null;
+      recommendedPlayersMax?: number | null;
+      gmMode: "AI" | "HUMAN" | "BOTH" | null;
+    },
+  ) {
     const revision = this.parseScenarioRevisionMetadata(attribution);
     const metadata = this.parseScenarioPublicEcosystemMetadata(attribution);
     const visibility =
@@ -2040,9 +2100,69 @@ export class ScenariosService {
       forkCount: metadata.forkCount,
       reportCount: metadata.reports.length,
       appealCount: this.countActiveModerationAppeals(metadata.appeals),
-      gmMode: metadata.gmMode,
-      tags: metadata.tags.map((tag) => tag.toLowerCase()),
+      gmMode: overrides?.gmMode,
+      tags: overrides?.tags.map((tag) => tag.toLowerCase()),
+      estimatedMinutes: overrides?.estimatedMinutes,
+      recommendedPlayersMin: overrides?.recommendedPlayersMin,
+      recommendedPlayersMax: overrides?.recommendedPlayersMax,
     };
+  }
+
+  private resolveScenarioPublicationMetadata(
+    input: {
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      recommendedPlayersMin?: number | null;
+      recommendedPlayersMax?: number | null;
+      gmMode?: "AI" | "HUMAN" | "BOTH" | null;
+    },
+    attribution: string | null | undefined,
+    existing?: {
+      tags: string[];
+      estimatedMinutes: number | null;
+      recommendedPlayersMin: number | null;
+      recommendedPlayersMax: number | null;
+      gmMode: string | null;
+    } | null,
+  ) {
+    const legacy = this.parseScenarioPublicEcosystemMetadata(attribution);
+    return {
+      tags:
+        input.tags === undefined
+          ? existing?.tags ?? legacy.tags
+          : this.compactTrimmedStrings(input.tags).slice(0, 10),
+      estimatedMinutes:
+        input.estimatedMinutes === undefined
+          ? existing?.estimatedMinutes ?? legacy.estimatedMinutes
+          : input.estimatedMinutes,
+      recommendedPlayersMin:
+        input.recommendedPlayersMin === undefined
+          ? existing?.recommendedPlayersMin ?? null
+          : input.recommendedPlayersMin,
+      recommendedPlayersMax:
+        input.recommendedPlayersMax === undefined
+          ? existing?.recommendedPlayersMax ?? null
+          : input.recommendedPlayersMax,
+      gmMode:
+        input.gmMode === undefined
+          ? this.normalizeScenarioPublicGmMode(existing?.gmMode) ?? legacy.gmMode
+          : input.gmMode,
+    };
+  }
+
+  private normalizeScenarioPublicGmMode(
+    value: string | null | undefined,
+  ): "AI" | "HUMAN" | "BOTH" | null {
+    return value === "AI" || value === "HUMAN" || value === "BOTH" ? value : null;
+  }
+
+  private ensureRecommendedPlayerRange(
+    min: number | null | undefined,
+    max: number | null | undefined,
+  ): void {
+    if (min !== undefined && min !== null && max !== undefined && max !== null && min > max) {
+      throw new BadRequestException("권장 최소 인원은 권장 최대 인원보다 클 수 없습니다.");
+    }
   }
 
   private countActiveModerationAppeals(
@@ -3331,24 +3451,31 @@ export class ScenariosService {
     scenarioId: string,
     dto: UploadScenarioAssetDto
   ): Promise<ScenarioAssetResponseDto> {
-    if (!dto.contentType.startsWith('image/')) {
-      throw new BadRequestException('이미지 파일만 업로드할 수 있습니다.');
-    }
-
-    const body = Buffer.from(dto.dataBase64, 'base64');
     const maxBytes =
       dto.kind === ScenarioAssetKind.MAP
         ? Number(process.env.R2_MAX_MAP_IMAGE_BYTES ?? 10 * 1024 * 1024)
         : Number(process.env.R2_MAX_IMAGE_BYTES ?? 5 * 1024 * 1024);
-
-    if (body.byteLength > maxBytes) {
-      throw new BadRequestException('이미지 파일이 너무 큽니다.');
+    const image = await validateAndSanitizeRasterImage({
+      dataBase64: dto.dataBase64,
+      declaredContentType: dto.contentType,
+      maxBytes,
+      maxWidth: Number(process.env.R2_MAX_IMAGE_WIDTH ?? 8192),
+      maxHeight: Number(process.env.R2_MAX_IMAGE_HEIGHT ?? 8192),
+      maxPixels: Number(process.env.R2_MAX_IMAGE_PIXELS ?? 32_000_000),
+    });
+    const quotaBytes = Number(process.env.R2_MAX_SCENARIO_STORAGE_BYTES ?? 200 * 1024 * 1024);
+    const usage = await this.prisma.scenarioAsset.aggregate({
+      where: { scenarioId },
+      _sum: { fileSizeBytes: true },
+    });
+    if ((usage._sum.fileSizeBytes ?? 0) + image.body.byteLength > quotaBytes) {
+      throw new BadRequestException('시나리오별 이미지 저장 용량을 초과했습니다.');
     }
 
     const { storageKey, publicUrl } = await this.putR2Object({
-      body,
-      contentType: dto.contentType,
-      fileName: dto.fileName,
+      body: image.body,
+      contentType: image.contentType,
+      extension: image.extension,
       keyPrefix: `scenarios/${scenarioId}/assets/${dto.kind.toLowerCase()}`,
     });
 
@@ -3359,12 +3486,12 @@ export class ScenariosService {
           scenarioId,
           kind: this.toPrismaScenarioAssetKind(dto.kind),
           fileName: dto.fileName.trim(),
-          contentType: dto.contentType,
+          contentType: image.contentType,
           storageKey,
           publicUrl,
-          width: null,
-          height: null,
-          fileSizeBytes: body.byteLength,
+          width: image.width,
+          height: image.height,
+          fileSizeBytes: image.body.byteLength,
           uploadedByUserId: userId,
         },
       });
@@ -3524,25 +3651,29 @@ export class ScenariosService {
   private async putR2Object({
     body,
     contentType,
-    fileName,
+    extension,
     keyPrefix,
   }: {
     body: Buffer;
     contentType: string;
-    fileName: string;
+    extension: '.png' | '.jpg' | '.webp';
     keyPrefix: string;
   }): Promise<{ storageKey: string; publicUrl: string }> {
     const accountId = process.env.R2_ACCOUNT_ID;
     const bucket = process.env.R2_BUCKET_NAME;
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
     const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, '');
-
-    if (!accountId || !bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl) {
-      throw new BadRequestException('R2 업로드 환경변수가 설정되지 않았습니다.');
+    let publicBaseUrl: string;
+    try {
+      publicBaseUrl = getSafePublicAssetBaseUrl(process.env.R2_PUBLIC_BASE_URL);
+    } catch {
+      throw new ServiceUnavailableException('이미지 공개 저장소 설정이 올바르지 않습니다.');
     }
 
-    const extension = this.getSafeFileExtension(fileName, contentType);
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new ServiceUnavailableException('이미지 저장소 설정이 올바르지 않습니다.');
+    }
+
     const key = `${keyPrefix}/${randomUUID()}${extension}`;
     const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
     const url = new URL(`${endpoint}/${bucket}/${key}`);
@@ -3587,16 +3718,12 @@ export class ScenariosService {
         },
         body,
       });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'unknown network error';
-      throw new BadGatewayException(
-        `R2 upload request failed before a response was received. ${detail}`
-      );
+    } catch {
+      throw new BadGatewayException('이미지 저장소에 연결할 수 없습니다.');
     }
 
     if (!response.ok) {
-      const message = await response.text();
-      throw new BadRequestException(`R2 업로드에 실패했습니다. (${response.status}) ${message}`);
+      throw new BadGatewayException('이미지 저장소 업로드에 실패했습니다.');
     }
 
     return {
@@ -3656,19 +3783,15 @@ export class ScenariosService {
           'x-amz-date': amzDate,
         },
       });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'unknown network error';
-      throw new BadGatewayException(
-        `R2 delete request failed before a response was received. ${detail}`
-      );
+    } catch {
+      throw new BadGatewayException('이미지 저장소에 연결할 수 없습니다.');
     }
 
     if (response.ok || response.status === 404) {
       return;
     }
 
-    const message = await response.text();
-    throw new BadRequestException(`R2 삭제에 실패했습니다. (${response.status}) ${message}`);
+    throw new BadGatewayException('이미지 저장소 삭제에 실패했습니다.');
   }
 
   private formatAmzDate(date: Date): string {
@@ -3687,24 +3810,4 @@ export class ScenariosService {
     return createHmac('sha256', kService).update('aws4_request').digest();
   }
 
-  private getSafeFileExtension(fileName: string, contentType: string): string {
-    const lowered = fileName.toLowerCase();
-    const match = lowered.match(/\.(png|jpe?g|webp|gif)$/);
-    if (match) {
-      return match[0] === '.jpeg' ? '.jpg' : match[0];
-    }
-
-    switch (contentType) {
-      case 'image/png':
-        return '.png';
-      case 'image/jpeg':
-        return '.jpg';
-      case 'image/webp':
-        return '.webp';
-      case 'image/gif':
-        return '.gif';
-      default:
-        return '.img';
-    }
-  }
 }

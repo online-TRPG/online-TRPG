@@ -41,6 +41,12 @@ import {
   type RevealItemSnapshot,
 } from "./session-reveal.service";
 import { VttMapSpatialIndex } from "./vtt-map-spatial-index";
+import {
+  AuthoritativeVttMap,
+  markAuthoritativeVttMap,
+  markPlayerRedactedVttMap,
+  PublicVttMap,
+} from "./vtt-map-authority";
 
 type Rect = { x: number; y: number; width: number; height: number };
 type SessionRevealRuntimeValue = Parameters<SessionRevealService["toRevealClueSummary"]>[0];
@@ -62,9 +68,22 @@ export type SessionVttObjectRuntime = {
     sessionId: string,
     sessionScenarioId: string,
     state: { currentNodeId: string | null; flagsJson: string | null },
-  ) => Promise<VttMapStateDto>;
-  getVttMapForSessionScenario: (sessionId: string, sessionScenarioId: string) => Promise<VttMapStateDto>;
+  ) => Promise<AuthoritativeVttMap>;
+  getVttMapForSessionScenario: (sessionId: string, sessionScenarioId: string) => Promise<AuthoritativeVttMap>;
   normalizeVttMap: (map: VttMapStateDto, scenarioNodeId: string | null) => VttMapStateDto;
+  saveRuntimeVttMapInTransaction: (
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      map: AuthoritativeVttMap;
+      fallbackFlags?: Record<string, unknown>;
+      expectedStateVersion?: number;
+    },
+  ) => Promise<{
+    map: AuthoritativeVttMap;
+    stateVersion: number;
+    runtimeVersion: number;
+  }>;
   recordSessionReveal: (
     tx: Prisma.TransactionClient,
     params: RecordSessionRevealParams,
@@ -123,16 +142,18 @@ export class SessionVttObjectRuntimeRunner {
     sessionId: string,
     sessionScenarioId: string,
     state: { currentNodeId: string | null; flagsJson: string | null },
-  ): Promise<VttMapStateDto> {
+  ): Promise<AuthoritativeVttMap> {
     return this.runtime.getVttMapBaseline(sessionId, sessionScenarioId, state);
   }
 
-  private getVttMapForSessionScenario(sessionId: string, sessionScenarioId: string): Promise<VttMapStateDto> {
+  private getVttMapForSessionScenario(sessionId: string, sessionScenarioId: string): Promise<AuthoritativeVttMap> {
     return this.runtime.getVttMapForSessionScenario(sessionId, sessionScenarioId);
   }
 
-  private normalizeVttMap(map: VttMapStateDto, scenarioNodeId: string | null): VttMapStateDto {
-    return this.runtime.normalizeVttMap(map, scenarioNodeId);
+  private normalizeVttMap(map: VttMapStateDto, scenarioNodeId: string | null): AuthoritativeVttMap {
+    return markAuthoritativeVttMap(
+      this.runtime.normalizeVttMap(map, scenarioNodeId),
+    );
   }
 
   private async publishVttMapUpdate(
@@ -140,6 +161,7 @@ export class SessionVttObjectRuntimeRunner {
     map: VttMapStateDto,
     publishSnapshot = false,
     previousMap?: VttMapStateDto,
+    versions?: { stateVersion: number; runtimeVersion: number },
   ): Promise<void> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     this.realtimeEvents.emitVttMapUpdated(session.id, {
@@ -152,6 +174,7 @@ export class SessionVttObjectRuntimeRunner {
         : {}),
       hostMap: map,
       playerMap: this.redactVttMapForPlayer(map),
+      ...(versions ?? {}),
     });
     if (publishSnapshot) {
       this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
@@ -162,26 +185,26 @@ export class SessionVttObjectRuntimeRunner {
     sessionId: string;
     sessionScenarioId: string;
     flags: Record<string, unknown>;
-    map: VttMapStateDto;
-    previousMap?: VttMapStateDto;
+    map: AuthoritativeVttMap;
+    previousMap?: AuthoritativeVttMap;
     publishSnapshot?: boolean;
+    expectedStateVersion?: number;
   }): Promise<void> {
-    await this.prisma.gameState.update({
-      where: { sessionScenarioId: params.sessionScenarioId },
-      data: {
-        version: { increment: 1 },
-        flagsJson: JSON.stringify({
-          ...params.flags,
-          vttMap: params.map,
-        }),
-      },
-    });
+    const persisted = await this.prisma.$transaction((tx) =>
+      this.runtime.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: params.map,
+        fallbackFlags: params.flags,
+        expectedStateVersion: params.expectedStateVersion,
+      }),
+    );
 
     await this.publishVttMapUpdate(
       params.sessionId,
       params.map,
       params.publishSnapshot,
       params.previousMap,
+      persisted,
     );
   }
 
@@ -283,7 +306,14 @@ export class SessionVttObjectRuntimeRunner {
             return {
               contentId: item.contentId,
               contentKind: "clue",
-              snapshot: this.toRecordSnapshot(clueSnapshots.get(item.contentId), item.contentId),
+              snapshot: {
+                ...this.toRecordSnapshot(
+                  clueSnapshots.get(item.contentId),
+                  item.contentId,
+                ),
+                sourceNodeId: params.nodeId,
+                sourceObjectId: objectCell.id,
+              },
             };
           }
           if (item.contentKind === "item") {
@@ -294,6 +324,7 @@ export class SessionVttObjectRuntimeRunner {
               snapshot: {
                 id: itemDefinition?.id ?? item.contentId,
                 name: itemDefinition?.name ?? item.contentId,
+                sourceNodeId: params.nodeId,
                 sourceObjectId: objectCell.id,
               },
             };
@@ -301,7 +332,11 @@ export class SessionVttObjectRuntimeRunner {
           return {
             contentId: item.contentId,
             contentKind: "event",
-            snapshot: { id: item.contentId, sourceObjectId: objectCell.id },
+            snapshot: {
+              id: item.contentId,
+              sourceNodeId: params.nodeId,
+              sourceObjectId: objectCell.id,
+            },
           };
         })
         .filter((item) => item.contentId.trim());
@@ -404,7 +439,7 @@ export class SessionVttObjectRuntimeRunner {
   }): Promise<{ count: number; objectNames: string[] }> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -464,6 +499,7 @@ export class SessionVttObjectRuntimeRunner {
       flags,
       map: nextMap,
       previousMap: map,
+      expectedStateVersion: state.version,
     });
 
     return { count: observableObjectIds.size, objectNames };
@@ -565,7 +601,7 @@ export class SessionVttObjectRuntimeRunner {
   }> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -626,6 +662,7 @@ export class SessionVttObjectRuntimeRunner {
           id: revealEvent.id,
           name: revealEvent.name ?? null,
           type: revealEvent.type,
+          sourceNodeId: state.currentNodeId ?? undefined,
           sourceObjectId: objectCell.id,
           sourceObjectName: objectCell.name ?? null,
           currentNodeId: state.currentNodeId,
@@ -633,15 +670,11 @@ export class SessionVttObjectRuntimeRunner {
           effect: revealEvent.effect,
         },
       });
-      await tx.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
-        data: {
-          version: { increment: 1 },
-          flagsJson: JSON.stringify({
-            ...flags,
-            vttMap: nextMap,
-          }),
-        },
+      await this.runtime.saveRuntimeVttMapInTransaction(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        map: nextMap,
+        fallbackFlags: flags,
+        expectedStateVersion: state.version,
       });
     });
 
@@ -805,7 +838,7 @@ export class SessionVttObjectRuntimeRunner {
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -893,12 +926,33 @@ export class SessionVttObjectRuntimeRunner {
   }
 
   async applyVttObjectProximityEvents(params: { sessionScenarioId: string; currentNodeId: string | null; map: VttMapStateDto }): Promise<VttMapStateDto> {
+    const effect = await this.evaluateVttObjectProximityEvents(params);
+    if (effect.reveals.length > 0) {
+      await this.prisma.$transaction((tx) =>
+        Promise.all(
+          effect.reveals.map((reveal) =>
+            this.recordSessionReveal(tx, reveal),
+          ),
+        ),
+      );
+    }
+    return effect.map;
+  }
+
+  async evaluateVttObjectProximityEvents(params: {
+    sessionScenarioId: string;
+    currentNodeId: string | null;
+    map: VttMapStateDto;
+  }): Promise<{
+    map: VttMapStateDto;
+    reveals: RecordSessionRevealParams[];
+  }> {
     const objectCells = params.map.objectCells ?? [];
     const candidates = objectCells.flatMap((objectCell) =>
       (objectCell.events ?? []).filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY").map((event) => ({ objectCell, event })),
     );
     if (!candidates.length || !params.map.fogRects.length) {
-      return params.map;
+      return { map: params.map, reveals: [] };
     }
 
     const onceEventIds = candidates.filter(({ event }) => event.trigger.once !== false).map(({ event }) => event.id);
@@ -919,7 +973,7 @@ export class SessionVttObjectRuntimeRunner {
 
     const partyTokens = params.map.tokens.filter((token) => token.sessionCharacterId && token.hidden !== true && token.isHostile !== true);
     if (!partyTokens.length) {
-      return params.map;
+      return { map: params.map, reveals: [] };
     }
 
     const proximityObjectCells = Array.from(
@@ -973,7 +1027,6 @@ export class SessionVttObjectRuntimeRunner {
     for (const { objectCell, event } of candidates) {
       if (
         !nearbyObjectIds.has(objectCell.id) ||
-        objectCell.visibleToPlayers === false ||
         revealedEventIds.has(event.id)
       ) {
         continue;
@@ -999,38 +1052,34 @@ export class SessionVttObjectRuntimeRunner {
     }
 
     if (!triggeredEvents.length) {
-      return params.map;
+      return { map: params.map, reveals: [] };
     }
 
-    await this.prisma.$transaction((tx) =>
-      Promise.all(
-        triggeredEvents.map(({ objectCell, event }) =>
-          this.recordSessionReveal(tx, {
-            sessionScenarioId: params.sessionScenarioId,
-            contentId: event.id,
-            contentKind: "event",
-            scope: "party",
-            revealedBy: "system",
-            reason: "vtt_object_proximity",
-            snapshot: {
-              id: event.id,
-              name: event.name ?? null,
-              type: event.type,
-              sourceObjectId: objectCell.id,
-              sourceObjectName: objectCell.name ?? null,
-              currentNodeId: params.currentNodeId,
-              trigger: event.trigger,
-              effect: event.effect,
-            },
-          }),
-        ),
-      ),
-    );
-
     return {
-      ...params.map,
-      fogRects,
-      updatedAt: new Date().toISOString(),
+      map: {
+        ...params.map,
+        fogRects,
+        updatedAt: new Date().toISOString(),
+      },
+      reveals: triggeredEvents.map(({ objectCell, event }) => ({
+        sessionScenarioId: params.sessionScenarioId,
+        contentId: event.id,
+        contentKind: "event",
+        scope: "party",
+        revealedBy: "system",
+        reason: "vtt_object_proximity",
+        snapshot: {
+          id: event.id,
+          name: event.name ?? null,
+          type: event.type,
+          sourceNodeId: params.currentNodeId ?? undefined,
+          sourceObjectId: objectCell.id,
+          sourceObjectName: objectCell.name ?? null,
+          currentNodeId: params.currentNodeId,
+          trigger: event.trigger,
+          effect: event.effect,
+        },
+      })),
     };
   }
 
@@ -1741,7 +1790,7 @@ export class SessionVttObjectRuntimeRunner {
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1770,6 +1819,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1796,7 +1846,7 @@ export class SessionVttObjectRuntimeRunner {
   ): Promise<{ status: MainCommandStatus; message: string } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1828,6 +1878,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1856,7 +1907,7 @@ export class SessionVttObjectRuntimeRunner {
   } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1888,6 +1939,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1914,7 +1966,7 @@ export class SessionVttObjectRuntimeRunner {
   ): Promise<{ status: MainCommandStatus; message: string } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1946,6 +1998,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -1967,7 +2020,7 @@ export class SessionVttObjectRuntimeRunner {
   ): Promise<{ status: MainCommandStatus; message: string } | null> {
     const state = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
-      select: { currentNodeId: true, flagsJson: true },
+      select: { currentNodeId: true, flagsJson: true, version: true },
     });
     if (!state) {
       throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
@@ -1999,6 +2052,7 @@ export class SessionVttObjectRuntimeRunner {
         flags,
         map: nextMap,
         previousMap: map,
+        expectedStateVersion: state.version,
       });
     }
 
@@ -2408,8 +2462,8 @@ export class SessionVttObjectRuntimeRunner {
     }
   }
 
-  redactVttMapForPlayer(map: VttMapStateDto): VttMapStateDto {
-    return {
+  redactVttMapForPlayer(map: VttMapStateDto): PublicVttMap {
+    return markPlayerRedactedVttMap({
       ...map,
       tokens: map.tokens
         .filter((token) => token.hidden !== true)
@@ -2449,7 +2503,7 @@ export class SessionVttObjectRuntimeRunner {
         ...cell,
         keyItemId: null,
       })),
-    };
+    });
   }
 
   private isVttHazardDetected(hazard: VttObjectHazardDto | null | undefined): boolean {

@@ -43,6 +43,7 @@ describe("SessionVttMapBootstrapService", () => {
     expect(map.tokens[0]).toMatchObject({
       id: "token:session-character-1",
       sessionCharacterId: "session-character-1",
+      startingPositionId: "start:1",
       name: "Ari",
       imageUrl: "https://example.test/ari.png",
       x: 128,
@@ -50,6 +51,67 @@ describe("SessionVttMapBootstrapService", () => {
       size: 64,
       isHostile: false,
     });
+  });
+
+  it("assigns only unused slots to newly joined characters", async () => {
+    prisma.sessionCharacter.findMany.mockResolvedValue([
+      {
+        id: "session-character-1",
+        character: { name: "Ari", avatarUrl: null },
+      },
+      {
+        id: "session-character-2",
+        character: { name: "Borin", avatarUrl: null },
+      },
+    ]);
+    const map: VttMapStateDto = {
+      id: "scenario-map",
+      scenarioNodeId: "node-1",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 480,
+      tokens: [
+        {
+          id: "token:session-character-1",
+          sessionCharacterId: "session-character-1",
+          startingPositionId: "start-2",
+          name: "Ari",
+          imageUrl: null,
+          x: 333,
+          y: 222,
+          size: 64,
+        },
+      ],
+      fogRects: [],
+      startingPositions: [
+        { id: "start-1", label: "P1", x: 64, y: 64 },
+        { id: "start-2", label: "P2", x: 128, y: 64 },
+      ],
+      terrainCells: [],
+      wallCells: [],
+      doorCells: [],
+      objectCells: [],
+      updatedAt: "2026-07-02T00:00:00.000Z",
+    };
+
+    const applied = await service.applyScenarioStartingPositions("session-1", map);
+
+    expect(applied.tokens).toEqual([
+      expect.objectContaining({
+        sessionCharacterId: "session-character-1",
+        startingPositionId: "start-2",
+        x: 333,
+        y: 222,
+      }),
+      expect.objectContaining({
+        sessionCharacterId: "session-character-2",
+        startingPositionId: "start-1",
+        x: 64,
+        y: 64,
+      }),
+    ]);
   });
 
   it("preserves non-player tokens and reuses existing player token position", async () => {

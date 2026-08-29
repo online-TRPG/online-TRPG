@@ -49,11 +49,12 @@ export class AccessTokenAuthMiddleware implements NestMiddleware {
       select: {
         id: true,
         email: true,
+        tokenVersion: true,
         deletedAt: true,
       },
     });
 
-    if (!user || user.deletedAt) {
+    if (!user || user.deletedAt || user.tokenVersion !== payload.ver) {
       throw unavailableAccountError();
     }
 

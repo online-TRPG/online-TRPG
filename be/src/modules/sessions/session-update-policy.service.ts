@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import {
   ParticipantStatus as PrismaParticipantStatus,
-  SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
 } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
@@ -11,12 +11,15 @@ export class SessionUpdatePolicyService {
 
   async ensureCanUpdate(params: {
     sessionId: string;
-    sessionStatus: PrismaSessionStatus;
+    activityStatus: PrismaSessionActivityStatus;
     nextMaxParticipants?: number;
     captainUserId?: string | null;
   }): Promise<void> {
-    if (params.sessionStatus !== PrismaSessionStatus.RECRUITING) {
-      throw new ConflictException("Only recruiting sessions can be updated.");
+    if (
+      params.activityStatus !== PrismaSessionActivityStatus.DORMANT &&
+      params.activityStatus !== PrismaSessionActivityStatus.LOBBY_OPEN
+    ) {
+      throw new ConflictException("방 설정은 대기 중이거나 입장 가능 상태에서만 변경할 수 있습니다.");
     }
 
     if (params.nextMaxParticipants !== undefined) {
@@ -28,7 +31,7 @@ export class SessionUpdatePolicyService {
       });
 
       if (params.nextMaxParticipants < participantCount) {
-        throw new ConflictException("maxParticipants cannot be smaller than the participant count.");
+        throw new ConflictException("총 인원은 현재 참가 인원보다 작게 설정할 수 없습니다.");
       }
     }
 
@@ -42,7 +45,7 @@ export class SessionUpdatePolicyService {
         select: { id: true },
       });
       if (!captainMember) {
-        throw new ConflictException("captainUserId must be a JOINED participant of the session.");
+        throw new ConflictException("반장은 현재 세션 구성원 중에서 선택해주세요.");
       }
     }
   }

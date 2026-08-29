@@ -1,13 +1,15 @@
 import json
-from pathlib import Path
-
-from pydantic import ValidationError
-
 from app.clients.google_ai_studio import GoogleAiStudioClient
 from app.core.config import Settings
-from app.core.errors import AiClientError
 from app.schemas.harness import SummarizerHarnessRequest, SummarizerHarnessResponse
-from app.schemas.summarizer import SummarizerOutput
+from app.schemas.summarizer import SummarizerOutput, SummarizerProviderOutput
+from app.services.provider_execution import (
+    attach_role_diagnostics,
+    build_role_response_metadata,
+    execute_provider_request,
+    load_role_prompt,
+    provider_output_schema,
+)
 
 
 class SummarizerService:
@@ -18,77 +20,55 @@ class SummarizerService:
         self._settings = settings
 
     def run(self, request: SummarizerHarnessRequest) -> SummarizerHarnessResponse:
-        prompt_path = Path(__file__).resolve().parents[2] / "prompts" / self.PROMPT_VERSION
-        system_prompt = prompt_path.read_text(encoding="utf-8")
+        system_prompt = load_role_prompt(self.PROMPT_VERSION)
         model = request.model or self._settings.model_for_role("summarizer")
         user_prompt = self._build_prompt(request)
-        last_error: AiClientError | None = None
-        attempts = self._settings.ai_max_retries + 1
-        for attempt in range(1, attempts + 1):
-            try:
-                result = self._client.generate_json(
+        execution = execute_provider_request(
+            settings=self._settings,
+            request_once=lambda timeout_ms: self._client.generate_json(
                     model=model,
                     prompt=user_prompt,
-                    response_json_schema=SummarizerOutput.model_json_schema(),
+                    response_json_schema=provider_output_schema(SummarizerProviderOutput),
                     system_instruction=system_prompt,
                     temperature=self._settings.ai_temperature_summarizer,
-                )
-                parsed = SummarizerOutput.model_validate(result.parsed_json)
-                break
-            except ValidationError as exc:
-                last_error = AiClientError(
-                    message=f"Summarizer schema validation failed: {exc}",
-                    failure_type="schema_validation",
-                    retryable=attempt < attempts,
-                    status_code=502,
-                    attempts=attempt,
-                )
-            except AiClientError as exc:
-                exc.attempts = attempt
-                last_error = exc
-                if not exc.retryable or attempt >= attempts:
-                    raise exc
-            if attempt >= attempts and last_error is not None:
-                raise last_error
+                    timeout_ms=timeout_ms,
+                ),
+            parse_response=lambda result: self._normalize_output(result.parsed_json, request),
+            validation_error_prefix="Summarizer schema validation failed",
+        )
+        parsed = execution.parsed
 
-        return SummarizerHarnessResponse(
-            provider=result.provider,
-            model=result.model,
-            latencyMs=result.latency_ms,
-            promptVersion=self.PROMPT_VERSION,
-            rawOutput=result.raw_text,
-            finishReason=result.finish_reason,
-            providerRequestId=result.provider_request_id,
-            trace={
-                "role": "summarizer",
-                "provider": result.provider,
-                "model": result.model,
-                "promptVersion": self.PROMPT_VERSION,
-                "latencyMs": result.latency_ms,
-                "attempts": attempt,
-                "failureType": None,
-                "finishReason": result.finish_reason,
-                "providerRequestId": result.provider_request_id,
-            },
-            parsed=parsed,
+        return attach_role_diagnostics(
+            SummarizerHarnessResponse(
+                **build_role_response_metadata(
+                    execution=execution,
+                    role="summarizer",
+                    prompt_version=self.PROMPT_VERSION,
+                ),
+                parsed=parsed,
+            ),
+            execution=execution,
+            settings=self._settings,
         )
 
     @staticmethod
+    def _normalize_output(payload: dict, _request: SummarizerHarnessRequest) -> SummarizerOutput:
+        provider_output = SummarizerProviderOutput.model_validate(payload)
+        return SummarizerOutput(content=provider_output.content)
+
+    @staticmethod
     def _build_prompt(request: SummarizerHarnessRequest) -> str:
+        selected_logs = (
+            request.logs[-request.lastLogCount :]
+            if request.lastLogCount is not None
+            else request.logs
+        )
         payload = {
             "summaryType": request.summaryType,
-            "rangeType": request.rangeType,
-            "lastLogCount": request.lastLogCount,
-            "nodeId": request.nodeId,
-            "logs": request.logs,
-            "includeHiddenContext": request.includeHiddenContext,
-            "constraints": {
-                "noNewFacts": True,
-                "language": "ko",
-            },
+            "logs": selected_logs,
         }
         return "확정된 로그만 사실 요약으로 압축하라.\nJSON 입력:\n" + json.dumps(
             payload,
             ensure_ascii=False,
-            indent=2,
+            separators=(",", ":"),
         )

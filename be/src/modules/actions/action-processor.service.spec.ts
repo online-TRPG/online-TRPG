@@ -1,5 +1,7 @@
 import { VttMapStateDto } from "@trpg/shared-types";
 import { MONSTER_LIMITED_USE_EXPENDED_FLAG } from "../combat/combat-runtime-flags.constants";
+import { RuleEngineService } from "../rules/rule-engine.service";
+import { SpellSlotService } from "../rules/spell-slot.service";
 import { ActionProcessorService } from "./action-processor.service";
 
 describe("ActionProcessorService session action queue", () => {
@@ -429,10 +431,54 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       }),
       getVttMapBaseline: jest.fn().mockResolvedValue(options?.map ?? createBaseMap()),
       normalizeVttMap: jest.fn((map: VttMapStateDto) => map),
+      saveRuntimeVttMapInTransaction: jest.fn(
+        async (
+          client: typeof tx,
+          params: {
+            sessionScenarioId: string;
+            map: VttMapStateDto;
+            fallbackFlags?: Record<string, unknown>;
+            expectedStateVersion?: number;
+          },
+        ) => {
+          const updated = await client.gameState.updateMany({
+            where: {
+              sessionScenarioId: params.sessionScenarioId,
+              version: params.expectedStateVersion,
+            },
+            data: {
+              version: { increment: 1 },
+              flagsJson: JSON.stringify({
+                ...(params.fallbackFlags ?? {}),
+                vttMap: params.map,
+              }),
+            },
+          });
+          if (updated.count !== 1) {
+            const error = new Error("map state conflict") as Error & {
+              response: Record<string, unknown>;
+            };
+            error.response = {
+              code: "VTT_409",
+              data: {
+                reason: "MAP_STATE_VERSION_CONFLICT",
+                expectedVersion: params.expectedStateVersion,
+              },
+            };
+            throw error;
+          }
+          return {
+            map: params.map,
+            stateVersion: (params.expectedStateVersion ?? 0) + 1,
+            runtimeVersion: 2,
+          };
+        },
+      ),
       redactVttMapForPlayer: jest.fn((map: VttMapStateDto) => ({
         ...map,
         playerRedacted: true,
       })),
+      publishCurrentVttMap: jest.fn().mockResolvedValue({}),
     };
     const realtimeEvents = {
       emitVttMapUpdated: jest.fn(),
@@ -453,8 +499,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
+      new SpellSlotService(),
+      new RuleEngineService(),
       {} as never,
     );
 
@@ -527,6 +573,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       "session-1",
       expect.objectContaining({
         hostUserId: "host-user-1",
+        stateVersion: 8,
+        runtimeVersion: 2,
         hostMap: expect.objectContaining({
           objectCells: [
             expect.objectContaining({
@@ -567,6 +615,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
         hostUserId: "host-user-1",
         hostMap: expect.any(Object),
         playerMap: expect.any(Object),
+        stateVersion: 8,
+        runtimeVersion: 2,
       }),
     );
   });
@@ -1204,8 +1254,8 @@ describe("ActionProcessorService rest runtime effects", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
+      new SpellSlotService(),
+      new RuleEngineService(),
       {} as never,
     );
 

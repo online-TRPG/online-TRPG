@@ -1,0 +1,280 @@
+{
+  "contractVersion": "internal-ai-contract-v1",
+  "internalResponse": {
+    "envelopeFields": [
+      "trace",
+      "parsed",
+      "fallback",
+      "fallbackReason"
+    ],
+    "traceFields": [
+      "role",
+      "provider",
+      "model",
+      "promptVersion",
+      "latencyMs",
+      "providerLatencyMs",
+      "attemptLatenciesMs",
+      "schemaValidationRetries",
+      "attempts",
+      "failureType",
+      "finishReason",
+      "providerRequestId",
+      "promptTokenCount",
+      "outputTokenCount",
+      "cachedTokenCount",
+      "totalTokenCount"
+    ],
+    "traceConstraints": {
+      "maxAttempts": 2,
+      "maxInteger": 2147483647,
+      "maxSchemaValidationRetries": 1,
+      "attemptLatenciesMustMatchAttemptsWhenProvided": true,
+      "schemaRetriesCannotExceedCompletedFollowUpAttempts": true
+    },
+    "parsedFieldsByRole": {
+      "interpreter": [
+        "action",
+        "needsClarification",
+        "clarificationQuestion",
+        "mentionedSpellId",
+        "mentionedItemId",
+        "requiredRuleCheckIds",
+        "sceneTransition"
+      ],
+      "narrator": [
+        "narration"
+      ],
+      "director": [
+        "content",
+        "suggestions"
+      ],
+      "summarizer": [
+        "content"
+      ],
+      "actor": [
+        "selectedActionId"
+      ],
+      "npc_dialogue": [
+        "dialogue"
+      ],
+      "check_result": [
+        "narration"
+      ]
+    },
+    "nestedFields": {
+      "interpreterAction": [
+        "type",
+        "actorCharacterId",
+        "targetId",
+        "spellId",
+        "featureId",
+        "attackKind",
+        "ability",
+        "skill",
+        "approach",
+        "confidence",
+        "requiresRoll",
+        "suggestedDifficulty"
+      ],
+      "interpreterSceneTransition": [
+        "selectedTargetNodeId",
+        "candidates"
+      ],
+      "interpreterSceneTransitionCandidate": [
+        "transitionId",
+        "targetNodeId",
+        "logic",
+        "requirements",
+        "confidence",
+        "rationale"
+      ],
+      "interpreterSceneTransitionRequirement": [
+        "type",
+        "text",
+        "polarity"
+      ]
+    },
+    "interpreterConstraints": {
+      "action": {
+        "types": [
+          "TALK_TO_NPC",
+          "SOCIAL_PERSUADE",
+          "SOCIAL_INTIMIDATE",
+          "SOCIAL_DECEIVE",
+          "READ_EMOTION",
+          "ASK_SCENE_INFO",
+          "ASK_HINT",
+          "ASK_SUMMARY",
+          "REQUEST_SCENE_TRANSITION",
+          "OBSERVE_AREA",
+          "INSPECT_STORY_OBJECT",
+          "INVESTIGATE_OBJECT",
+          "LISTEN",
+          "DETECT_DANGER",
+          "SPECIAL_MOVE",
+          "INTERACT_OBJECT",
+          "USE_TOOL",
+          "USE_ITEM_EXPLORE",
+          "SPLIT_PARTY_TASK",
+          "COMBAT_MANEUVER",
+          "ENVIRONMENT_USE",
+          "IMPROVISED_ATTACK",
+          "CALLED_SHOT",
+          "READY_ACTION",
+          "REACTION_REQUEST",
+          "COMBAT_TALK",
+          "USE_ITEM_COMBAT",
+          "USE_SPELL_CREATIVELY",
+          "TACTIC_QUERY",
+          "ASK_RULE",
+          "MAP_MOVE",
+          "MAP_ATTACK",
+          "MAP_CAST_SPELL",
+          "MAP_USE_CLASS_FEATURE",
+          "MAP_END_TURN",
+          "GM_ONLY_DAMAGE",
+          "GM_ONLY_HEAL",
+          "GM_ONLY_CONDITION",
+          "GM_ONLY_INVENTORY_MUTATION",
+          "GAME_META_QUESTION",
+          "OUT_OF_SCOPE"
+        ],
+        "attackKinds": [
+          "weapon_attack",
+          "melee_spell_attack",
+          "ranged_spell_attack"
+        ],
+        "suggestedDifficulties": [
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "maxLengths": {
+          "actorCharacterId": 100,
+          "targetId": 100,
+          "spellId": 100,
+          "featureId": 100,
+          "ability": 50,
+          "skill": 80,
+          "approach": 300
+        }
+      },
+      "output": {
+        "maxLengths": {
+          "clarificationQuestion": 300,
+          "mentionedSpellId": 100,
+          "mentionedItemId": 100,
+          "requiredRuleCheckId": 100
+        }
+      },
+      "sceneTransition": {
+        "requirementTypes": [
+          "ACTION_EVIDENCE",
+          "CLUE_REVEALED",
+          "CLUE_NOT_REVEALED",
+          "OBJECT_STATE",
+          "FLAG_SET",
+          "COMBAT_RESOLVED",
+          "GM_APPROVAL"
+        ],
+        "logics": [
+          "ALL",
+          "ANY"
+        ],
+        "polarities": [
+          "MUST",
+          "MUST_NOT"
+        ],
+        "maxLengths": {
+          "selectedTargetNodeId": 100,
+          "transitionId": 100,
+          "targetNodeId": 100,
+          "rationale": 300,
+          "requirementText": 200
+        }
+      }
+    }
+  },
+  "providerResponse": {
+    "fieldsByRole": {
+      "interpreter": [
+        "action",
+        "needsClarification",
+        "clarificationQuestion",
+        "mentionedSpellId",
+        "mentionedItemId",
+        "requiredRuleCheckIds",
+        "sceneTransition"
+      ],
+      "narrator": [
+        "narration"
+      ],
+      "director": [
+        "content",
+        "suggestions"
+      ],
+      "summarizer": [
+        "content"
+      ],
+      "actor": [
+        "selectedActionId"
+      ],
+      "npc_dialogue": [
+        "dialogue"
+      ],
+      "check_result": [
+        "narration"
+      ]
+    },
+    "conditionalFields": {
+      "director.HINT": [
+        "content"
+      ],
+      "director.HUMAN_GM_ASSIST": [
+        "content",
+        "suggestions"
+      ]
+    },
+    "nestedFields": {
+      "interpreterGeneralAction": [
+        "type",
+        "targetId",
+        "spellId",
+        "featureId",
+        "attackKind",
+        "ability",
+        "skill",
+        "approach",
+        "confidence",
+        "requiresRoll",
+        "suggestedDifficulty"
+      ],
+      "interpreterExtractionAction": [
+        "targetId",
+        "spellId",
+        "featureId",
+        "attackKind",
+        "ability",
+        "skill",
+        "approach",
+        "requiresRoll",
+        "suggestedDifficulty"
+      ],
+      "interpreterSceneTransition": [
+        "candidates"
+      ],
+      "interpreterSceneTransitionCandidate": [
+        "transitionId",
+        "targetNodeId",
+        "logic",
+        "requirements"
+      ],
+      "interpreterSceneTransitionRequirement": [
+        "type",
+        "text",
+        "polarity"
+      ]
+    }
+  }
+}

@@ -346,7 +346,7 @@ export class MainCommandsService {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
       userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(-6)),
     );
 
     if (
@@ -721,6 +721,13 @@ export class MainCommandsService {
     evidence?: TransitionEvidence,
   ): TransitionConditionEvaluation {
     return this.mainCommandTransitionEvaluator.evaluateTransitionCondition(candidate, recentLogs, publicClues, evidence);
+  }
+
+  evaluateTransitionConditionContract(
+    contract: TransitionConditionCandidateContract,
+    evidence: TransitionEvidence,
+  ): TransitionConditionEvaluation {
+    return this.mainCommandTransitionEvaluator.evaluateTransitionConditionContract(contract, evidence);
   }
 
   private async evaluateTransitionConditionWithRevealedClues(

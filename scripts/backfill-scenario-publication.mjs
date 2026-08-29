@@ -8,8 +8,6 @@ const failureSampleLimit = 100;
 const activeAppealStatuses = new Set(['submitted', 'under_review']);
 const providedScenarioIds = new Set([
   'scenario_goblin_cave',
-  'scenario_node_screen_test',
-  'scenario_rule_runtime_smoke',
   'scenario_p1_ember_ruins',
   'scenario_p2_storm_vault',
   'scenario_p3_skybreaker_archive',
@@ -66,7 +64,10 @@ function publicationMatches(current, expected) {
       current.reportCount === expected.reportCount &&
       current.appealCount === expected.appealCount &&
       current.gmMode === expected.gmMode &&
-      sameStringArray(current.tags, expected.tags),
+      sameStringArray(current.tags, expected.tags) &&
+      current.estimatedMinutes === expected.estimatedMinutes &&
+      current.recommendedPlayersMin === expected.recommendedPlayersMin &&
+      current.recommendedPlayersMax === expected.recommendedPlayersMax,
   );
 }
 
@@ -154,8 +155,27 @@ function buildProjection(scenario) {
       forkCount: Number.isInteger(publicMetadata.forkCount) ? publicMetadata.forkCount : 0,
       reportCount: Array.isArray(publicMetadata.reports) ? publicMetadata.reports.length : 0,
       appealCount: activeAppealCount,
-      gmMode: ['AI', 'HUMAN', 'BOTH'].includes(publicMetadata.gmMode) ? publicMetadata.gmMode : null,
-      tags: asStringArray(publicMetadata.tags).map((tag) => tag.toLowerCase()),
+      gmMode:
+        scenario.publication?.gmMode ??
+        (['AI', 'HUMAN', 'BOTH'].includes(publicMetadata.gmMode) ? publicMetadata.gmMode : null),
+      tags: scenario.publication
+        ? scenario.publication.tags
+        : asStringArray(publicMetadata.tags).map((tag) => tag.toLowerCase()),
+      estimatedMinutes:
+        scenario.publication?.estimatedMinutes ??
+        (Number.isInteger(publicMetadata.estimatedMinutes) && publicMetadata.estimatedMinutes > 0
+          ? publicMetadata.estimatedMinutes
+          : null),
+      recommendedPlayersMin:
+        scenario.publication?.recommendedPlayersMin ??
+        (Number.isInteger(publicMetadata.recommendedPlayersMin) && publicMetadata.recommendedPlayersMin > 0
+          ? publicMetadata.recommendedPlayersMin
+          : null),
+      recommendedPlayersMax:
+        scenario.publication?.recommendedPlayersMax ??
+        (Number.isInteger(publicMetadata.recommendedPlayersMax) && publicMetadata.recommendedPlayersMax > 0
+          ? publicMetadata.recommendedPlayersMax
+          : null),
     },
     collaborators,
     failures,
@@ -190,6 +210,8 @@ async function main() {
   let deletedGrant = 0;
   let metadataFailureCount = 0;
   let publicationFailClosedCount = 0;
+  let estimatedMinutesBackfillCount = 0;
+  let recommendedPlayersBackfillCount = 0;
   let missingCollaboratorUserCount = 0;
   const metadataFailures = [];
   const missingCollaboratorUsers = [];
@@ -213,6 +235,9 @@ async function main() {
             appealCount: true,
             gmMode: true,
             tags: true,
+            estimatedMinutes: true,
+            recommendedPlayersMin: true,
+            recommendedPlayersMax: true,
           },
         },
         collaboratorGrants: {
@@ -261,6 +286,20 @@ async function main() {
       }
       if (scenario.publication && !publicationMatches(scenario.publication, projection.publication)) {
         wouldUpdatePublication += 1;
+      }
+      if (
+        scenario.publication?.estimatedMinutes == null &&
+        projection.publication.estimatedMinutes != null
+      ) {
+        estimatedMinutesBackfillCount += 1;
+      }
+      if (
+        (scenario.publication?.recommendedPlayersMin == null ||
+          scenario.publication?.recommendedPlayersMax == null) &&
+        (projection.publication.recommendedPlayersMin != null ||
+          projection.publication.recommendedPlayersMax != null)
+      ) {
+        recommendedPlayersBackfillCount += 1;
       }
       existingCollaboratorGrantCount += scenario.collaboratorGrants.length;
 
@@ -378,6 +417,8 @@ async function main() {
     deletedGrant,
     metadataFailureCount,
     publicationFailClosedCount,
+    estimatedMinutesBackfillCount,
+    recommendedPlayersBackfillCount,
     metadataFailures,
     missingCollaboratorUserCount,
     missingCollaboratorUsers,

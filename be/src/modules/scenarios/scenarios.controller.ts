@@ -33,6 +33,7 @@ import {
 } from "@trpg/shared-types";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import type { AuthenticatedRequest } from "../../common/auth/authenticated-request";
+import { Public } from "../../common/auth/public.decorator";
 import { ScenariosService } from "./scenarios.service";
 
 @ApiTags("scenarios")
@@ -41,15 +42,11 @@ export class ScenariosController {
   constructor(private readonly scenariosService: ScenariosService) {}
 
   private getOptionalUserId(request: AuthenticatedRequest): string | null {
-    if (request.accessTokenAuth?.userId) {
-      return request.accessTokenAuth.userId;
-    }
-
-    const fallbackUserId = request.headers["x-user-id"];
-    return typeof fallbackUserId === "string" && fallbackUserId ? fallbackUserId : null;
+    return request.accessTokenAuth?.userId ?? null;
   }
 
   @Get()
+  @Public()
   @ApiOkResponse({ type: [ScenarioSummaryResponseDto] })
   listScenarios(
     @Query() query: ScenarioQueryDto,
@@ -59,7 +56,7 @@ export class ScenariosController {
   }
 
   @Get("mine")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [ScenarioSummaryResponseDto] })
   listMyScenarios(
     @CurrentUserId() userId: string,
@@ -69,7 +66,7 @@ export class ScenariosController {
   }
 
   @Post()
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiCreatedResponse({ type: ScenarioResponseDto })
   createScenario(
     @CurrentUserId() userId: string,
@@ -79,7 +76,7 @@ export class ScenariosController {
   }
 
   @Get("moderation/queue")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiOkResponse({ type: [ScenarioModerationQueueItemDto] })
   listScenarioModerationQueue(
     @CurrentUserId() userId: string,
@@ -88,6 +85,7 @@ export class ScenariosController {
   }
 
   @Get(":id")
+  @Public()
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioResponseDto })
   getScenario(
@@ -98,7 +96,7 @@ export class ScenariosController {
   }
 
   @Patch(":id")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioResponseDto })
   updateScenario(
@@ -110,7 +108,7 @@ export class ScenariosController {
   }
 
   @Post(":id/publish")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioResponseDto })
   publishScenario(
@@ -122,7 +120,7 @@ export class ScenariosController {
   }
 
   @Post(":id/unpublish")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioResponseDto })
   unpublishScenarioRevision(
@@ -133,7 +131,7 @@ export class ScenariosController {
   }
 
   @Get(":id/collaboration")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioCollaborationStateResponseDto })
   getScenarioCollaborationState(
@@ -144,7 +142,7 @@ export class ScenariosController {
   }
 
   @Put(":id/collaborators")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioCollaborationStateResponseDto })
   upsertScenarioCollaborator(
@@ -156,7 +154,7 @@ export class ScenariosController {
   }
 
   @Delete(":id/collaborators/:collaboratorUserId")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiParam({ name: "collaboratorUserId" })
   @ApiOkResponse({ type: ScenarioCollaborationStateResponseDto })
@@ -169,7 +167,7 @@ export class ScenariosController {
   }
 
   @Post(":id/reviews")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioCollaborationStateResponseDto })
   createScenarioReview(
@@ -181,7 +179,7 @@ export class ScenariosController {
   }
 
   @Post(":id/fork")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioResponseDto })
   forkScenario(
@@ -193,7 +191,7 @@ export class ScenariosController {
   }
 
   @Post(":id/report")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioModerationReportResponseDto })
   reportScenario(
@@ -205,7 +203,7 @@ export class ScenariosController {
   }
 
   @Post(":id/moderation-appeals")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioModerationAppealResponseDto })
   appealScenarioModeration(
@@ -217,7 +215,7 @@ export class ScenariosController {
   }
 
   @Post(":id/moderation/actions")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioModerationActionResponseDto })
   applyScenarioModerationAction(
@@ -229,7 +227,7 @@ export class ScenariosController {
   }
 
   @Get(":id/assets")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [ScenarioAssetResponseDto] })
   listScenarioAssets(
@@ -241,7 +239,7 @@ export class ScenariosController {
   }
 
   @Post(":id/assets")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: ScenarioAssetResponseDto })
   uploadScenarioAsset(
@@ -253,7 +251,7 @@ export class ScenariosController {
   }
 
   @Delete(":id/assets/:assetId")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiParam({ name: "assetId" })
   @ApiNoContentResponse()
@@ -267,7 +265,7 @@ export class ScenariosController {
   }
 
   @Post(":id/nodes/:nodeId/image")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiParam({ name: "nodeId" })
   @ApiOkResponse({ type: ScenarioNodeImageUploadResponseDto })
@@ -281,7 +279,7 @@ export class ScenariosController {
   }
 
   @Delete(":id")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
   @HttpCode(204)

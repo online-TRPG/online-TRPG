@@ -1,5 +1,6 @@
 import {
   GmMode as PrismaGmMode,
+  ParticipantRole as PrismaParticipantRole,
   SessionVisibility as PrismaSessionVisibility,
 } from "@prisma/client";
 import { GmMode, SessionVisibility } from "@trpg/shared-types";
@@ -42,5 +43,13 @@ describe("SessionSettingsService", () => {
   it("maps API GM mode to Prisma GM mode", () => {
     expect(service.resolveGmMode(GmMode.AI)).toBe(PrismaGmMode.AI);
     expect(service.resolveGmMode(GmMode.HUMAN)).toBe(PrismaGmMode.HUMAN);
+  });
+
+  it("derives the session manager role and GM user from GM mode", () => {
+    expect(service.resolveManagerParticipantRole(PrismaGmMode.HUMAN)).toBe(PrismaParticipantRole.GM);
+    expect(service.resolveGmUserId(PrismaGmMode.HUMAN, "manager-user")).toBe("manager-user");
+
+    expect(service.resolveManagerParticipantRole(PrismaGmMode.AI)).toBe(PrismaParticipantRole.HOST);
+    expect(service.resolveGmUserId(PrismaGmMode.AI, "manager-user")).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ import {
 import { PrismaService } from "../../database/prisma.service";
 import { parseJsonOrFallback } from "../../common/utils/json-runtime";
 import { SessionsService } from "../sessions/sessions.service";
+import { CombatPresentationService } from "../combat/combat-presentation.service";
 
 type TurnLogDbClient = Pick<Prisma.TransactionClient, "turnLog">;
 
@@ -26,6 +27,7 @@ export class TurnLogsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly combatPresentation: CombatPresentationService = new CombatPresentationService(),
   ) {}
 
   async createTurnLog(params: {
@@ -38,6 +40,7 @@ export class TurnLogsService {
     structuredAction?: unknown;
     diceResult?: unknown;
     stateDiff?: unknown;
+    presentationContext?: { sourceParticipantId?: string | null };
     outcome: ActionOutcome;
     narration?: string | null;
   }, client: TurnLogDbClient = this.prisma): Promise<TurnLogResponseDto> {
@@ -51,7 +54,16 @@ export class TurnLogsService {
         sessionCharacterId: params.sessionCharacterId ?? null,
         turnNumber,
         rawInput: params.rawInput ?? null,
-        structuredActionJson: this.stringifyStructuredAction(params.structuredAction),
+        structuredActionJson: this.stringifyStructuredAction(
+          this.combatPresentation.attachToStructuredAction(
+            params.structuredAction,
+            {
+              outcome: params.outcome,
+              diceResult: params.diceResult,
+              sourceParticipantId: params.presentationContext?.sourceParticipantId,
+            },
+          ),
+        ),
         diceResultJson: this.stringifyTurnLogDiceResult(params.diceResult),
         stateDiffJson: this.stringifyTurnLogStateDiff(params.stateDiff),
         outcome: this.toPrismaOutcome(params.outcome),
@@ -118,6 +130,38 @@ export class TurnLogsService {
       turnLogs,
       nextCursor: hasNext ? String(pageRows[pageRows.length - 1].turnNumber) : null,
     };
+  }
+
+  /**
+   * Returns only server-persisted narration in chronological order for a
+   * player-visible AI summary. Client-supplied log text is intentionally not
+   * accepted at this trust boundary. The caller must authorize session
+   * membership before invoking this internal selector.
+   */
+  async listConfirmedPublicNarrations(
+    sessionId: string,
+    requestedLimit: number,
+  ): Promise<string[]> {
+    // 51 is an intentional sentinel used to detect a FULL request that cannot
+    // be represented truthfully inside the 50-log provider contract.
+    const limit = Math.min(Math.max(requestedLimit, 1), 51);
+    const rows = await this.prisma.turnLog.findMany({
+      where: {
+        sessionId,
+        narration: { not: null },
+      },
+      orderBy: { turnNumber: "desc" },
+      take: limit,
+      select: { narration: true },
+    });
+
+    return rows
+      .slice()
+      .reverse()
+      .flatMap((row) => {
+        const narration = row.narration?.trim();
+        return narration ? [narration] : [];
+      });
   }
 
   async attachStateDiff(

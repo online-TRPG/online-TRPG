@@ -456,11 +456,7 @@ export class CombatTurnService {
     );
     const rolls: DiceRollResponseDto[] = [];
     let total = 0;
-    const session = await runtime.sessionsService.getSessionEntityOrThrow(
-      combat.sessionId,
-    );
-    const map = await runtime.sessionsService.getVttMapForUser(
-      runtime.getGmRuntimeUserId(session),
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(
       combat.sessionId,
     );
     for (const packet of packets) {
@@ -496,8 +492,7 @@ export class CombatTurnService {
       return [];
     }
 
-    const session = await runtime.sessionsService.getSessionEntityOrThrow(sessionId);
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), sessionId);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(sessionId);
     const token = runtime.combatTargeting.findParticipantToken(map, participant);
     const actions = runtime.combatMonsterActions.listExecutableActionsForParticipant(participant, token);
     return runtime.combatMonsterResources.resolveMonsterLifecycleEffectsForTurnHook({
@@ -575,7 +570,7 @@ export class CombatTurnService {
       });
     }
 
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(session.id);
     const token = runtime.combatTargeting.findParticipantToken(map, attacker);
     const { state } = await runtime.sessionsService.getGameStateEntityOrThrow(session.id);
     const flags = parseJsonRecordOrThrow(state.flagsJson, {}, "gameState.flagsJson");
@@ -1307,6 +1302,7 @@ export class CombatTurnService {
       rawInput: null,
       structuredAction: {
         type: "monster_special",
+        actorParticipantId: params.actor.id,
         actionId: params.action.actionId,
         monsterId: params.action.monsterId,
         label: params.action.label,
@@ -1361,8 +1357,7 @@ export class CombatTurnService {
         actionId: params.action.actionId,
       });
     }
-    const map = await runtime.sessionsService.getVttMapForUser(
-      runtime.getGmRuntimeUserId(params.session),
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(
       params.session.id,
     );
     const actorToken = runtime.combatTargeting.findParticipantToken(map, params.actor);
@@ -1402,6 +1397,7 @@ export class CombatTurnService {
       });
     }
     const applied: string[] = [];
+    const affectedTargetIds: string[] = [];
     const saveRolls: DiceRollResponseDto[] = [];
     for (const target of targets) {
       const profile = await runtime.resolveParticipantSavingThrowProfile(
@@ -1455,6 +1451,7 @@ export class CombatTurnService {
         );
       }
       applied.push(target.nameSnapshot);
+      affectedTargetIds.push(target.id);
     }
     let updated = await runtime.getActiveCombatEntity(params.session.id);
     if (
@@ -1481,10 +1478,12 @@ export class CombatTurnService {
       rawInput: null,
       structuredAction: {
         type: "monster_area_control",
+        actorParticipantId: params.actor.id,
         monsterId: params.action.monsterId,
         actionId: params.action.actionId,
         save: params.action.save,
         targetIds: targets.map((target) => target.id),
+        affectedTargetIds,
         affectedTargetNames: applied,
         conditionRiders,
       },
@@ -1545,8 +1544,7 @@ export class CombatTurnService {
       });
     }
 
-    const map = await runtime.sessionsService.getVttMapForUser(
-      runtime.getGmRuntimeUserId(params.session),
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(
       params.session.id,
     );
     const actorToken = runtime.combatTargeting.findParticipantToken(map, params.actor);
@@ -1720,12 +1718,14 @@ export class CombatTurnService {
       rawInput: null,
       structuredAction: {
         type: "monster_area_attack",
+        actorParticipantId: params.actor.id,
         actionId: params.action.actionId,
         monsterId: params.action.monsterId,
         label: params.action.label,
         shape,
         sizeFt,
         direction,
+        damageType,
         save: params.action.save ?? null,
         recharge: params.action.recharge ?? null,
         usage: params.action.usage ?? null,
@@ -1825,7 +1825,9 @@ export class CombatTurnService {
     await runtime.combatMonsterResources.recordMonsterRechargeActionExpended(params.session.id, params.combat, params.actor, params.action);
     await runtime.combatMonsterResources.recordMonsterLimitedUseActionExpended(params.session.id, params.combat, params.actor, params.action);
 
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(params.session), params.session.id);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(
+      params.session.id,
+    );
     const actorToken = runtime.combatTargeting.findParticipantToken(map, params.actor);
     const target = params.targetParticipantId
       ? runtime.findCombatParticipantOrThrow(params.combat, params.targetParticipantId)
@@ -2047,8 +2049,7 @@ export class CombatTurnService {
         concentrationCheck: null,
       };
     }
-    const session = await runtime.sessionsService.getSessionEntityOrThrow(sessionId);
-    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), sessionId);
+    const map = await runtime.sessionsService.getAuthoritativeVttMap(sessionId);
     const token = runtime.combatTargeting.findParticipantToken(map, participant);
     if (!token) {
       return {

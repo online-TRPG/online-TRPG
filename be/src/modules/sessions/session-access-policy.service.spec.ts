@@ -21,19 +21,19 @@ describe("SessionAccessPolicyService", () => {
     expect(service.canUseGmRuntimeControls("gm-user", session)).toBe(false);
   });
 
-  it("allows only the assigned GM operator in HUMAN GM sessions", () => {
+  it("allows only the session manager to operate a HUMAN GM session", () => {
     const session = {
       hostUserId: "host-user",
       gmMode: PrismaGmMode.HUMAN,
       gmUserId: "gm-user",
     };
 
-    expect(service.canUseGmRuntimeControls("gm-user", session)).toBe(true);
-    expect(service.canUseGmRuntimeControls("host-user", session)).toBe(false);
-    expect(() => service.ensureGmRuntimeOperator("host-user", session)).toThrow(ForbiddenException);
+    expect(service.canUseGmRuntimeControls("host-user", session)).toBe(true);
+    expect(service.canUseGmRuntimeControls("gm-user", session)).toBe(false);
+    expect(() => service.ensureGmRuntimeOperator("gm-user", session)).toThrow(ForbiddenException);
   });
 
-  it("falls back to host as HUMAN GM operator when gmUserId is empty", () => {
+  it("uses the session manager as HUMAN GM regardless of legacy gmUserId", () => {
     const session = {
       hostUserId: "host-user",
       gmMode: PrismaGmMode.HUMAN,

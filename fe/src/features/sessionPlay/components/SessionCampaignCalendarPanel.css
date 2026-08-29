@@ -1,21 +1,17 @@
 .session-campaign-calendar-panel {
   position: absolute;
-  z-index: 41;
-  top: 58px;
+  z-index: 90;
+  top: calc(100% + 8px);
   right: 12px;
   width: min(450px, calc(100% - 24px));
-  max-height: calc(100% - 70px);
+  max-height: min(620px, calc(100vh - 160px));
+  max-height: min(620px, calc(100dvh - 160px));
   overflow: auto;
   border: 1px solid rgba(54, 85, 104, 0.48);
   border-radius: 14px;
   background: rgba(232, 243, 247, 0.97);
   color: #1d3340;
   box-shadow: 0 18px 38px rgba(12, 27, 34, 0.28);
-}
-
-.session-campaign-calendar-panel.collapsed {
-  width: auto;
-  overflow: visible;
 }
 
 .session-campaign-calendar-toggle {
@@ -33,12 +29,12 @@
   padding: 13px;
 }
 
-.session-campaign-calendar-body header {
+.session-campaign-calendar-heading {
   display: grid;
   gap: 3px;
 }
 
-.session-campaign-calendar-body header span {
+.session-campaign-calendar-heading span {
   color: #4e6e7d;
   font-size: 11px;
 }
@@ -91,6 +87,16 @@
   color: #234a5b;
   font-size: 12px;
   font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .session-campaign-calendar-panel {
+    top: calc(100% + 6px);
+    right: 6px;
+    width: calc(100% - 12px);
+    max-height: calc(100vh - 130px);
+    max-height: calc(100dvh - 130px);
+  }
 }
 
 @media (max-width: 700px) {

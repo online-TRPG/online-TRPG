@@ -11,7 +11,7 @@ import {
   type SystemMessageEventDto,
   type TurnLogResponseDto,
   type VttMapDeltaDto,
-  type VttMapStateDto,
+  type VttMapUpdatedEventDto,
 } from "@trpg/shared-types";
 import {
   decodeActionAcceptedEvent,
@@ -27,7 +27,7 @@ import {
   decodeTurnLogCreatedEvent,
   decodeVttMapUpdatedEvent,
 } from "@trpg/shared-types/frontend";
-import type { Character, ChatMessage, Participant, SessionSnapshot, StoredUser } from "../types/session";
+import type { Character, ChatMessage, Participant, SessionSnapshot } from "../types/session";
 import { normalizeSessionSnapshot } from "../types/session";
 
 export interface RealtimeHandlers {
@@ -40,7 +40,7 @@ export interface RealtimeHandlers {
   onSystemMessage(message: SystemMessageEventDto): void;
   onDiceRolled(diceResult: DiceRollResponseDto): void;
   onStateDiffApplied(stateDiff: StateDiffResponseDto): boolean;
-  onVttMapUpdated(map: VttMapStateDto): void;
+  onVttMapUpdated(event: VttMapUpdatedEventDto): boolean;
   onVttMapDelta(delta: VttMapDeltaDto): boolean;
   onCombatUpdated(combat: CombatResponseDto): void;
   onStatusChange(connected: boolean): void;
@@ -48,7 +48,7 @@ export interface RealtimeHandlers {
 }
 
 export function connectSessionSocket(
-  user: StoredUser,
+  accessToken: string,
   sessionId: string,
   handlers: RealtimeHandlers,
 ): Socket {
@@ -58,11 +58,8 @@ export function connectSessionSocket(
     // 로컬/프록시 환경에서 WebSocket 업그레이드가 바로 실패해도 세션 이벤트가 끊기지 않도록
     // Socket.IO 기본 흐름처럼 polling으로 먼저 연결한 뒤 websocket으로 업그레이드한다.
     transports: ["polling", "websocket"],
-    extraHeaders: {
-      "x-user-id": user.id,
-    },
     auth: {
-      userId: user.id,
+      accessToken,
     },
   });
 
@@ -141,9 +138,16 @@ export function connectSessionSocket(
   }, handlers);
 
   safeSocketOn(socket, "vtt.map.updated", decodeVttMapUpdatedPayload, (payload) => {
-    mapResyncRequested = false;
-    handlers.onVttMapUpdated(payload.map);
-    handlers.onLog("Map updated", "The tabletop map changed.");
+    if (handlers.onVttMapUpdated(payload)) {
+      mapResyncRequested = false;
+      handlers.onLog("Map updated", "The tabletop map changed.");
+      return;
+    }
+    if (!mapResyncRequested) {
+      mapResyncRequested = true;
+      socket.emit("session.resync", { sessionId });
+      handlers.onLog("Map resync requested", "The map event was ahead of the local session state.");
+    }
   }, handlers);
 
   socket.on("vtt.map.delta.v2", (payload: { delta: VttMapDeltaDto }) => {
@@ -169,6 +173,16 @@ export function connectSessionSocket(
     window.dispatchEvent(new CustomEvent("trpg:combat-reaction-prompt", { detail: payload.reaction }));
     handlers.onLog("Reaction prompt", payload.reaction.message);
   }, handlers);
+
+  socket.on("session.play.updated", (payload: unknown) => {
+    window.dispatchEvent(new CustomEvent("trpg:session-play-updated", { detail: payload }));
+  });
+  socket.on("session.attendance.updated", (payload: unknown) => {
+    window.dispatchEvent(new CustomEvent("trpg:session-attendance-updated", { detail: payload }));
+  });
+  socket.on("session.active-play.changed", (payload: unknown) => {
+    window.dispatchEvent(new CustomEvent("trpg:active-play-changed", { detail: payload }));
+  });
 
   return socket;
 }
@@ -234,7 +248,7 @@ function decodeStateDiffPayload(value: unknown): { stateDiff: StateDiffResponseD
   return decodeStateDiffAppliedEvent(value);
 }
 
-function decodeVttMapUpdatedPayload(value: unknown): { map: VttMapStateDto } {
+function decodeVttMapUpdatedPayload(value: unknown): VttMapUpdatedEventDto {
   return decodeVttMapUpdatedEvent(value);
 }
 

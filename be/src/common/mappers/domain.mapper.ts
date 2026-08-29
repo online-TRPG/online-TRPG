@@ -20,6 +20,9 @@ import {
   SessionScenario,
   SessionScenarioStatus as PrismaSessionScenarioStatus,
   SessionStatus as PrismaSessionStatus,
+  SessionActivityStatus as PrismaSessionActivityStatus,
+  RecruitmentStatus as PrismaRecruitmentStatus,
+  SessionJoinPolicy as PrismaSessionJoinPolicy,
   SessionVisibility as PrismaSessionVisibility,
   User,
 } from "@prisma/client";
@@ -36,6 +39,7 @@ import {
   InventoryItemDto,
   normalizeInventoryItemsDisplay,
   ParticipantRole,
+  PublicUserResponseDto,
   ScenarioLicense,
   ScenarioNodeResponseDto,
   ScenarioNodeCheckOptionsConfigDto,
@@ -52,6 +56,10 @@ import {
   SessionScenarioResponseDto,
   SessionScenarioStatus,
   SessionStatus,
+  SessionActivityStatus,
+  RecruitmentStatus,
+  PublicSessionSummaryResponseDto,
+  SessionJoinPolicy,
   SessionVisibility,
   StartingSpellsDto,
   UserRole,
@@ -545,6 +553,16 @@ export function mapUser(user: User): UserResponseDto {
   };
 }
 
+export function mapPublicUser(
+  user: User & { profile?: { profileImageUrl?: string | null } | null },
+): PublicUserResponseDto {
+  return {
+    publicId: user.publicId ?? user.id,
+    displayName: user.displayName || "User",
+    profileImageUrl: user.profile?.profileImageUrl ?? null,
+  };
+}
+
 export function mapSessionScenario(
   sessionScenario: SessionScenarioWithScenario,
 ): SessionScenarioResponseDto {
@@ -576,9 +594,13 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     ownerUserId: session.hostUserId,
     captainUserId: session.captainUserId,
     gmMode: gmModeMap[session.gmMode],
-    gmUserId: session.gmMode === PrismaGmMode.HUMAN ? (session.gmUserId ?? session.hostUserId) : null,
+    gmUserId: session.gmMode === PrismaGmMode.HUMAN ? session.hostUserId : null,
     inviteCode: session.inviteCode,
     status: sessionStatusMap[session.status],
+    activityStatus: sessionActivityStatusMap[session.activityStatus],
+    recruitmentStatus: recruitmentStatusMap[session.recruitmentStatus],
+    joinPolicy: sessionJoinPolicyMap[session.joinPolicy],
+    currentPlayId: session.currentPlayId,
     visibility,
     maxParticipants: session.maxParticipants,
     maxPlayers: session.maxParticipants,
@@ -591,6 +613,26 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     activeSessionScenarioId: activeScenario?.id ?? null,
     createdAt: toIsoString(session.createdAt),
     updatedAt: toIsoString(session.updatedAt),
+  };
+}
+
+export function mapPublicSessionSummary(
+  session: SessionWithRelations,
+): PublicSessionSummaryResponseDto {
+  const publicId = session.publicId ?? session.id;
+  return {
+    id: publicId,
+    publicId,
+    title: session.title,
+    gmMode: gmModeMap[session.gmMode],
+    status: sessionStatusMap[session.status],
+    activityStatus: sessionActivityStatusMap[session.activityStatus],
+    recruitmentStatus: recruitmentStatusMap[session.recruitmentStatus],
+    joinPolicy: sessionJoinPolicyMap[session.joinPolicy],
+    currentPlayId: session.currentPlayId,
+    maxPlayers: session.maxParticipants,
+    ruleSetId: session.ruleSetId,
+    nextSessionAt: session.nextSessionAt ? toIsoString(session.nextSessionAt) : null,
   };
 }
 
@@ -618,6 +660,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
   const activeAssignment =
     character.sessionCharacters?.find(
       (assignment) =>
+        assignment.status === PrismaSessionCharacterStatus.ACTIVE &&
         assignment.session.status !== PrismaSessionStatus.COMPLETED &&
         assignment.session.status !== PrismaSessionStatus.DISBANDED,
     ) ?? null;
@@ -766,6 +809,7 @@ export function mapGameState(
 }
 
 type ScenarioUserDisplaySource = {
+  publicId?: string | null;
   displayName?: string | null;
   profile?: {
     nickname?: string | null;
@@ -774,6 +818,32 @@ type ScenarioUserDisplaySource = {
 
 type ScenarioSummarySource = Scenario & {
   creator?: ScenarioUserDisplaySource | null;
+  publication?: {
+    tags: string[];
+    estimatedMinutes: number | null;
+    recommendedPlayersMin: number | null;
+    recommendedPlayersMax: number | null;
+    gmMode: string | null;
+  } | null;
+};
+
+const sessionActivityStatusMap: Record<PrismaSessionActivityStatus, SessionActivityStatus> = {
+  DORMANT: SessionActivityStatus.DORMANT,
+  LOBBY_OPEN: SessionActivityStatus.LOBBY_OPEN,
+  PLAYING: SessionActivityStatus.PLAYING,
+  COMPLETED: SessionActivityStatus.COMPLETED,
+  DISBANDED: SessionActivityStatus.DISBANDED,
+};
+
+const recruitmentStatusMap: Record<PrismaRecruitmentStatus, RecruitmentStatus> = {
+  OPEN: RecruitmentStatus.OPEN,
+  CLOSED: RecruitmentStatus.CLOSED,
+};
+
+const sessionJoinPolicyMap: Record<PrismaSessionJoinPolicy, SessionJoinPolicy> = {
+  INVITE_ONLY: SessionJoinPolicy.INVITE_ONLY,
+  APPROVAL_REQUIRED: SessionJoinPolicy.APPROVAL_REQUIRED,
+  OPEN_JOIN: SessionJoinPolicy.OPEN_JOIN,
 };
 
 function mapUserDisplayName(user?: ScenarioUserDisplaySource | null): string | null {
@@ -798,10 +868,16 @@ export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSum
     revision.publishedByUserId && revision.publishedByUserId === scenario.createdByUserId
       ? creatorDisplayName
       : null;
+  const publicGmMode =
+    scenario.publication?.gmMode === "AI" ||
+    scenario.publication?.gmMode === "HUMAN" ||
+    scenario.publication?.gmMode === "BOTH"
+      ? scenario.publication.gmMode
+      : null;
   return {
     id: scenario.id,
     title: scenario.title,
-    createdByUserId: scenario.createdByUserId ?? null,
+    createdByUserId: scenario.creator?.publicId ?? null,
     createdByDisplayName: creatorDisplayName,
     description: scenario.description ?? null,
     thumbnailUrl: scenario.thumbnailUrl ?? null,
@@ -818,9 +894,17 @@ export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSum
     changelog: revision.changelog,
     validationReport: revision.validationReport,
     publishedAt: revision.publishedAt,
-    publishedByUserId: revision.publishedByUserId,
+    publishedByUserId:
+      revision.publishedByUserId === scenario.createdByUserId
+        ? scenario.creator?.publicId ?? null
+        : null,
     publishedByDisplayName,
     publishStatus: revision.publishStatus,
+    tags: scenario.publication?.tags ?? [],
+    estimatedMinutes: scenario.publication?.estimatedMinutes ?? null,
+    recommendedPlayersMin: scenario.publication?.recommendedPlayersMin ?? null,
+    recommendedPlayersMax: scenario.publication?.recommendedPlayersMax ?? null,
+    gmMode: publicGmMode,
     createdAt: toIsoString(scenario.createdAt),
     updatedAt: toIsoString(scenario.updatedAt),
   };
@@ -941,7 +1025,7 @@ function toScenarioNodeType(value: string): ScenarioNodeType {
 }
 
 export function mapScenario(
-  scenario: Scenario & { nodes: ScenarioNode[] },
+  scenario: ScenarioSummarySource & { nodes: ScenarioNode[] },
 ): ScenarioResponseDto {
   const startNodeId = resolveScenarioStartNodeId(scenario.nodes, scenario.startNodeId ?? null);
   return {

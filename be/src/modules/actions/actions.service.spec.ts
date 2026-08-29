@@ -1058,7 +1058,7 @@ describe("ActionsService.useInventoryItem P3 spell items", () => {
       getSessionEntityOrThrow: jest.fn(),
       ensureMembership: jest.fn(),
       getGameStateEntityOrThrow: jest.fn(),
-      getVttMapForUser: jest.fn(),
+      getAuthoritativeVttMap: jest.fn(),
       buildSnapshot: jest.fn(),
     };
     const realtimeEvents = {
@@ -1249,7 +1249,7 @@ describe("ActionsService.useInventoryItem P3 spell items", () => {
         flagsJson: JSON.stringify(flags),
       },
     });
-    deps.sessionsService.getVttMapForUser.mockResolvedValue({
+    deps.sessionsService.getAuthoritativeVttMap.mockResolvedValue({
       id: "map-1",
       gridSize: 64,
       width: 1024,

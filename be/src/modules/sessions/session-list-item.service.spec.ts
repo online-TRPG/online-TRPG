@@ -141,10 +141,8 @@ describe("SessionListItemService", () => {
 
     expect(result).toMatchObject({
       session: {
-        id: "session-1",
+        id: "12345678",
         publicId: "12345678",
-        scenarioId: "scenario-active",
-        currentNodeId: "node-1",
       },
       scenario: {
         id: "scenario-active",
@@ -152,16 +150,22 @@ describe("SessionListItemService", () => {
         startLevel: 3,
       },
       host: {
-        id: "host-user",
+        publicId: "host-public",
         displayName: "Host",
       },
       owner: {
-        id: "host-user",
+        publicId: "host-public",
       },
       participantCount: 2,
       availableSlots: 2,
       role: ParticipantRole.PLAYER,
     });
+    expect(result?.session).not.toHaveProperty("inviteCode");
+    expect(result?.session).not.toHaveProperty("hostUserId");
+    expect(result?.host).not.toHaveProperty("id");
+    expect(result?.host).not.toHaveProperty("email");
+    expect(result?.host).not.toHaveProperty("role");
+    expect(result?.host).not.toHaveProperty("authProvider");
   });
 
   it("falls back to the first scenario and omits role for anonymous viewers", () => {
@@ -187,7 +191,7 @@ describe("SessionListItemService", () => {
 
     expect(result).toMatchObject({
       session: {
-        scenarioId: "scenario-planned",
+        id: "12345678",
       },
       scenario: {
         id: "scenario-planned",
@@ -203,6 +207,6 @@ describe("SessionListItemService", () => {
     ]);
 
     expect(result).toHaveLength(1);
-    expect(result[0].session.id).toBe("session-1");
+    expect(result[0].session.id).toBe("12345678");
   });
 });

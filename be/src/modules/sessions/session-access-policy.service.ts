@@ -4,7 +4,6 @@ import { GmMode as PrismaGmMode } from "@prisma/client";
 type SessionAccessSource = {
   hostUserId: string;
   gmMode: PrismaGmMode;
-  gmUserId?: string | null;
 };
 
 @Injectable()
@@ -22,13 +21,10 @@ export class SessionAccessPolicyService {
   }
 
   canUseGmRuntimeControls(userId: string, session: SessionAccessSource): boolean {
-    if (session.gmMode === PrismaGmMode.HUMAN) {
-      return (session.gmUserId ?? session.hostUserId) === userId;
-    }
     return session.hostUserId === userId;
   }
 
   canSeeGmOnlyRuntimeData(userId: string, session: SessionAccessSource): boolean {
-    return session.gmMode === PrismaGmMode.HUMAN && (session.gmUserId ?? session.hostUserId) === userId;
+    return session.gmMode === PrismaGmMode.HUMAN && session.hostUserId === userId;
   }
 }

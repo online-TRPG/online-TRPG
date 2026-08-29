@@ -63,7 +63,7 @@ export class SessionSnapshotService {
           },
           sessionScenarios: {
             include: {
-              scenario: true,
+              scenario: { include: { publication: true } },
               gameState: true,
             },
             orderBy: { sequence: "asc" },
@@ -252,7 +252,7 @@ export class SessionSnapshotService {
           },
           sessionScenarios: {
             include: {
-              scenario: true,
+              scenario: { include: { publication: true } },
               gameState: true,
             },
             orderBy: { sequence: "asc" },

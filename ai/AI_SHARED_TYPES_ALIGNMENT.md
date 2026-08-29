@@ -2,9 +2,9 @@
 
 이 문서는 `ai/app/schemas/`의 Pydantic DTO를 백엔드/shared-types로 옮길 때의 기준이다.
 
-현재 shared-types 구현은 이 폴더 밖에 있다. 이 문서는 AI 폴더 안에서 이름, 책임, 변환 규칙을 먼저 고정한다.
+공개 제품 DTO는 `shared-types/src/dto/api/ai.dto.ts`에 있고, AI 서버 전용 provider/transport DTO는 `ai/app/schemas/`와 `be/src/modules/ai/ai.client.ts`에 둔다. 이 문서는 두 경계의 이름, 책임, 변환 규칙을 고정한다.
 
-현재 `shared-types/src/dto/api/ai.dto.ts`의 공개 DTO는 Narrator 호출과 `AiTraceResponseDto`만 가진 좁은 계약이다. 아래의 공유 후보들은 아직 shared-types에 그대로 존재하지 않으며, 백엔드가 deterministic 엔진 호출을 붙일 때 `app/adapters/shared_types.py`를 통해 변환한다.
+현재 shared-types에는 Narrator, Hint/Human GM Assist, Summarizer, NpcDialogue, trace/quality API 계약이 있다. Interpreter, Actor, CheckResult의 내부 transport와 provider 최소 출력 모델은 공개 제품 DTO로 승격하지 않으며, 백엔드 deterministic 엔진과 AI 서버 사이에서만 사용한다. 필요한 구조화 값은 `app/adapters/shared_types.py`로 변환한다.
 
 ## 원칙
 
@@ -38,31 +38,34 @@
 | 타입                           | 현재 필드                                                                                                                                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `StructuredAction`             | `type`, `actorCharacterId`, `targetId`, `spellId`, `featureId`, `attackKind`, `ability`, `skill`, `approach`, `confidence`, `requiresRoll`, `suggestedDifficulty`                                                         |
-| `InterpreterOutput`            | `action`, `needsClarification`, `clarificationQuestion`, `mentionedSpellId`, `mentionedItemId`, `mentionedConditionIds`, `requiredRuleCheckIds`, `rulesConfidence`, `safetyNotes`                                         |
+| `InterpreterOutput`            | `action`, `needsClarification`, `clarificationQuestion`, `mentionedSpellId`, `mentionedItemId`, `requiredRuleCheckIds`, `sceneTransition`                                                                                |
 | `CheckRequest`                 | `checkType`, `ability`, `skill`, `difficultyClass`, `targetId`, `reason`                                                                                                                                                  |
 | `DiceResult`                   | `rollerId`, `formula`, `total`, `naturalD20`, `success`                                                                                                                                                                   |
 | `NarratorStateDiffSummary`     | `summary`, `changedFlags`, `hpChanges`, `inventoryChanges`, `conditionChanges`, `nodeChange`                                                                                                                              |
 | `NarratorScene`                | `title`, `summary`, `tone`                                                                                                                                                                                                |
 | `NarrationConstraints`         | `language`, `maxLength`, `noNewFacts`                                                                                                                                                                                     |
-| `NarratorOutput`               | `narration`, `visibleSummary`                                                                                                                                                                                             |
-| `AiTraceSummary`               | `role`, `provider`, `model`, `promptVersion`, `latencyMs`, `attempts`, `failureType`, `finishReason`, `providerRequestId`                                                                                                 |
-| `TraceListItem`                | `id`, `timestamp`, `endpoint`, `status`, `sessionId`, `turnId`, `actorCharacterId`, `role`, `provider`, `model`, `promptVersion`, `latencyMs`, `attempts`, `failureType`, `finishReason`, `providerRequestId`, `logPaths` |
-| `TraceListResponse`            | `items`, `total`, `filtered`                                                                                                                                                                                              |
+| `NarratorOutput`               | `narration`                                                                                                                                                                                                               |
+| `AiTraceSummary`               | `role`, `provider`, `model`, `promptVersion`, `latencyMs`, `providerLatencyMs`, `attemptLatenciesMs`, `schemaValidationRetries`, `attempts`, `failureType`, `finishReason`, `providerRequestId`, `promptTokenCount`, `outputTokenCount`, `cachedTokenCount`, `totalTokenCount`             |
+| `TraceListItem`                | `id`, `timestamp`, `endpoint`, `status`, `sessionId`, `turnId`, `actorCharacterId`, `role`, `provider`, `model`, `promptVersion`, `latencyMs`, `attempts`, `failureType`, `finishReason`, `providerRequestId`, `diagnosticRef` |
+| `TraceListResponse`            | `items`, `total`, `filtered`, `scannedBytes`, `malformedRows`, `scanTruncated`                                                                                                                                             |
 | `ActorAllowedAction`           | `id`, `label`, `actionType`                                                                                                                                                                                               |
-| `ActorOutput`                  | `selectedActionId`, `reason`, `safetyNotes`                                                                                                                                                                               |
-| `NpcDialogueOutput`            | `dialogue`, `tone`, `safetyNotes`                                                                                                                                                                                         |
-| `DirectorOutput`               | `hintLevel`, `content`, `sourceScope`, `spoilerLevel`, `suggestions`, `safetyNotes`                                                                                                                                       |
-| `SummarizerOutput`             | `summaryType`, `coveredTurnRange`, `content`, `keyFacts`, `safetyNotes`                                                                                                                                                   |
+| `ActorOutput`                  | `selectedActionId`                                                                                                                                                                                                        |
+| `NpcDialogueOutput`            | `dialogue`                                                                                                                                                                                                                |
+| `DirectorOutput`               | `content`, `suggestions`                                                                                                                                                                                                  |
+| `SummarizerOutput`             | `content`                                                                                                                                                                                                                 |
+| `CheckResultOutput`            | `narration`                                                                                                                                                                                                               |
 | `ClassSpellcastingProgression` | `classLevel`, `cantripsKnown`, `spellsKnown`, `pactMagicSlots`, `pactMagicSlotLevel`, `spellSlotsByLevel`                                                                                                                 |
 
 현재 `shared-types` 공개 API DTO 필드:
 
 | shared-types DTO         | 현재 필드                                                                                                                   |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `AiNarrationRequestDto`  | `rawInput`, `actionSummary`, `diceSummary`, `sceneTone`                                                                     |
+| `AiNarrationRequestDto`  | 구조화 `action`, `checkRequest`, `diceResult`, `stateDiffSummary`, `scene`; 선택 `rawInput`, legacy summary, `maxLength`, `turnId` |
 | `AiNarrationParsedDto`   | `narration`, `visibleSummary`                                                                                               |
 | `AiNarrationResponseDto` | `parsed`, `model`, `latencyMs`, `traceId`                                                                                   |
+| `AiHint*`, `AiSummary*`, `AiNpcDialogue*` | 공개 보조 역할 요청·parsed·응답. deprecated client fact/opaque ID는 내부 AI transport로 전달하지 않음 |
 | `AiTraceResponseDto`     | `id`, `sessionId`, `userId`, `kind`, `status`, `latencyMs`, `provider`, `model`, `failureType`, `errorMessage`, `createdAt` |
+| `AiRoleUsageMetricsDto`  | `kind`, `traceCount`, 하위 호환 `tokenSampleCount`, prompt/output/total별 표본 수와 token p50/p95, provider latency p50/p95, 무표본이면 `null`인 `schemaRetryRate` |
 
 ## 주요 매핑
 

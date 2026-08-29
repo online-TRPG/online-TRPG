@@ -5,26 +5,41 @@
   "type": "module",
   "scripts": {
     "prepare:srd": "npm run --silent build -w @trpg/srd-data && node ../scripts/sync-fe-static-srd.mjs",
-    "dev": "npm run --silent prepare:srd && vite --host 0.0.0.0 --port 5173 --strictPort",
-    "build": "npm run --silent prepare:srd && tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173"
+    "prepare:combat-icons": "node ../scripts/generate-combat-icons.mjs",
+    "dev": "npm run --silent prepare:srd && npm run --silent prepare:combat-icons && vite --host 0.0.0.0 --port 5173 --strictPort",
+    "build": "npm run --silent prepare:srd && npm run --silent prepare:combat-icons && tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:a11y": "vitest run src/accessibility",
+    "test:e2e:a11y": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@iconify/react": "^6.0.2",
-    "@trpg/srd-data": "file:../srd-data",
     "@trpg/shared-types": "file:../shared-types",
+    "@trpg/srd-data": "file:../srd-data",
     "konva": "^9.3.18",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.14",
-    "react-router-dom": "^6.30.1",
+    "react-router-dom": "^7.18.2",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@iconify-json/game-icons": "^1.2.4",
+    "@playwright/test": "^1.52.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "axe-core": "^4.10.3",
+    "jest-axe": "^10.0.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.8.3",
-    "vite": "^5.4.11"
+    "vite": "6.4.3",
+    "vitest": "^3.1.3"
   }
 }

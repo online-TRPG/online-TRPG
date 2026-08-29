@@ -28,7 +28,7 @@ export class AiController {
 
   @Post("narration")
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiCreatedResponse({ type: AiNarrationResponseDto })
   async runNarration(
@@ -45,7 +45,7 @@ export class AiController {
 
   @Post("hint")
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiCreatedResponse({ type: AiHintResponseDto })
   async runHint(
@@ -62,7 +62,7 @@ export class AiController {
 
   @Post("gm-assist-suggestion")
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiCreatedResponse({ type: HumanGmAiAssistSuggestionDto })
   async generateHumanGmAssistSuggestion(
@@ -79,7 +79,7 @@ export class AiController {
 
   @Post("summary")
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiCreatedResponse({ type: AiSummaryResponseDto })
   async runSummary(
@@ -96,7 +96,7 @@ export class AiController {
 
   @Post("npc-dialogue")
   @ApiSecurity("bearer")
-  @ApiSecurity("x-user-id")
+  @ApiSecurity("bearer")
   @ApiParam({ name: "sessionId" })
   @ApiCreatedResponse({ type: AiNpcDialogueResponseDto })
   async runNpcDialogue(

@@ -31,6 +31,18 @@ describe("RealtimeEventsService", () => {
     });
   });
 
+  it("disconnects every socket in the authenticated user room", () => {
+    const disconnectSockets = jest.fn();
+    const inRoom = jest.fn(() => ({ disconnectSockets }));
+    const service = new RealtimeEventsService();
+    service.bindServer({ in: inRoom } as never);
+
+    service.disconnectAuthenticatedUser("user-1");
+
+    expect(inRoom).toHaveBeenCalledWith("auth:user:user-1");
+    expect(disconnectSockets).toHaveBeenCalledWith(true);
+  });
+
   it("emits turn.log.created with the created turn log", () => {
     const { service, emit } = createBoundService();
     const turnLog = {

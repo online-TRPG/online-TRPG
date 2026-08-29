@@ -19,7 +19,6 @@ import { SessionDeletePolicyService } from "./session-delete-policy.service";
 import { SessionEconomyService } from "./session-economy.service";
 import { SessionGmRuntimeParticipantAccessService } from "./session-gm-runtime-participant-access.service";
 import { SessionHumanGmAiAssistFailureAuditService } from "./session-human-gm-ai-assist-failure-audit.service";
-import { SessionHumanGmAssignmentPolicyService } from "./session-human-gm-assignment-policy.service";
 import { SessionHumanGmAiAssistSuggestionStoreService } from "./session-human-gm-ai-assist-suggestion-store.service";
 import { SessionHumanGmMessageStoreService } from "./session-human-gm-message-store.service";
 import { SessionHumanGmPrivateNoteStoreService } from "./session-human-gm-private-note-store.service";
@@ -30,6 +29,7 @@ import { SessionLeaveResolutionService } from "./session-leave-resolution.servic
 import { SessionListFilterService } from "./session-list-filter.service";
 import { SessionListItemService } from "./session-list-item.service";
 import { SessionParticipantStatusService } from "./session-participant-status.service";
+import { SessionPlayService } from "./session-play.service";
 import { SessionPublicIdService } from "./session-public-id.service";
 import { SessionRevealService } from "./session-reveal.service";
 import { SessionScenarioNodeSnapshotService } from "./session-scenario-node-snapshot.service";
@@ -41,6 +41,8 @@ import { SessionStartNodeService } from "./session-start-node.service";
 import { SessionStartPolicyService } from "./session-start-policy.service";
 import { SessionUpdatePolicyService } from "./session-update-policy.service";
 import { SessionVttDefaultMapReaderService } from "./session-vtt-default-map-reader.service";
+import { SessionNodeRuntimeMapService } from "./session-node-runtime-map.service";
+import { SessionNodeRuntimeTransitionService } from "./session-node-runtime-transition.service";
 import { SessionVttInteractionPointService } from "./session-vtt-interaction-point.service";
 import { SessionVttMapBootstrapService } from "./session-vtt-map-bootstrap.service";
 import { SessionVttMapNormalizationService } from "./session-vtt-map-normalization.service";
@@ -78,7 +80,6 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
     SessionGmRuntimeParticipantAccessService,
     SessionHumanGmAiAssistFailureAuditService,
     SessionHumanGmAiAssistSuggestionStoreService,
-    SessionHumanGmAssignmentPolicyService,
     SessionHumanGmMessageStoreService,
     SessionHumanGmPrivateNoteStoreService,
     SessionInventoryService,
@@ -88,6 +89,7 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
     SessionListFilterService,
     SessionListItemService,
     SessionParticipantStatusService,
+    SessionPlayService,
     SessionPublicIdService,
     SessionRevealService,
     SessionScenarioLinkService,
@@ -99,6 +101,8 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
     SessionStartPolicyService,
     SessionUpdatePolicyService,
     SessionVttDefaultMapReaderService,
+    SessionNodeRuntimeMapService,
+    SessionNodeRuntimeTransitionService,
     SessionVttInteractionPointService,
     SessionVttMapBootstrapService,
     SessionVttMapNormalizationService,
@@ -116,6 +120,9 @@ import { VttMapObjectRuntimeService } from "./vtt-map-object-runtime.service";
   ],
   exports: [
     SessionsService,
+    SessionGmRuntimeParticipantAccessService,
+    SessionNodeRuntimeMapService,
+    SessionNodeRuntimeTransitionService,
     MapRuntimeService,
     VttMapInteractionRuntimeService,
     VttMapDoorRuntimeService,

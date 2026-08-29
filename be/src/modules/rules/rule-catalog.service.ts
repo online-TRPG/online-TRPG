@@ -2842,7 +2842,10 @@ export class RuleCatalogService {
     if (!normalized) {
       throw new Error("monsterId must not be empty.");
     }
-    return normalized.startsWith("monster.") ? normalized : `monster.${normalized}`;
+    const qualifiedId = normalized.startsWith("monster.") ? normalized : `monster.${normalized}`;
+    return qualifiedId === "monster.dragon_whelp"
+      ? "monster.red_dragon_wyrmling"
+      : qualifiedId;
   }
 
   private isActionTrigger(trigger: RuleCatalogEntry["trigger"]): boolean {

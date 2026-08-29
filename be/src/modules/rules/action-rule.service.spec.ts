@@ -2085,8 +2085,8 @@ describe("ActionRuleService", () => {
         },
         concentrationMaintained: false,
         removedConditions: [
-          { ...concentration, appliedAtRound: 0 },
-          { ...linked, appliedAtRound: 0 },
+          { ...concentration, appliedAtRound: null },
+          { ...linked, appliedAtRound: null },
         ],
         concentrationState: {
           casterId: "",
@@ -2104,7 +2104,7 @@ describe("ActionRuleService", () => {
         sessionCharacterId: "target",
         currentHp: 10,
         markDead: false,
-        conditions: [{ ...unrelated, appliedAtRound: 0 }],
+        conditions: [{ ...unrelated, appliedAtRound: null }],
       },
     ]);
   });

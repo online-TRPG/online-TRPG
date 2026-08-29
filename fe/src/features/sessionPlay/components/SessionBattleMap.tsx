@@ -6,12 +6,22 @@ import type {
   SrdMonsterReferenceDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import type {
+  CombatEffectPlayback,
+  CombatMapAttentionState,
+  CombatMotionPreference,
+  CombatTargetPreview,
+  CombatTargetingMode,
+  CombatTokenConditionState,
+} from '../presentation/combatEffectTypes';
 
 type CombatMovementMode = 'normal' | 'jump';
 
 type TokenHealthFrame = {
   currentHp: number | null;
   maxHp: number | null;
+  tempHp?: number | null;
+  isAlive?: boolean;
   armorClass: number | null;
 };
 
@@ -37,8 +47,16 @@ interface SessionBattleMapProps {
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
+  keyboardMoveTokenId?: string | null;
   showHiddenContent?: boolean;
   showPlayerVisionPreview?: boolean;
+  combatEffectPlaybacks?: CombatEffectPlayback[];
+  combatMapAttention?: CombatMapAttentionState | null;
+  combatTargetingMode?: CombatTargetingMode | null;
+  onCombatTargetPreviewChange?: (preview: CombatTargetPreview | null) => void;
+  combatParticipantTokenIdById?: Record<string, string>;
+  combatTokenConditionStates?: CombatTokenConditionState[];
+  combatMotionPreference?: CombatMotionPreference;
   onMapChange: (map: VttMapStateDto) => void;
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   onTokenMoveRequest?: (
@@ -74,8 +92,16 @@ export function SessionBattleMap({
   tokenHealthByTokenId,
   attackRangeOverlay,
   combatMovementMode,
+  keyboardMoveTokenId,
   showHiddenContent,
   showPlayerVisionPreview,
+  combatEffectPlaybacks,
+  combatMapAttention,
+  combatTargetingMode,
+  onCombatTargetPreviewChange,
+  combatParticipantTokenIdById,
+  combatTokenConditionStates,
+  combatMotionPreference,
   onMapChange,
   onSelectionChange,
   onTokenMoveRequest,
@@ -105,8 +131,16 @@ export function SessionBattleMap({
       tokenHealthByTokenId={tokenHealthByTokenId}
       attackRangeOverlay={attackRangeOverlay}
       combatMovementMode={combatMovementMode}
+      keyboardMoveTokenId={keyboardMoveTokenId}
       showHiddenContent={showHiddenContent}
       showPlayerVisionPreview={showPlayerVisionPreview}
+      combatEffectPlaybacks={combatEffectPlaybacks}
+      combatMapAttention={combatMapAttention}
+      combatTargetingMode={combatTargetingMode}
+      onCombatTargetPreviewChange={onCombatTargetPreviewChange}
+      combatParticipantTokenIdById={combatParticipantTokenIdById}
+      combatTokenConditionStates={combatTokenConditionStates}
+      combatMotionPreference={combatMotionPreference}
       onChange={onMapChange}
       onSelectionChange={onSelectionChange}
       onTokenMoveRequest={onTokenMoveRequest}

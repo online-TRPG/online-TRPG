@@ -20,6 +20,9 @@ import {
   SessionParticipantStatus,
   SessionCharacterStatus,
   SessionStatus,
+  SessionActivityStatus,
+  RecruitmentStatus,
+  SessionJoinPolicy,
   SessionVisibility,
   UserRole,
   CharacterAvatarType,
@@ -27,14 +30,32 @@ import {
   SessionScenarioStatus,
   DiceAdvantageState,
 } from "../constants/enums";
+import {
+  COMBAT_CONDITION_POLARITIES,
+  COMBAT_PRESENTATION_CONDITION_OPERATIONS,
+  COMBAT_PRESENTATION_DAMAGE_MODIFIERS,
+  COMBAT_PRESENTATION_DELIVERIES,
+  COMBAT_PRESENTATION_HEALING_KINDS,
+  COMBAT_PRESENTATION_MAX_CONDITION_CHANGES,
+  COMBAT_PRESENTATION_MAX_DAMAGE_PACKETS,
+  COMBAT_PRESENTATION_MAX_HEALING_PACKETS,
+  COMBAT_PRESENTATION_MAX_IMPACTS,
+  COMBAT_PRESENTATION_OUTCOMES,
+} from "../constants/combat-presentation";
 import type {
   ClassDefinitionResponseDto,
   ItemResponseDto,
 } from "../dto/api/classes.dto";
 import type {
   CombatActionResultDto,
+  CombatConditionViewDto,
   CombatMoveResultDto,
   CombatParticipantResponseDto,
+  CombatPresentationConditionChangeV1,
+  CombatPresentationDamagePacketV1,
+  CombatPresentationHealingPacketV1,
+  CombatPresentationImpactV1,
+  CombatPresentationV1,
   CombatReactionPromptDto,
   CombatResponseDto,
   ActionAcceptedResponseDto,
@@ -76,6 +97,7 @@ import type {
 import type {
   HumanGmAiAssistSuggestionDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmRevealOptionDto,
   HumanGmPrivateNoteDto,
   CampaignArchivePublicRevisionLineageDto,
   CampaignArchiveResponseDto,
@@ -87,13 +109,15 @@ import type {
   PlayerVisibleTargetDto,
   SessionDetailResponseDto,
   SessionListItemResponseDto,
+  PublicSessionSummaryResponseDto,
   SessionParticipantResponseDto,
   SessionRevealResponseDto,
+  SessionNodeTransitionResponseDto,
   SessionSnapshotDto,
   VttMapInteractionResponseDto,
   VttMapStateDto,
 } from "../dto/api/sessions.dto";
-import type { UserResponseDto } from "../dto/api/users.dto";
+import type { PublicUserResponseDto, UserResponseDto } from "../dto/api/users.dto";
 import type {
   AuthTokenResponseDto,
   LoginResponseDto,
@@ -376,6 +400,7 @@ export function decodeAuthTokenResponse(value: unknown): AuthTokenResponseDto {
     accessToken: readString(record, "accessToken", "authToken.accessToken"),
     tokenType,
     expiresIn: readPositiveInteger(record, "expiresIn", "authToken.expiresIn"),
+    csrfToken: readString(record, "csrfToken", "authToken.csrfToken"),
   };
 }
 
@@ -392,6 +417,19 @@ export function decodeUserResponse(value: unknown): UserResponseDto {
     role: readStringEnum(record, "role", userRoleValues, "user.role"),
     displayName: readString(record, "displayName", "user.displayName"),
     createdAt: readString(record, "createdAt", "user.createdAt"),
+  };
+}
+
+export function decodePublicUserResponse(value: unknown): PublicUserResponseDto {
+  const record = readRecord(value, "publicUser");
+  return {
+    publicId: readString(record, "publicId", "publicUser.publicId"),
+    displayName: readString(record, "displayName", "publicUser.displayName"),
+    profileImageUrl: readNullableString(
+      record,
+      "profileImageUrl",
+      "publicUser.profileImageUrl",
+    ),
   };
 }
 
@@ -547,6 +585,9 @@ export function decodeRuleCatalogReferenceArray(value: unknown): RuleCatalogRefe
 const authProviderValues: readonly AuthProvider[] = [AuthProvider.LOCAL, AuthProvider.KAKAO, AuthProvider.DISCORD, AuthProvider.GUEST];
 const userRoleValues: readonly UserRole[] = [UserRole.USER, UserRole.MODERATOR, UserRole.ADMIN];
 const sessionStatusValues: readonly SessionStatus[] = [SessionStatus.RECRUITING, SessionStatus.PLAYING, SessionStatus.PAUSED, SessionStatus.COMPLETED, SessionStatus.DISBANDED];
+const sessionActivityStatusValues = Object.values(SessionActivityStatus);
+const recruitmentStatusValues = Object.values(RecruitmentStatus);
+const sessionJoinPolicyValues = Object.values(SessionJoinPolicy);
 const sessionVisibilityValues: readonly SessionVisibility[] = [SessionVisibility.PUBLIC, SessionVisibility.PRIVATE];
 const sessionScenarioStatusValues: readonly SessionScenarioStatus[] = [SessionScenarioStatus.PLANNED, SessionScenarioStatus.ACTIVE, SessionScenarioStatus.COMPLETED, SessionScenarioStatus.ABANDONED];
 const gmModeValues: readonly GmMode[] = [GmMode.AI, GmMode.HUMAN];
@@ -675,7 +716,21 @@ export function decodeScenarioSummary(value: unknown): ScenarioSummaryResponseDt
   const publishedByDisplayName = readNullableString(record, "publishedByDisplayName", "scenario.publishedByDisplayName");
   const publishStatus = readOptionalStringEnum(record, "publishStatus", publishStatusValues, "scenario.publishStatus");
   const tags = readOptionalStringArray(record, "tags", "scenario.tags");
-  const estimatedMinutes = readNullableNonNegativeInteger(record, "estimatedMinutes", "scenario.estimatedMinutes");
+  const estimatedMinutes = readNullablePositiveInteger(record, "estimatedMinutes", "scenario.estimatedMinutes");
+  const recommendedPlayersMin = readNullableIntegerInRange(
+    record,
+    "recommendedPlayersMin",
+    1,
+    8,
+    "scenario.recommendedPlayersMin",
+  );
+  const recommendedPlayersMax = readNullableIntegerInRange(
+    record,
+    "recommendedPlayersMax",
+    1,
+    8,
+    "scenario.recommendedPlayersMax",
+  );
   const gmMode = readNullableStringEnum(record, "gmMode", scenarioGmModeValues, "scenario.gmMode");
   const contentWarnings = readOptionalStringArray(record, "contentWarnings", "scenario.contentWarnings");
   const forkCount = readOptionalNonNegativeInteger(record, "forkCount", "scenario.forkCount");
@@ -712,6 +767,8 @@ export function decodeScenarioSummary(value: unknown): ScenarioSummaryResponseDt
     ...(publishStatus ? { publishStatus } : {}),
     ...(tags ? { tags } : {}),
     estimatedMinutes,
+    recommendedPlayersMin,
+    recommendedPlayersMax,
     gmMode,
     ...(contentWarnings ? { contentWarnings } : {}),
     ...(forkCount !== undefined ? { forkCount } : {}),
@@ -753,27 +810,103 @@ function decodeScenarioNodeVttMap(value: unknown, nodeId: string | null): VttMap
   const gridType = record.gridType === undefined || record.gridType === null
     ? "square"
     : readStringEnum(record, "gridType", ["square", "hex"], "scenarioNode.vttMap.gridType");
+  const gridSize =
+    readOptionalIntegerInRange(
+      record,
+      "gridSize",
+      16,
+      160,
+      "scenarioNode.vttMap.gridSize",
+    ) ?? 64;
   const normalized = {
     id: readOptionalString(record, "id", "scenarioNode.vttMap.id") ?? `map:${fallbackScenarioNodeId ?? "scenario-node"}`,
     scenarioNodeId: fallbackScenarioNodeId,
     imageUrl: readNullableString(record, "imageUrl", "scenarioNode.vttMap.imageUrl"),
     gridType,
-    gridSize: readOptionalIntegerInRange(record, "gridSize", 16, 160, "scenarioNode.vttMap.gridSize") ?? 64,
+    gridSize,
     width: readOptionalIntegerInRange(record, "width", 320, 4000, "scenarioNode.vttMap.width") ?? 1280,
     height: readOptionalIntegerInRange(record, "height", 240, 4000, "scenarioNode.vttMap.height") ?? 832,
-    tokens: record.tokens === undefined || record.tokens === null ? [] : record.tokens,
+    tokens:
+      record.tokens === undefined || record.tokens === null
+        ? []
+        : normalizeScenarioNodeVttTokens(record.tokens),
     encounterScaling: record.encounterScaling ?? null,
     fogRects: record.fogRects === undefined || record.fogRects === null ? [] : record.fogRects,
     ...(record.startingPositions !== undefined && record.startingPositions !== null ? { startingPositions: record.startingPositions } : {}),
     ...(record.pings !== undefined && record.pings !== null ? { pings: record.pings } : {}),
     ...(record.lightSources !== undefined && record.lightSources !== null ? { lightSources: record.lightSources } : {}),
-    ...(record.terrainCells !== undefined && record.terrainCells !== null ? { terrainCells: record.terrainCells } : {}),
-    ...(record.wallCells !== undefined && record.wallCells !== null ? { wallCells: record.wallCells } : {}),
-    ...(record.doorCells !== undefined && record.doorCells !== null ? { doorCells: record.doorCells } : {}),
-    ...(record.objectCells !== undefined && record.objectCells !== null ? { objectCells: record.objectCells } : {}),
+    ...(record.terrainCells !== undefined && record.terrainCells !== null
+      ? { terrainCells: normalizeScenarioNodeVttCells(record.terrainCells, gridSize) }
+      : {}),
+    ...(record.wallCells !== undefined && record.wallCells !== null
+      ? { wallCells: normalizeScenarioNodeVttCells(record.wallCells, gridSize) }
+      : {}),
+    ...(record.doorCells !== undefined && record.doorCells !== null
+      ? { doorCells: normalizeScenarioNodeVttCells(record.doorCells, gridSize, true) }
+      : {}),
+    ...(record.objectCells !== undefined && record.objectCells !== null
+      ? { objectCells: normalizeScenarioNodeVttCells(record.objectCells, gridSize) }
+      : {}),
     updatedAt: readOptionalString(record, "updatedAt", "scenarioNode.vttMap.updatedAt") ?? new Date(0).toISOString(),
   };
   return { ...decodeVttMapState(normalized) };
+}
+
+function normalizeScenarioNodeVttCells(
+  value: unknown,
+  gridSize: number,
+  isDoor = false,
+): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  return value.map((cell) =>
+    isRecord(cell)
+      ? {
+          ...cell,
+          width: cell.width ?? gridSize,
+          height: cell.height ?? gridSize,
+          ...(isDoor
+            ? {
+                state: cell.state ?? "closed",
+                keyItemId: cell.keyItemId ?? null,
+                breakCheckDc: cell.breakCheckDc ?? null,
+              }
+            : {}),
+        }
+      : cell,
+  );
+}
+
+function normalizeScenarioNodeVttTokens(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  return value.map((token) => {
+    if (!isRecord(token) || !isRecord(token.monster)) {
+      return token;
+    }
+    const monster = token.monster;
+    return {
+      ...token,
+      monster: {
+        ...monster,
+        basicRaw: monster.basicRaw ?? "",
+        armorClassRaw: monster.armorClassRaw ?? null,
+        hitPointsRaw: monster.hitPointsRaw ?? null,
+        speedRaw: monster.speedRaw ?? null,
+        challengeRaw: monster.challengeRaw ?? null,
+        sensesRaw: monster.sensesRaw ?? null,
+        languagesRaw: monster.languagesRaw ?? null,
+        traits: monster.traits ?? [],
+        actions: monster.actions ?? [],
+        legendaryActions: monster.legendaryActions ?? [],
+        playReference: monster.playReference ?? null,
+      },
+    };
+  });
 }
 
 function decodeScenarioCheckOption(value: unknown): ScenarioCheckOptionDto {
@@ -994,11 +1127,14 @@ function decodeJsonCompatibleValue(value: unknown, label: string): JsonValue {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((entry, index) => decodeJsonCompatibleValue(entry, `${label}[${index}]`));
+    return value.map((entry, index) =>
+      entry === undefined ? null : decodeJsonCompatibleValue(entry, `${label}[${index}]`),
+    );
   }
   if (isRecord(value)) {
     const decoded: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(value)) {
+      if (entry === undefined) continue;
       decoded[key] = decodeJsonCompatibleValue(entry, `${label}.${key}`);
     }
     return decoded;
@@ -1010,6 +1146,7 @@ export function decodeJsonObject(value: unknown, label: string): Record<string, 
   const record = readRecord(value, label);
   const decoded: Record<string, JsonValue> = {};
   for (const [key, entry] of Object.entries(record)) {
+    if (entry === undefined) continue;
     decoded[key] = decodeJsonCompatibleValue(entry, `${label}.${key}`);
   }
   return decoded;
@@ -1121,6 +1258,19 @@ export function decodePlayerScenarioView(value: unknown): PlayerScenarioViewDto 
     visitedNodes: readArray(record, "visitedNodes", decodePlayerScenarioNode, "playerScenarioView.visitedNodes"),
     revealedClues: readArray(record, "revealedClues", decodePlayerScenarioClue, "playerScenarioView.revealedClues"),
   };
+}
+
+export function decodeHumanGmRevealOption(value: unknown): HumanGmRevealOptionDto {
+  const record = readRecord(value, "humanGmRevealOption");
+  return {
+    contentId: readString(record, "contentId", "humanGmRevealOption.contentId"),
+    title: readString(record, "title", "humanGmRevealOption.title"),
+    preview: readNullableString(record, "preview", "humanGmRevealOption.preview"),
+  };
+}
+
+export function decodeHumanGmRevealOptionArray(value: unknown): HumanGmRevealOptionDto[] {
+  return decodeArray(value, decodeHumanGmRevealOption, "humanGmRevealOptions");
 }
 
 export function decodeSessionRevealResponse(value: unknown): SessionRevealResponseDto {
@@ -1666,6 +1816,212 @@ export function decodeTurnLogDiceResult(value: unknown): NonNullable<TurnLogResp
   };
 }
 
+function decodeBoundedArray<T>(
+  value: unknown,
+  decoder: (entry: unknown, label: string) => T,
+  maximum: number,
+  label: string,
+): T[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array.`);
+  }
+  if (value.length > maximum) {
+    throw new Error(`${label} must contain at most ${maximum} entries.`);
+  }
+  return value.map((entry, index) => decoder(entry, `${label}[${index}]`));
+}
+
+const COMBAT_PRESENTATION_MAX_AMOUNT = 1_000_000_000;
+const COMBAT_PRESENTATION_MAX_COORDINATE = 100_000;
+
+function readCombatPresentationAmount(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): number {
+  const value = readNonNegativeInteger(record, key, label);
+  if (value > COMBAT_PRESENTATION_MAX_AMOUNT) {
+    throw new Error(`${label} exceeds the supported maximum.`);
+  }
+  return value;
+}
+
+function readNullableCombatPresentationAmount(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): number | null {
+  const value = readNullableNonNegativeInteger(record, key, label);
+  if (value !== null && value > COMBAT_PRESENTATION_MAX_AMOUNT) {
+    throw new Error(`${label} exceeds the supported maximum.`);
+  }
+  return value;
+}
+
+function decodeCombatPresentationDamagePacketV1(
+  value: unknown,
+  label: string,
+): CombatPresentationDamagePacketV1 {
+  const record = readRecord(value, label);
+  const damageType = readString(record, "damageType", `${label}.damageType`).trim();
+  if (!damageType) {
+    throw new Error(`${label}.damageType must not be empty.`);
+  }
+  if (damageType.length > 80) {
+    throw new Error(`${label}.damageType is too long.`);
+  }
+  return {
+    damageType,
+    rolledAmount: readCombatPresentationAmount(record, "rolledAmount", `${label}.rolledAmount`),
+    appliedAmount: readCombatPresentationAmount(record, "appliedAmount", `${label}.appliedAmount`),
+    modifiers: decodeBoundedArray(
+      record.modifiers,
+      (entry, entryLabel) => {
+        if (
+          typeof entry !== "string" ||
+          !COMBAT_PRESENTATION_DAMAGE_MODIFIERS.includes(
+            entry as (typeof COMBAT_PRESENTATION_DAMAGE_MODIFIERS)[number],
+          )
+        ) {
+          throw new Error(`${entryLabel} is invalid.`);
+        }
+        return entry as CombatPresentationDamagePacketV1["modifiers"][number];
+      },
+      COMBAT_PRESENTATION_DAMAGE_MODIFIERS.length,
+      `${label}.modifiers`,
+    ),
+  };
+}
+
+function decodeCombatPresentationHealingPacketV1(
+  value: unknown,
+  label: string,
+): CombatPresentationHealingPacketV1 {
+  const record = readRecord(value, label);
+  return {
+    kind: readStringEnum(
+      record,
+      "kind",
+      COMBAT_PRESENTATION_HEALING_KINDS,
+      `${label}.kind`,
+    ),
+    rolledAmount: readNullableCombatPresentationAmount(record, "rolledAmount", `${label}.rolledAmount`),
+    appliedAmount: readCombatPresentationAmount(record, "appliedAmount", `${label}.appliedAmount`),
+  };
+}
+
+function decodeCombatPresentationConditionChangeV1(
+  value: unknown,
+  label: string,
+): CombatPresentationConditionChangeV1 {
+  const record = readRecord(value, label);
+  const conditionId = readString(record, "conditionId", `${label}.conditionId`).trim();
+  if (!conditionId) {
+    throw new Error(`${label}.conditionId must not be empty.`);
+  }
+  if (conditionId.length > 160) {
+    throw new Error(`${label}.conditionId is too long.`);
+  }
+  return {
+    operation: readStringEnum(
+      record,
+      "operation",
+      COMBAT_PRESENTATION_CONDITION_OPERATIONS,
+      `${label}.operation`,
+    ),
+    conditionId,
+  };
+}
+
+function decodeCombatPresentationImpactV1(
+  value: unknown,
+  label: string,
+): CombatPresentationImpactV1 {
+  const record = readRecord(value, label);
+  return {
+    targetParticipantId: readNullableString(
+      record,
+      "targetParticipantId",
+      `${label}.targetParticipantId`,
+    ),
+    outcome: readStringEnum(
+      record,
+      "outcome",
+      COMBAT_PRESENTATION_OUTCOMES,
+      `${label}.outcome`,
+    ),
+    damagePackets: decodeBoundedArray(
+      record.damagePackets,
+      decodeCombatPresentationDamagePacketV1,
+      COMBAT_PRESENTATION_MAX_DAMAGE_PACKETS,
+      `${label}.damagePackets`,
+    ),
+    healingPackets: decodeBoundedArray(
+      record.healingPackets,
+      decodeCombatPresentationHealingPacketV1,
+      COMBAT_PRESENTATION_MAX_HEALING_PACKETS,
+      `${label}.healingPackets`,
+    ),
+    conditionChanges: decodeBoundedArray(
+      record.conditionChanges,
+      decodeCombatPresentationConditionChangeV1,
+      COMBAT_PRESENTATION_MAX_CONDITION_CHANGES,
+      `${label}.conditionChanges`,
+    ),
+  };
+}
+
+export function decodeCombatPresentationV1(value: unknown): CombatPresentationV1 {
+  const record = readRecord(value, "combatPresentationV1");
+  const schemaVersion = readInteger(record, "schemaVersion", "combatPresentationV1.schemaVersion");
+  if (schemaVersion !== 1) {
+    throw new Error("combatPresentationV1.schemaVersion must be 1.");
+  }
+  const presetId = readString(record, "presetId", "combatPresentationV1.presetId").trim();
+  if (!presetId) {
+    throw new Error("combatPresentationV1.presetId must not be empty.");
+  }
+  if (presetId.length > 160) {
+    throw new Error("combatPresentationV1.presetId is too long.");
+  }
+  const publicPoint = record.publicPoint === undefined
+    ? undefined
+    : (() => {
+        const point = readRecord(record.publicPoint, "combatPresentationV1.publicPoint");
+        const x = readNumber(point, "x", "combatPresentationV1.publicPoint.x");
+        const y = readNumber(point, "y", "combatPresentationV1.publicPoint.y");
+        if (
+          Math.abs(x) > COMBAT_PRESENTATION_MAX_COORDINATE ||
+          Math.abs(y) > COMBAT_PRESENTATION_MAX_COORDINATE
+        ) {
+          throw new Error("combatPresentationV1.publicPoint is outside the supported range.");
+        }
+        return { x, y };
+      })();
+  return {
+    schemaVersion: 1,
+    sourceParticipantId: readNullableString(
+      record,
+      "sourceParticipantId",
+      "combatPresentationV1.sourceParticipantId",
+    ),
+    delivery: readStringEnum(
+      record,
+      "delivery",
+      COMBAT_PRESENTATION_DELIVERIES,
+      "combatPresentationV1.delivery",
+    ),
+    presetId,
+    ...(publicPoint ? { publicPoint } : {}),
+    impacts: decodeBoundedArray(
+      record.impacts,
+      decodeCombatPresentationImpactV1,
+      COMBAT_PRESENTATION_MAX_IMPACTS,
+      "combatPresentationV1.impacts",
+    ),
+  };
+}
+
 export function decodeStateDiffResponse(value: unknown): StateDiffResponseDto {
   const record = readRecord(value, "stateDiff");
   return {
@@ -1681,6 +2037,13 @@ export function decodeTurnLogStructuredAction(value: unknown): NonNullable<TurnL
   const decoded: NonNullable<TurnLogResponseDto["structuredAction"]> = {};
   for (const [key, entry] of Object.entries(record)) {
     decoded[key] = decodeJsonCompatibleValue(entry, `turnLog.structuredAction.${key}`);
+  }
+  if (record.presentationV1 !== undefined) {
+    try {
+      decoded.presentationV1 = decodeCombatPresentationV1(record.presentationV1);
+    } catch {
+      delete decoded.presentationV1;
+    }
   }
   return decoded;
 }
@@ -1972,8 +2335,41 @@ export function decodeStateDiffAppliedEvent(value: unknown): StateDiffAppliedEve
 
 export function decodeVttMapUpdatedEvent(value: unknown): VttMapUpdatedEventDto {
   const record = readRecord(value, "vtt.map.updated payload");
+  const scenarioNodeId =
+    record.scenarioNodeId === null
+      ? null
+      : readOptionalString(
+          record,
+          "scenarioNodeId",
+          "vtt.map.updated.scenarioNodeId",
+        );
+  const stateVersion = readOptionalNumber(
+    record,
+    "stateVersion",
+    "vtt.map.updated.stateVersion",
+  );
+  const runtimeVersion = readOptionalNumber(
+    record,
+    "runtimeVersion",
+    "vtt.map.updated.runtimeVersion",
+  );
+  if (
+    stateVersion !== undefined &&
+    (!Number.isInteger(stateVersion) || stateVersion < 0)
+  ) {
+    throw new Error("vtt.map.updated.stateVersion must be a non-negative integer.");
+  }
+  if (
+    runtimeVersion !== undefined &&
+    (!Number.isInteger(runtimeVersion) || runtimeVersion < 0)
+  ) {
+    throw new Error("vtt.map.updated.runtimeVersion must be a non-negative integer.");
+  }
   return {
     sessionId: readString(record, "sessionId", "vtt.map.updated.sessionId"),
+    ...(scenarioNodeId === undefined ? {} : { scenarioNodeId }),
+    ...(stateVersion === undefined ? {} : { stateVersion }),
+    ...(runtimeVersion === undefined ? {} : { runtimeVersion }),
     map: decodeVttMapState(record.map),
   };
 }
@@ -2082,6 +2478,10 @@ export function decodeSessionResponse(value: unknown): SessionSnapshotDto["sessi
     gmUserId: readNullableString(record, "gmUserId", "session.gmUserId"),
     inviteCode: readString(record, "inviteCode", "session.inviteCode"),
     status: readStringEnum(record, "status", sessionStatusValues, "session.status"),
+    activityStatus: readStringEnum(record, "activityStatus", sessionActivityStatusValues, "session.activityStatus"),
+    recruitmentStatus: readStringEnum(record, "recruitmentStatus", recruitmentStatusValues, "session.recruitmentStatus"),
+    joinPolicy: readStringEnum(record, "joinPolicy", sessionJoinPolicyValues, "session.joinPolicy"),
+    currentPlayId: readNullableString(record, "currentPlayId", "session.currentPlayId"),
     visibility: readStringEnum(record, "visibility", sessionVisibilityValues, "session.visibility"),
     maxParticipants: readPositiveInteger(record, "maxParticipants", "session.maxParticipants"),
     maxPlayers: readPositiveInteger(record, "maxPlayers", "session.maxPlayers"),
@@ -2094,6 +2494,41 @@ export function decodeSessionResponse(value: unknown): SessionSnapshotDto["sessi
     activeSessionScenarioId: readNullableString(record, "activeSessionScenarioId", "session.activeSessionScenarioId"),
     createdAt: readString(record, "createdAt", "session.createdAt"),
     updatedAt: readString(record, "updatedAt", "session.updatedAt"),
+  };
+}
+
+export function decodePublicSessionSummary(
+  value: unknown,
+): PublicSessionSummaryResponseDto {
+  const record = readRecord(value, "publicSession");
+  return {
+    id: readString(record, "id", "publicSession.id"),
+    publicId: readString(record, "publicId", "publicSession.publicId"),
+    title: readString(record, "title", "publicSession.title"),
+    gmMode: readStringEnum(record, "gmMode", gmModeValues, "publicSession.gmMode"),
+    status: readStringEnum(record, "status", sessionStatusValues, "publicSession.status"),
+    activityStatus: readStringEnum(
+      record,
+      "activityStatus",
+      sessionActivityStatusValues,
+      "publicSession.activityStatus",
+    ),
+    recruitmentStatus: readStringEnum(
+      record,
+      "recruitmentStatus",
+      recruitmentStatusValues,
+      "publicSession.recruitmentStatus",
+    ),
+    joinPolicy: readStringEnum(
+      record,
+      "joinPolicy",
+      sessionJoinPolicyValues,
+      "publicSession.joinPolicy",
+    ),
+    currentPlayId: readNullableString(record, "currentPlayId", "publicSession.currentPlayId"),
+    maxPlayers: readPositiveInteger(record, "maxPlayers", "publicSession.maxPlayers"),
+    ruleSetId: readNullableString(record, "ruleSetId", "publicSession.ruleSetId"),
+    nextSessionAt: readNullableString(record, "nextSessionAt", "publicSession.nextSessionAt"),
   };
 }
 
@@ -2225,6 +2660,14 @@ export function decodeSessionSnapshot(value: unknown): SessionSnapshotDto {
   };
 }
 
+export function decodeSessionNodeTransitionResponse(value: unknown): SessionNodeTransitionResponseDto {
+  const record = readRecord(value, "sessionNodeTransition");
+  return {
+    snapshot: decodeSessionSnapshot(record.snapshot),
+    playerScenario: decodePlayerScenarioView(record.playerScenario),
+  };
+}
+
 export function decodeSessionDetail(value: unknown): SessionDetailResponseDto {
   const record = readRecord(value, "sessionDetail");
   const snapshot = decodeSessionSnapshot(record);
@@ -2261,12 +2704,14 @@ export function decodeSessionListItem(value: unknown): SessionListItemResponseDt
   }
   const decodedRole = readOptionalStringEnum(record, "role", participantRoleValues, "sessionListItem.role");
   return {
-    session: decodeSessionResponse(record.session),
+    session: decodePublicSessionSummary(record.session),
     scenario: decodeScenarioSummary(record.scenario),
-    host: decodeUserResponse(record.host),
-    owner: decodeUserResponse(record.owner),
+    host: decodePublicUserResponse(record.host),
+    owner: decodePublicUserResponse(record.owner),
     participantCount: readNonNegativeInteger(record, "participantCount", "sessionListItem.participantCount"),
     availableSlots: readNonNegativeInteger(record, "availableSlots", "sessionListItem.availableSlots"),
+    currentSceneTitle: readNullableString(record, "currentSceneTitle", "sessionListItem.currentSceneTitle"),
+    lastActivityAt: readString(record, "lastActivityAt", "sessionListItem.lastActivityAt"),
     ...(decodedRole !== undefined ? { role: decodedRole } : {}),
   };
 }
@@ -2365,6 +2810,7 @@ function decodeVttToken(value: unknown): VttMapStateDto["tokens"][number] {
     id: readString(record, "id", "vttMap.tokens.id"),
     npcId: readNullableString(record, "npcId", "vttMap.tokens.npcId"),
     sessionCharacterId: readNullableString(record, "sessionCharacterId", "vttMap.tokens.sessionCharacterId"),
+    startingPositionId: readNullableString(record, "startingPositionId", "vttMap.tokens.startingPositionId"),
     name: readString(record, "name", "vttMap.tokens.name"),
     imageUrl: readNullableString(record, "imageUrl", "vttMap.tokens.imageUrl"),
     x: readNumber(record, "x", "vttMap.tokens.x"),
@@ -2779,8 +3225,39 @@ export function decodeCombatResponse(value: unknown): CombatResponseDto {
   };
 }
 
+function decodeCombatConditionView(value: unknown, label: string): CombatConditionViewDto {
+  const record = readRecord(value, label);
+  const conditionId = readString(record, "conditionId", `${label}.conditionId`).trim();
+  if (!conditionId) {
+    throw new Error(`${label}.conditionId must not be empty.`);
+  }
+  return {
+    conditionId,
+    sourceId: readNullableString(record, "sourceId", `${label}.sourceId`),
+    polarity: readStringEnum(
+      record,
+      "polarity",
+      COMBAT_CONDITION_POLARITIES,
+      `${label}.polarity`,
+    ),
+    remainingRounds: readNullableNonNegativeInteger(
+      record,
+      "remainingRounds",
+      `${label}.remainingRounds`,
+    ),
+  };
+}
+
 function decodeCombatParticipant(value: unknown): CombatParticipantResponseDto {
   const record = readRecord(value, "combat.participant");
+  const conditionStates = record.conditionStates === undefined || record.conditionStates === null
+    ? undefined
+    : decodeBoundedArray(
+        record.conditionStates,
+        decodeCombatConditionView,
+        COMBAT_PRESENTATION_MAX_CONDITION_CHANGES,
+        "combat.participant.conditionStates",
+      );
   return {
     sessionEntityId: readString(record, "sessionEntityId", "combat.participant.sessionEntityId"),
     entityType: readStringEnum(record, "entityType", combatEntityTypeValues, "combat.participant.entityType"),
@@ -2797,6 +3274,7 @@ function decodeCombatParticipant(value: unknown): CombatParticipantResponseDto {
     isHostile: readBoolean(record, "isHostile", "combat.participant.isHostile"),
     hasActedThisRound: readBoolean(record, "hasActedThisRound", "combat.participant.hasActedThisRound"),
     conditions: readStringArray(record, "conditions", "combat.participant.conditions"),
+    ...(conditionStates ? { conditionStates } : {}),
     concentration: record.concentration === undefined || record.concentration === null
       ? null
       : decodeCombatConcentration(record.concentration, "combat.participant.concentration"),

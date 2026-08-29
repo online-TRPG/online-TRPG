@@ -31,6 +31,14 @@ export type CombatSpellSlotResource = {
 export type CombatSpellActionCostKind = 'action' | 'bonus' | 'reaction';
 export type CombatSpellLegacyTargetKind = 'token' | 'point' | 'none';
 
+export type CombatSpellTargetShapeMetadata = {
+  shape: 'circle' | 'cone' | 'line';
+  radiusFt?: number;
+  lengthFt?: number;
+  widthFt?: number;
+  angleDegrees?: number;
+};
+
 type CombatSpellTargetParticipant = {
   isAlive: boolean;
   isHostile: boolean;
@@ -342,6 +350,28 @@ export const mvpSpellRangeFtById: Record<string, number> = {
   'spell.revivify': 5,
   ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.rangeFt])),
 };
+
+export const combatSpellTargetShapeById: Record<string, CombatSpellTargetShapeMetadata> = {
+  'spell.burning_hands': { shape: 'cone', lengthFt: 15, angleDegrees: 90 },
+  'spell.color_spray': { shape: 'cone', lengthFt: 15, angleDegrees: 90 },
+  'spell.fear': { shape: 'cone', lengthFt: 30, angleDegrees: 90 },
+  'spell.lightning_bolt': { shape: 'line', lengthFt: 100, widthFt: 5 },
+  'spell.gust_of_wind': { shape: 'line', lengthFt: 60, widthFt: 10 },
+  'spell.fireball': { shape: 'circle', radiusFt: 20 },
+  'spell.moonbeam': { shape: 'circle', radiusFt: 5 },
+  'spell.fog_cloud': { shape: 'circle', radiusFt: 20 },
+  'spell.darkness': { shape: 'circle', radiusFt: 15 },
+  'spell.grease': { shape: 'circle', radiusFt: 10 },
+  'spell.entangle': { shape: 'circle', radiusFt: 20 },
+  'spell.web': { shape: 'circle', radiusFt: 20 },
+  'spell.sleep': { shape: 'circle', radiusFt: 20 },
+  'spell.sleet_storm': { shape: 'circle', radiusFt: 20 },
+  'spell.ice_storm': { shape: 'circle', radiusFt: 20 },
+};
+
+export function getCombatSpellTargetShapeMetadata(spellId: string) {
+  return combatSpellTargetShapeById[spellId] ?? null;
+}
 
 export const mvpSpellLevelById: Record<string, number> = {
   'spell.acid_splash': 0,

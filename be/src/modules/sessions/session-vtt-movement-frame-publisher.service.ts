@@ -12,6 +12,7 @@ export class SessionVttMovementFramePublisherService {
     map: VttMapStateDto;
     sourceTokenId: string;
     path: Array<{ x: number; y: number }>;
+    finalMap?: VttMapStateDto;
     redactVttMapForPlayer: (map: VttMapStateDto) => VttMapStateDto;
     delayMs?: number;
   }): Promise<void> {
@@ -20,21 +21,24 @@ export class SessionVttMovementFramePublisherService {
     }
 
     let frameMap = params.map;
-    for (const step of params.path) {
+    for (const [index, step] of params.path.entries()) {
       const previousFrameMap = frameMap;
-      frameMap = {
-        ...frameMap,
-        tokens: frameMap.tokens.map((token) =>
-          token.id === params.sourceTokenId
-            ? {
-                ...token,
-                x: step.x,
-                y: step.y,
-              }
-            : token,
-        ),
-        updatedAt: new Date().toISOString(),
-      };
+      frameMap =
+        params.finalMap && index === params.path.length - 1
+          ? params.finalMap
+          : {
+              ...frameMap,
+              tokens: frameMap.tokens.map((token) =>
+                token.id === params.sourceTokenId
+                  ? {
+                      ...token,
+                      x: step.x,
+                      y: step.y,
+                    }
+                  : token,
+              ),
+              updatedAt: new Date().toISOString(),
+            };
 
       this.realtimeEvents.emitVttMapUpdated(params.sessionId, {
         hostUserId: params.hostUserId,

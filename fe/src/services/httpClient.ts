@@ -9,7 +9,8 @@ import type {
 } from '@trpg/shared-types';
 import type { StoredUser } from '../types/session';
 import { decodeValidatedAuthTokenResponse } from './authToken';
-import { saveStoredToken } from './storage';
+import { loadStoredCsrfToken, saveStoredCsrfToken, saveStoredToken } from './storage';
+import { getApiErrorMessage } from '../presentation/apiErrorMessages';
 
 function readOptionalEnvString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
@@ -61,6 +62,7 @@ interface RequestOptions {
   body?: unknown;
   user?: StoredUser | null;
   accessToken?: string | null;
+  csrfToken?: string | null;
   withCredentials?: boolean;
   skipAuthRefresh?: boolean;
 }
@@ -75,9 +77,11 @@ interface VoidRequestJsonOptions extends RequestOptions {
 
 function formatApiError(body: ApiErrorEnvelope | null, fallback: string): string {
   const fieldErrorReasons = getApiFieldErrorReasons(body?.data);
-  if (fieldErrorReasons.length > 0) return fieldErrorReasons.join('\n');
-  if (!body?.message) return fallback;
-  return Array.isArray(body.message) ? body.message.join(', ') : body.message;
+  const localizedFieldErrors = fieldErrorReasons.filter((reason) => /[가-힣]/.test(reason));
+  if (localizedFieldErrors.length === fieldErrorReasons.length && localizedFieldErrors.length > 0) {
+    return localizedFieldErrors.join('\n');
+  }
+  return getApiErrorMessage(body, fallback);
 }
 
 async function readApiErrorBody(response: Response): Promise<ApiErrorEnvelope | null> {
@@ -152,22 +156,25 @@ async function requestAccessTokenReissue(): Promise<AuthTokenResponseDto> {
 }
 
 async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
+  const csrfToken = loadStoredCsrfToken();
+  if (!csrfToken) {
+    throw new Error('로그인 보안 정보가 없습니다. 다시 로그인해주세요.');
+  }
   const init: RequestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
     },
     credentials: 'include',
   };
   let response: Response | null = null;
-  let lastNetworkError: unknown = null;
   let lastNotFoundBody: ApiErrorEnvelope | null = null;
 
   for (const baseUrl of fallbackApiBaseUrls) {
     try {
       response = await fetch(`${baseUrl}/users/reissue`, init);
-    } catch (error) {
-      lastNetworkError = error;
+    } catch {
       break;
     }
 
@@ -183,11 +190,7 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
   }
 
   if (!response) {
-    throw new Error(
-      lastNetworkError instanceof Error
-        ? lastNetworkError.message
-        : 'API 서버에 연결하지 못했습니다.'
-    );
+    throw new Error('서버에 연결하지 못했습니다. 네트워크 상태를 확인해주세요.');
   }
 
   if (!response.ok) {
@@ -196,7 +199,9 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
   }
 
   const body: unknown = await response.json();
-  return decodeResponseBody<AuthTokenResponseDto>(body, decodeValidatedAuthTokenResponse);
+  const result = decodeResponseBody<AuthTokenResponseDto>(body, decodeValidatedAuthTokenResponse);
+  saveStoredCsrfToken(result.csrfToken);
+  return result;
 }
 
 export async function requestJson<T>(
@@ -218,8 +223,9 @@ export async function requestJson<T>(
 
   if (options.accessToken) {
     headers.Authorization = `Bearer ${options.accessToken}`;
-  } else if (options.user) {
-    headers['x-user-id'] = options.user.id;
+  }
+  if (options.csrfToken) {
+    headers['X-CSRF-Token'] = options.csrfToken;
   }
 
   const init: RequestInit = {
@@ -230,14 +236,12 @@ export async function requestJson<T>(
   };
 
   let response: Response | null = null;
-  let lastNetworkError: unknown = null;
   let lastNotFoundBody: ApiErrorEnvelope | null = null;
 
   for (const baseUrl of fallbackApiBaseUrls) {
     try {
       response = await fetch(`${baseUrl}${path}`, init);
-    } catch (error) {
-      lastNetworkError = error;
+    } catch {
       break;
     }
 
@@ -253,11 +257,7 @@ export async function requestJson<T>(
   }
 
   if (!response) {
-    throw new Error(
-      lastNetworkError instanceof Error
-        ? lastNetworkError.message
-        : 'API 서버에 연결하지 못했습니다.'
-    );
+    throw new Error('서버에 연결하지 못했습니다. 네트워크 상태를 확인해주세요.');
   }
 
   if (!response.ok) {
@@ -267,6 +267,7 @@ export async function requestJson<T>(
       try {
         const nextToken = await requestAccessTokenReissue();
         saveStoredToken(nextToken.accessToken);
+        saveStoredCsrfToken(nextToken.csrfToken);
         notifyAuthTokenReissued(nextToken.accessToken);
         if (options.decode) {
           return requestJson(path, {

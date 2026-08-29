@@ -54,9 +54,7 @@ export function buildCharacterLevelUpPreviewRows(params: {
     {
       label: '진행 중 세션',
       value: previewContext?.activeSessionId
-        ? `세션 ${previewContext.activeSessionId} · ${previewContext.activeSessionStatus ?? '상태 미확인'} · 현재 노드 ${
-            previewContext.currentNodeId ?? '없음'
-          }`
+        ? `참가 중 · 현재 장면 ${previewContext.currentNodeId ? '있음' : '없음'}`
         : '진행 중 세션 없음',
     },
     {
@@ -89,24 +87,24 @@ export function buildCharacterLevelUpPreviewRows(params: {
         : '주문 없음',
     },
     {
-      label: 'Downtime',
+      label: '휴식기 활동',
       value: previewContext
         ? `진행/일시정지 ${previewContext.activeDowntimeTaskCount}개 · 완료 ${previewContext.completedDowntimeTaskCount}개 · 경제 상태 ${
             previewContext.hasEconomyState ? '있음' : '없음'
           }`
-        : '세션 배정 후 downtime 영향 확인 가능',
+        : '세션에 참가하면 휴식기 활동 영향을 확인할 수 있습니다.',
     },
     {
-      label: 'Archive / 이관',
+      label: '캠페인 기록 / 이관',
       value: previewContext
-        ? `archive ${previewContext.campaignArchiveAvailable ? '있음' : '없음'} · 이관 ${
+        ? `완결 기록 ${previewContext.campaignArchiveAvailable ? '있음' : '없음'} · 이관 ${
             previewContext.transferEligibility === 'transfer_allowed'
               ? '허용'
               : previewContext.transferEligibility === 'transfer_blocked'
                 ? '차단'
                 : '미보관'
           }`
-        : '완료 캠페인 archive 없음',
+        : '완료된 캠페인 기록 없음',
     },
   ];
 }

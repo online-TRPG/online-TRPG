@@ -1,0 +1,55 @@
+.session-header-utilities {
+  position: static;
+  z-index: 3;
+  flex: 0 0 auto;
+}
+
+.session-header-utility-controls {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+}
+
+.session-header-utility-controls > button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(114, 80, 34, 0.48);
+  border-radius: 6px;
+  background: rgba(255, 248, 220, 0.9);
+  color: #4d3518;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 2px 4px rgba(63, 38, 10, 0.14);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.session-header-utility-controls > button:hover,
+.session-header-utility-controls > button:focus-visible {
+  border-color: #725022;
+  background: #fff4cf;
+  color: #2f2115;
+}
+
+.session-header-utility-controls > button.active {
+  border-color: #173b67;
+  background: linear-gradient(#315d87, #173657);
+  color: #fff8dd;
+}
+
+@media (max-width: 760px) {
+  .session-header-utility-controls {
+    gap: 4px;
+  }
+
+  .session-header-utility-controls > button {
+    min-height: 26px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+}

@@ -11,16 +11,21 @@ import {
   reissue,
   updateMe,
 } from "../services/authApi";
+import type { DeleteAccountCredential } from "../services/authApi";
 import { assertUsableAccessToken, getAccessTokenExpiresAtMs } from "../services/authToken";
 import { AUTH_EXPIRED_EVENT, AUTH_TOKEN_REISSUED_EVENT } from "../services/httpClient";
+import { trackProductEvent } from "../services/productEvents";
 import { isRecord, readString } from "@trpg/shared-types/frontend";
 import {
   clearAll,
+  clearStoredCsrfToken,
   clearStoredToken,
+  loadStoredCsrfToken,
   loadStoredAuthMode,
   loadStoredToken,
   loadStoredUser,
   saveStoredAuthMode,
+  saveStoredCsrfToken,
   saveStoredToken,
   saveStoredUser,
 } from "../services/storage";
@@ -54,8 +59,8 @@ export interface UseAuthReturn {
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerMember: (email: string, password: string, name: string) => Promise<void>;
   convertGuestAccount: (email: string, password: string, name: string) => Promise<boolean>;
-  handleOAuthCallback: (provider: "kakao" | "discord", code: string) => Promise<void>;
-  deleteAccount: (password: string) => Promise<boolean>;
+  handleOAuthCallback: (provider: "kakao" | "discord", code: string, state: string) => Promise<void>;
+  deleteAccount: (credential: DeleteAccountCredential) => Promise<boolean>;
   updateDisplayName: (displayName: string) => Promise<User>;
   signOut: () => Promise<void>;
   clearError: () => void;
@@ -78,14 +83,23 @@ export function useAuth(
     currentAuthRef.current = { accessToken, authMode, user };
   }, [accessToken, authMode, user]);
 
-  function persist(nextUser: StoredUser, token: string | null, mode: AuthMode) {
+  function persist(
+    nextUser: StoredUser,
+    token: string | null,
+    csrfToken: string | null,
+    mode: AuthMode,
+  ) {
     handledExpiredTokenRef.current = false;
     saveStoredUser(nextUser);
     if (token) {
       saveStoredToken(token);
     } else {
-      // 게스트 세션은 access token을 쓰지 않으므로 이전 회원 토큰이 남아 인증 헤더에 섞이지 않게 지운다.
       clearStoredToken();
+    }
+    if (csrfToken) {
+      saveStoredCsrfToken(csrfToken);
+    } else {
+      clearStoredCsrfToken();
     }
     saveStoredAuthMode(mode);
     setUser(nextUser);
@@ -124,11 +138,15 @@ export function useAuth(
 
   const refreshAccessToken = useCallback(async () => {
     try {
-      const response = await reissue();
+      const csrfToken = loadStoredCsrfToken();
+      if (!csrfToken) {
+        throw new Error("로그인 보안 정보가 없습니다.");
+      }
+      const response = await reissue(csrfToken);
       handledExpiredTokenRef.current = false;
       saveStoredToken(response.accessToken);
+      saveStoredCsrfToken(response.csrfToken);
       setAccessToken(response.accessToken);
-      setAuthMode("member");
       setError(null);
     } catch {
       expireSession(TOKEN_EXPIRED_MESSAGE);
@@ -136,7 +154,14 @@ export function useAuth(
   }, [expireSession]);
 
   useEffect(() => {
-    if (!accessToken || authMode !== "member") return undefined;
+    if (accessToken || !authMode || !user) return;
+    // 새로고침 후에는 HttpOnly refresh cookie와 세션 범위 CSRF 값으로
+    // 짧은 수명의 access token을 메모리에 다시 부트스트랩한다.
+    void refreshAccessToken();
+  }, [accessToken, authMode, refreshAccessToken, user]);
+
+  useEffect(() => {
+    if (!accessToken || !authMode) return undefined;
 
     const expiresAtMs = getAccessTokenExpiresAtMs(accessToken);
     if (expiresAtMs === null) return undefined;
@@ -148,7 +173,7 @@ export function useAuth(
   }, [accessToken, authMode, refreshAccessToken]);
 
   useEffect(() => {
-    if (!accessToken || authMode !== "member") return undefined;
+    if (!accessToken || !authMode) return undefined;
 
     let cancelled = false;
     void getMe(accessToken)
@@ -183,7 +208,7 @@ export function useAuth(
     function handleTokenReissued(event: Event) {
       const detail = decodeAuthTokenReissuedEventDetail(event);
       const accessToken = detail?.accessToken ?? null;
-      if (!accessToken || currentAuthRef.current.authMode !== "member") return;
+      if (!accessToken || !currentAuthRef.current.authMode) return;
 
       handledExpiredTokenRef.current = false;
       saveStoredToken(accessToken);
@@ -206,7 +231,8 @@ export function useAuth(
     setNotice(null);
     setBusy(true);
     try {
-      const nextUser = await createGuest(name);
+      const response = await createGuest(name);
+      const nextUser = response.user;
       persist(
         {
           id: nextUser.id,
@@ -215,7 +241,8 @@ export function useAuth(
           role: nextUser.role,
           createdAt: nextUser.createdAt,
         },
-        null,
+        response.accessToken,
+        response.csrfToken,
         "guest",
       );
       appendLog("rest", "게스트 로그인", `${nextUser.displayName} 님으로 입장했습니다.`);
@@ -251,6 +278,7 @@ export function useAuth(
           createdAt: response.user.createdAt,
         },
         response.accessToken,
+        response.csrfToken,
         "member",
       );
       appendLog("rest", "로그인", `${response.user.displayName} 님으로 입장했습니다.`);
@@ -291,7 +319,7 @@ export function useAuth(
 
   async function convertGuestAccount(email: string, password: string, name: string): Promise<boolean> {
     const currentAuth = currentAuthRef.current;
-    if (!currentAuth.user || currentAuth.authMode !== "guest") {
+    if (!currentAuth.user || !currentAuth.accessToken || currentAuth.authMode !== "guest") {
       setError("게스트 계정만 회원 계정으로 저장할 수 있습니다.");
       setNotice(null);
       return false;
@@ -307,8 +335,9 @@ export function useAuth(
     setNotice(null);
     setBusy(true);
     try {
-      const response = await convertGuestToLocal(currentAuth.user, email, password, name);
-      persist(toStoredUser(response.user), response.accessToken, "member");
+      const response = await convertGuestToLocal(currentAuth.accessToken, email, password, name);
+      trackProductEvent("account_conversion_completed", "account");
+      persist(toStoredUser(response.user), response.accessToken, response.csrfToken, "member");
       setNotice({ kind: "success", message: "게스트 계정을 회원 계정으로 저장했습니다." });
       appendLog("system", "계정 저장", "게스트 계정을 회원 계정으로 저장했습니다.");
       return true;
@@ -320,13 +349,13 @@ export function useAuth(
     }
   }
 
-  async function handleOAuthCallback(provider: "kakao" | "discord", code: string) {
+  async function handleOAuthCallback(provider: "kakao" | "discord", code: string, state: string) {
     const redirectUri = `${window.location.origin}/oauth/callback`;
     setError(null);
     setNotice(null);
     setBusy(true);
     try {
-      const response = await oauthLogin(provider, code, redirectUri);
+      const response = await oauthLogin(provider, code, redirectUri, state);
       persist(
         {
           id: response.user.id,
@@ -336,6 +365,7 @@ export function useAuth(
           createdAt: response.user.createdAt,
         },
         response.accessToken,
+        response.csrfToken,
         "member",
       );
       appendLog("rest", "OAuth 로그인", `${response.user.displayName} 님으로 입장했습니다.`);
@@ -346,16 +376,10 @@ export function useAuth(
     }
   }
 
-  async function deleteAccount(password: string): Promise<boolean> {
+  async function deleteAccount(credential: DeleteAccountCredential): Promise<boolean> {
     const currentAuth = currentAuthRef.current;
-    if (!currentAuth.accessToken || currentAuth.authMode !== "member") {
-      setError("회원 계정만 탈퇴할 수 있습니다.");
-      setNotice(null);
-      return false;
-    }
-
-    if (!password) {
-      setError("비밀번호를 입력해주세요.");
+    if (!currentAuth.user || !currentAuth.authMode) {
+      setError("현재 계정 정보를 확인할 수 없습니다.");
       setNotice(null);
       return false;
     }
@@ -364,7 +388,7 @@ export function useAuth(
     setNotice(null);
     setBusy(true);
     try {
-      await apiDeleteMe(currentAuth.accessToken, password);
+      await apiDeleteMe(currentAuth.user, currentAuth.accessToken, credential);
 
       // 서버 탈퇴가 끝난 뒤에는 로컬 인증 정보도 즉시 지워 재요청에서 삭제된 계정 토큰을 쓰지 않게 한다.
       handledExpiredTokenRef.current = false;
@@ -419,7 +443,7 @@ export function useAuth(
     let logoutWarning: string | null = null;
     try {
       if (accessToken) {
-        await logout(accessToken).catch(() => {
+        await logout(accessToken, loadStoredCsrfToken() ?? "").catch(() => {
           // 서버 응답이 없어도 로컬 인증 정보는 지워서 현재 기기에서는 즉시 로그아웃되게 한다.
           logoutWarning = "이 기기에서는 로그아웃했습니다. 서버 세션 정리는 확인하지 못했습니다.";
         });

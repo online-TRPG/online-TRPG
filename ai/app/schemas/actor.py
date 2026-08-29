@@ -1,7 +1,11 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.schemas.provider import StrictProviderModel
 
 
 class ActorAllowedAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str = Field(min_length=1, max_length=100)
     label: str = Field(min_length=1, max_length=200)
     actionType: str = Field(min_length=1, max_length=60)
@@ -9,8 +13,10 @@ class ActorAllowedAction(BaseModel):
 
 class ActorOutput(BaseModel):
     selectedActionId: str = Field(min_length=1, max_length=100)
-    reason: str = Field(min_length=1, max_length=500)
-    safetyNotes: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ActorProviderOutput(StrictProviderModel):
+    selectedActionId: str = Field(min_length=1, max_length=100)
 
 
 class ActorDecision(BaseModel):

@@ -5331,6 +5331,52 @@ button.chat-submit-btn:disabled,
   gap: 14px;
 }
 
+.session-settings-edit-form {
+  display: grid;
+  gap: 14px;
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.session-settings-readonly-notice {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(145, 47, 47, 0.09);
+  color: #762727;
+  font-weight: 800;
+}
+
+.session-settings-edit-form label {
+  display: grid;
+  gap: 6px;
+  color: #2f2115;
+  font-weight: 800;
+}
+
+.session-settings-edit-form input,
+.session-settings-edit-form select,
+.session-settings-edit-form textarea {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 110, 55, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.96);
+  color: #1d150e;
+  font: inherit;
+}
+
+.session-settings-edit-form textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.session-settings-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .session-settings-entry {
   display: grid;
   gap: 6px;
@@ -5420,4 +5466,62 @@ button.chat-submit-btn:disabled,
 }
 .session-info-panel .scenario-node-panel > .scenario-scene-description-text {
   white-space: pre-line !important;
+}
+.session-member-management {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.session-member-management-list {
+  display: grid;
+  gap: 8px;
+}
+
+.session-member-management-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.human-gm-quick-actions {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(205, 166, 91, 0.55);
+  border-radius: 10px;
+  background: rgba(28, 24, 20, 0.92);
+  color: #f4ead8;
+}
+
+.human-gm-quick-actions > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.human-gm-quick-actions__controls {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.human-gm-quick-actions__controls label {
+  display: grid;
+  min-width: min(360px, 100%);
+  gap: 5px;
+}
+
+.human-gm-quick-actions__controls select,
+.human-gm-quick-actions__controls button {
+  min-height: 38px;
+}
+
+.human-gm-quick-actions > p {
+  margin: 0;
+  color: #f0d393;
 }

@@ -130,7 +130,7 @@
    - 제공 시나리오 seed가 모든 제공 Scenario에 publication을 upsert하는지 유지한다.
    - seed 재실행 시 사용자 Scenario나 collaborator grant를 삭제하지 않는지 확인한다.
 4. 문서
-   - `doc/performance_scalability_remediation_plan.md`의 PERF-02 상태를 backfill 적용 전에는 projection read 준비 완료로 표현하고, 데이터 전환 완료로 표현하지 않는다.
+   - `doc/completed/performance_scalability_remediation_plan.md`의 PERF-02 상태를 backfill 적용 전에는 projection read 준비 완료로 표현하고, 데이터 전환 완료로 표현하지 않는다.
 
 ### 로컬 적용 순서
 

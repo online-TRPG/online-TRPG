@@ -101,8 +101,60 @@ export enum GmMode {
   HUMAN = "HUMAN",
 }
 
+export enum SessionActivityStatus {
+  DORMANT = "DORMANT",
+  LOBBY_OPEN = "LOBBY_OPEN",
+  PLAYING = "PLAYING",
+  COMPLETED = "COMPLETED",
+  DISBANDED = "DISBANDED",
+}
+
+export enum RecruitmentStatus {
+  OPEN = "OPEN",
+  CLOSED = "CLOSED",
+}
+
+export enum SessionJoinPolicy {
+  INVITE_ONLY = "INVITE_ONLY",
+  APPROVAL_REQUIRED = "APPROVAL_REQUIRED",
+  OPEN_JOIN = "OPEN_JOIN",
+}
+
+export enum SessionPlayStatus {
+  SCHEDULED = "SCHEDULED",
+  LOBBY_OPEN = "LOBBY_OPEN",
+  PLAYING = "PLAYING",
+  FINISHED = "FINISHED",
+  CANCELLED = "CANCELLED",
+}
+
+export enum SessionAttendanceStatus {
+  ATTENDING = "ATTENDING",
+  ABSENT = "ABSENT",
+  TENTATIVE = "TENTATIVE",
+}
+
+export enum SessionApplicationStatus {
+  PENDING = "PENDING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+  WITHDRAWN = "WITHDRAWN",
+}
+
+export enum SessionJoinTiming {
+  CURRENT_PLAY = "CURRENT_PLAY",
+  NEXT_PLAY = "NEXT_PLAY",
+}
+
+export enum SessionListSort {
+  RECENT = "recent",
+  SOONEST = "soonest",
+  TITLE = "title",
+}
+
 export enum AiTraceKind {
   NARRATION = "NARRATION",
+  CHECK_RESULT = "CHECK_RESULT",
   HINT = "HINT",
   SUMMARY = "SUMMARY",
   NPC_DIALOGUE = "NPC_DIALOGUE",

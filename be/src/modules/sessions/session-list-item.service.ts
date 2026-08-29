@@ -7,8 +7,8 @@ import {
 import { ParticipantRole, SessionListItemResponseDto } from "@trpg/shared-types";
 import {
   mapScenarioSummary,
-  mapSession,
-  mapUser,
+  mapPublicSessionSummary,
+  mapPublicUser,
 } from "../../common/mappers/domain.mapper";
 
 const participantRoleToApi: Record<PrismaParticipantRole, ParticipantRole> = {
@@ -20,11 +20,11 @@ const participantRoleToApi: Record<PrismaParticipantRole, ParticipantRole> = {
 
 type SessionListSource = Prisma.SessionGetPayload<{
   include: {
-    host: true;
+    host: { include: { profile: true } };
     participants: true;
     sessionScenarios: {
       include: {
-        scenario: true;
+        scenario: { include: { publication: true } };
         gameState: true;
       };
     };
@@ -36,6 +36,7 @@ export class SessionListItemService {
   build(
     session: SessionListSource,
     requesterUserId?: string,
+    currentSceneTitleBySessionId: ReadonlyMap<string, string> = new Map(),
   ): SessionListItemResponseDto | null {
     const activeScenario = this.getActiveSessionScenario(session.sessionScenarios);
     if (!activeScenario) {
@@ -43,23 +44,26 @@ export class SessionListItemService {
     }
 
     return {
-      session: mapSession(session),
+      session: mapPublicSessionSummary(session),
       scenario: mapScenarioSummary(activeScenario.scenario),
-      host: mapUser(session.host),
-      owner: mapUser(session.host),
+      host: mapPublicUser(session.host),
+      owner: mapPublicUser(session.host),
       participantCount: session.participants.length,
       availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
       role: this.getParticipantRoleForUser(session.participants, requesterUserId),
+      currentSceneTitle: currentSceneTitleBySessionId.get(session.id) ?? null,
+      lastActivityAt: session.updatedAt.toISOString(),
     };
   }
 
   buildMany(
     sessions: SessionListSource[],
     requesterUserId?: string,
+    currentSceneTitleBySessionId: ReadonlyMap<string, string> = new Map(),
   ): SessionListItemResponseDto[] {
     return sessions
       .flatMap((session) => {
-        const item = this.build(session, requesterUserId);
+        const item = this.build(session, requesterUserId, currentSceneTitleBySessionId);
         return item ? [item] : [];
       });
   }

@@ -169,7 +169,7 @@ describe("LevelUpService", () => {
       toLevel: 12,
       proficiencyBonusBefore: 3,
       proficiencyBonusAfter: 4,
-      asiOrFeatChoiceRequiredAtLevels: [12],
+      asiOrFeatChoiceRequiredAtLevels: classKey === "rogue" ? [10, 12] : [12],
     });
     expect(result.hpGains).toHaveLength(4);
     expect(result.hpGains.map((gain) => gain.level)).toEqual([9, 10, 11, 12]);
@@ -184,7 +184,7 @@ describe("LevelUpService", () => {
     expect(result.grantedFeatures.some((feature) => feature.level >= 9 && feature.level <= 12)).toBe(true);
   });
 
-  it("resolves P5 level 12 to 16 progression with level 14/16 ASI and high-level features", () => {
+  it("resolves P5 level 12 to 16 progression with level 16 ASI and high-level features", () => {
     const result = service.resolveLevelUp({
       classKey: "warlock",
       currentLevel: 12,
@@ -199,7 +199,7 @@ describe("LevelUpService", () => {
     expect(result).toMatchObject({
       proficiencyBonusBefore: 4,
       proficiencyBonusAfter: 5,
-      asiOrFeatChoiceRequiredAtLevels: [14, 16],
+      asiOrFeatChoiceRequiredAtLevels: [16],
       hpGains: [
         { level: 13, baseGain: 5, constitutionModifier: 2, totalGain: 7 },
         { level: 14, baseGain: 5, constitutionModifier: 2, totalGain: 7 },
@@ -212,7 +212,6 @@ describe("LevelUpService", () => {
       expect.arrayContaining([
         "class.warlock.feature.mystic_arcanum_7",
         "class.warlock.feature.mystic_arcanum_8",
-        "class.warlock.feature.ability_score_improvement_14",
         "class.warlock.feature.ability_score_improvement_16",
       ]),
     );
@@ -248,21 +247,24 @@ describe("LevelUpService", () => {
       toLevel: 16,
       proficiencyBonusBefore: 4,
       proficiencyBonusAfter: 5,
-      asiOrFeatChoiceRequiredAtLevels: [14, 16],
+      asiOrFeatChoiceRequiredAtLevels: classKey === "fighter" ? [14, 16] : [16],
     });
     expect(result.hpGains.map((gain) => gain.level)).toEqual([13, 14, 15, 16]);
-    expect(result.grantedFeatures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          featureId: `class.${classKey}.feature.ability_score_improvement_14`,
-          level: 14,
-        }),
-        expect.objectContaining({
-          featureId: `class.${classKey}.feature.ability_score_improvement_16`,
-          level: 16,
-        }),
-      ]),
-    );
+    const expectedAsiFeatures = [
+      ...(classKey === "fighter"
+        ? [
+            expect.objectContaining({
+              featureId: "class.fighter.feature.ability_score_improvement_14",
+              level: 14,
+            }),
+          ]
+        : []),
+      expect.objectContaining({
+        featureId: `class.${classKey}.feature.ability_score_improvement_16`,
+        level: 16,
+      }),
+    ];
+    expect(result.grantedFeatures).toEqual(expect.arrayContaining(expectedAsiFeatures));
     expect(result.grantedFeatures.some((feature) => feature.level >= 13 && feature.level <= 16)).toBe(true);
   });
 

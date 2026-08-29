@@ -42,9 +42,6 @@ def trace_summary_to_backend(
     session_id: str | None = None,
     turn_id: str | None = None,
     actor_character_id: str | None = None,
-    raw_output: str | None = None,
-    parsed_output: dict[str, Any] | None = None,
-    log_paths: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     return {
         "id": trace_id,
@@ -56,14 +53,18 @@ def trace_summary_to_backend(
         "model": trace.model,
         "promptVersion": trace.promptVersion,
         "latencyMs": trace.latencyMs,
+        "providerLatencyMs": trace.providerLatencyMs,
+        "attemptLatenciesMs": trace.attemptLatenciesMs,
+        "schemaValidationRetries": trace.schemaValidationRetries,
         "attempts": trace.attempts,
         "failureType": trace.failureType,
         "finishReason": trace.finishReason,
         "providerRequestId": trace.providerRequestId,
+        "promptTokenCount": trace.promptTokenCount,
+        "outputTokenCount": trace.outputTokenCount,
+        "cachedTokenCount": trace.cachedTokenCount,
+        "totalTokenCount": trace.totalTokenCount,
         "validationStatus": TRACE_STATUS_TO_VALIDATION_STATUS.get(status, status),
-        "rawOutput": raw_output,
-        "parsedOutput": parsed_output,
-        "logPaths": log_paths,
     }
 
 
@@ -85,5 +86,5 @@ def trace_list_item_to_backend(item: TraceListItem) -> dict[str, Any]:
         "finishReason": item.finishReason,
         "providerRequestId": item.providerRequestId,
         "validationStatus": TRACE_STATUS_TO_VALIDATION_STATUS.get(item.status, item.status),
-        "logPaths": item.logPaths,
+        "diagnosticRef": item.diagnosticRef,
     }

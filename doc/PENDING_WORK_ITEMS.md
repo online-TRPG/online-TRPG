@@ -1,11 +1,31 @@
-# Pending Work Items
+# 미완료 작업 목록 (Pending Work Items)
 
-이 문서는 완료 보관으로 이동한 계획 문서에서 아직 후속 작업으로 남은 항목만 따로 모은다.
+상태: 진행 중 — 서로 독립적인 후속 작업을 우선순위별로 관리함
+
+이 문서는 현재 진행 중인 계획과 완료 보관 문서에서 남은 후속 작업을 따로 모은다.
+
+## 처음 보는 개발자를 위한 요약
+
+이 파일은 한 기능의 구현 순서가 아니라 여러 완료 문서에서 남은 일을 모은
+백로그다. 아래 표의 “완료 확인”까지 증거를 남겨야 항목을 지울 수 있다.
+
+| 우선순위 | 남은 분야 | 쉽게 말하면 | 완료 확인 |
+| --- | --- | --- | --- |
+| 1 | 빈 DB migration | 새 데이터베이스에서도 수동 `db push` 없이 migration만으로 서버를 시작할 수 있어야 한다. | 빈 PostgreSQL에 migration, seed, Backend 기동이 순서대로 성공함 |
+| 2 | 공개 배포 재검증 | 실제 공개 주소에서 내부 AI 경로가 닫히고 인증 경계가 동작하는지 확인해야 한다. | health 200, 내부 경로 404, 미인증 401, 비멤버 403을 기록함 |
+| 3 | AI 평가·장애 검증 | AI 응답 품질과 timeout/fallback이 감이 아니라 수치로 비교되어야 한다. | 고정 테스트셋, scorer, 느린 provider 재현 결과가 있음 |
+| 4 | 자산 관리 UX | 이미지를 썸네일로 찾고 이름 변경·검색·안전한 삭제를 할 수 있어야 한다. | 선택·검색·삭제 사용자 흐름과 참조 보호 테스트가 통과함 |
+| 장기 | 확장 기능 | Director 힌트, 고급 NPC, 대규모 협동 등은 출시 차단이 아닌 후속 확장이다. | 별도 계획과 우선순위가 승인됨 |
+
+처음 작업한다면 3절의 `fresh DB migration bootstrap`부터 시작한다. 이는 새
+환경 배포 자체를 막을 수 있는 항목이다. 나머지는 서로 독립적이므로 각
+소제목을 별도 작업과 검증 기록으로 관리한다.
 
 원본 보관 위치:
 
 - `completed/PLAN_IMPLEMENTATION_WORKFLOW.md`
 - `completed/PLAN_SCENARIO_ASSET_LIBRARY.md`
+- `completed/ai_server_reliability_remediation_plan.md`
 
 ## 1. 구현 워크플로 후속 작업
 
@@ -82,3 +102,24 @@
 - 전역 자산 라이브러리
 - 자산 폴더/태그
 - 이미지 크롭/버전 관리
+
+## 3. AI 서버 안정성·계약 개선 후속 작업
+
+출처: `ai_server_reliability_remediation_plan.md`
+
+### 공개 배포 재검증
+
+- 공개 배포 환경이 다시 준비되면 `/api/v1/health`가 정상 응답하는지 확인한다.
+- 공개 `/ai/`와 `/internal/ai/`가 404로 차단되는지 확인한다.
+- 공개 NestJS 경계에서 미인증 401, 비멤버 403과 거부 요청의 AI trace 미증가를 확인한다.
+
+### 운영 장애 재현
+
+- 실제 느린 provider 또는 네트워크 조건에서 total deadline과 fallback 횟수를 재확인한다.
+- 운영 trace에서 provider latency, token usage, schema retry율의 장기 표본을 축적한다.
+
+### fresh DB migration bootstrap
+
+- 현재 첫 migration이 기존 테이블을 전제로 해 빈 PostgreSQL에서 `prisma migrate deploy`가 실패하는 migration chain을 정리한다.
+- Jenkins의 `prisma db push` 배포 절차와 장기 migration 정책을 명시적으로 구분한다.
+- 빈 DB에서 migration만으로 schema 생성 후 BE seed·기동까지 성공하는 검증을 추가한다.

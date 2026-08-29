@@ -1,5 +1,6 @@
 import { PrismaClient, ScenarioLicense } from "@prisma/client";
 import { parseUnknownJsonOrFallback } from "../../common/utils/json-runtime";
+import { isInternalValidationScenarioId } from "../../modules/scenarios/provided-scenario.constants";
 
 export const DEFAULT_SCENARIO_ID = "scenario_goblin_cave";
 export const DEFAULT_START_NODE_ID = "node_cave_entrance";
@@ -3389,6 +3390,67 @@ const scenarios = [
   p6ValidationScenario,
 ];
 
+const publicScenarioMetadata: Record<
+  string,
+  {
+    tags: string[];
+    estimatedMinutes: number | null;
+    recommendedPlayersMin: number | null;
+    recommendedPlayersMax: number | null;
+    gmMode: "AI" | "HUMAN" | "BOTH" | null;
+  }
+> = {
+  [DEFAULT_SCENARIO_ID]: {
+    tags: ["입문", "탐색", "전투"],
+    estimatedMinutes: null,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+  [P1_ONESHOT_SCENARIO_ID]: {
+    tags: ["단편", "탐색", "전투"],
+    estimatedMinutes: 45,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+  [P2_VALIDATION_SCENARIO_ID]: {
+    tags: ["단편", "전투", "지형"],
+    estimatedMinutes: 60,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+  [P3_VALIDATION_SCENARIO_ID]: {
+    tags: ["중편", "전투", "아이템"],
+    estimatedMinutes: 120,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+  [P4_VALIDATION_SCENARIO_ID]: {
+    tags: ["캠페인", "경제", "협업"],
+    estimatedMinutes: 240,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+  [P5_VALIDATION_SCENARIO_ID]: {
+    tags: ["캠페인", "다운타임", "고레벨"],
+    estimatedMinutes: 300,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+  [P6_VALIDATION_SCENARIO_ID]: {
+    tags: ["캠페인", "완결", "최고 레벨"],
+    estimatedMinutes: 450,
+    recommendedPlayersMin: 1,
+    recommendedPlayersMax: 4,
+    gmMode: "BOTH",
+  },
+};
+
 type SourceScenarioNode = {
   id: string;
   nodeType: string;
@@ -3582,11 +3644,11 @@ async function seedNodeScreenTestScenarioFromSource(prisma: PrismaClient): Promi
     where: { scenarioId: NODE_SCREEN_TEST_SCENARIO_ID },
     create: {
       scenarioId: NODE_SCREEN_TEST_SCENARIO_ID,
-      visibility: "PUBLIC",
+      visibility: "UNPUBLISHED",
       moderationStatus: "VISIBLE",
     },
     update: {
-      visibility: "PUBLIC",
+      visibility: "UNPUBLISHED",
       moderationStatus: "VISIBLE",
     },
   });
@@ -3633,6 +3695,14 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
   // upsert를 사용하면 같은 서버를 여러 번 재시작해도
   // 시나리오가 중복으로 쌓이지 않고, 바뀐 내용만 안전하게 반영할 수 있다.
   for (const scenario of scenarios) {
+    const isInternal = isInternalValidationScenarioId(scenario.id);
+    const metadata = publicScenarioMetadata[scenario.id] ?? {
+      tags: [],
+      estimatedMinutes: null,
+      recommendedPlayersMin: null,
+      recommendedPlayersMax: null,
+      gmMode: null,
+    };
     await prisma.scenario.upsert({
       where: { id: scenario.id },
       update: {
@@ -3653,12 +3723,14 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
       where: { scenarioId: scenario.id },
       create: {
         scenarioId: scenario.id,
-        visibility: "PUBLIC",
+        visibility: isInternal ? "UNPUBLISHED" : "PUBLIC",
         moderationStatus: "VISIBLE",
+        ...metadata,
       },
       update: {
-        visibility: "PUBLIC",
+        visibility: isInternal ? "UNPUBLISHED" : "PUBLIC",
         moderationStatus: "VISIBLE",
+        ...metadata,
       },
     });
   }

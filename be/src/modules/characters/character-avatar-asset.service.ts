@@ -16,6 +16,10 @@ import {
   UploadCharacterAvatarDto,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
+import {
+  getSafePublicAssetBaseUrl,
+  validateAndSanitizeRasterImage,
+} from "../../common/security/image-upload-security";
 
 type CharacterAvatarAssetRow = Prisma.CharacterAvatarAssetGetPayload<Prisma.CharacterAvatarAssetDefaultArgs>;
 
@@ -57,24 +61,28 @@ export class CharacterAvatarAssetService {
   ): Promise<CharacterAvatarAssetResponseDto> {
     await this.ensureUserExists(userId);
 
-    const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
-    if (!allowedContentTypes.has(dto.contentType)) {
-      throw new BadRequestException("초상화는 PNG, JPEG, WebP 이미지만 업로드할 수 있습니다.");
-    }
-
-    const body = Buffer.from(dto.dataBase64, "base64");
     const maxBytes = Number(process.env.R2_MAX_AVATAR_IMAGE_BYTES ?? 5 * 1024 * 1024);
-    if (body.byteLength <= 0) {
-      throw new BadRequestException("초상화 이미지가 비어 있습니다.");
-    }
-    if (body.byteLength > maxBytes) {
-      throw new BadRequestException("초상화 이미지 파일이 너무 큽니다.");
+    const image = await validateAndSanitizeRasterImage({
+      dataBase64: dto.dataBase64,
+      declaredContentType: dto.contentType,
+      maxBytes,
+      maxWidth: Number(process.env.R2_MAX_AVATAR_WIDTH ?? 4096),
+      maxHeight: Number(process.env.R2_MAX_AVATAR_HEIGHT ?? 4096),
+      maxPixels: Number(process.env.R2_MAX_AVATAR_PIXELS ?? 16_000_000),
+    });
+    const quotaBytes = Number(process.env.R2_MAX_AVATAR_STORAGE_BYTES_PER_USER ?? 50 * 1024 * 1024);
+    const usage = await this.characterAvatarAssetDelegate.aggregate({
+      where: { uploadedByUserId: userId },
+      _sum: { fileSizeBytes: true },
+    });
+    if ((usage._sum.fileSizeBytes ?? 0) + image.body.byteLength > quotaBytes) {
+      throw new BadRequestException("사용자별 초상화 저장 용량을 초과했습니다.");
     }
 
     const { storageKey, publicUrl } = await this.putR2Object({
-      body,
-      contentType: dto.contentType,
-      fileName: dto.fileName,
+      body: image.body,
+      contentType: image.contentType,
+      extension: image.extension,
       keyPrefix: `users/${userId}/avatars`,
     });
 
@@ -83,12 +91,12 @@ export class CharacterAvatarAssetService {
       asset = await this.characterAvatarAssetDelegate.create({
         data: {
           fileName: dto.fileName.trim(),
-          contentType: dto.contentType,
+          contentType: image.contentType,
           storageKey,
           publicUrl,
-          width: null,
-          height: null,
-          fileSizeBytes: body.byteLength,
+          width: image.width,
+          height: image.height,
+          fileSizeBytes: image.body.byteLength,
           uploadedByUserId: userId,
         },
       });
@@ -182,25 +190,29 @@ export class CharacterAvatarAssetService {
   private async putR2Object({
     body,
     contentType,
-    fileName,
+    extension,
     keyPrefix,
   }: {
     body: Buffer;
     contentType: string;
-    fileName: string;
+    extension: ".png" | ".jpg" | ".webp";
     keyPrefix: string;
   }): Promise<{ storageKey: string; publicUrl: string }> {
     const accountId = process.env.R2_ACCOUNT_ID;
     const bucket = process.env.R2_BUCKET_NAME;
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
     const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
-
-    if (!accountId || !bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl) {
-      throw new BadRequestException("R2 업로드 환경변수가 설정되지 않았습니다.");
+    let publicBaseUrl: string;
+    try {
+      publicBaseUrl = getSafePublicAssetBaseUrl(process.env.R2_PUBLIC_BASE_URL);
+    } catch {
+      throw new ServiceUnavailableException("이미지 공개 저장소 설정이 올바르지 않습니다.");
     }
 
-    const extension = this.getSafeAvatarFileExtension(fileName, contentType);
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new ServiceUnavailableException("이미지 저장소 설정이 올바르지 않습니다.");
+    }
+
     const key = `${keyPrefix}/${randomUUID()}${extension}`;
     const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
     const url = new URL(`${endpoint}/${bucket}/${key}`);
@@ -245,16 +257,12 @@ export class CharacterAvatarAssetService {
         },
         body,
       });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "unknown network error";
-      throw new BadGatewayException(
-        `R2 avatar upload request failed before a response was received. ${detail}`,
-      );
+    } catch {
+      throw new BadGatewayException("이미지 저장소에 연결할 수 없습니다.");
     }
 
     if (!response.ok) {
-      const message = await response.text();
-      throw new BadRequestException(`R2 업로드에 실패했습니다. (${response.status}) ${message}`);
+      throw new BadGatewayException("이미지 저장소 업로드에 실패했습니다.");
     }
 
     return {
@@ -314,19 +322,15 @@ export class CharacterAvatarAssetService {
           "x-amz-date": amzDate,
         },
       });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "unknown network error";
-      throw new BadGatewayException(
-        `R2 avatar delete request failed before a response was received. ${detail}`,
-      );
+    } catch {
+      throw new BadGatewayException("이미지 저장소에 연결할 수 없습니다.");
     }
 
     if (response.ok || response.status === 404) {
       return;
     }
 
-    const message = await response.text();
-    throw new BadRequestException(`R2 삭제에 실패했습니다. (${response.status}) ${message}`);
+    throw new BadGatewayException("이미지 저장소 삭제에 실패했습니다.");
   }
 
   private formatAmzDate(date: Date): string {
@@ -345,22 +349,4 @@ export class CharacterAvatarAssetService {
     return createHmac("sha256", kService).update("aws4_request").digest();
   }
 
-  private getSafeAvatarFileExtension(fileName: string, contentType: string): string {
-    const lowered = fileName.toLowerCase();
-    const match = lowered.match(/\.(png|jpe?g|webp)$/);
-    if (match) {
-      return match[0] === ".jpeg" ? ".jpg" : match[0];
-    }
-
-    switch (contentType) {
-      case "image/png":
-        return ".png";
-      case "image/jpeg":
-        return ".jpg";
-      case "image/webp":
-        return ".webp";
-      default:
-        return ".img";
-    }
-  }
 }

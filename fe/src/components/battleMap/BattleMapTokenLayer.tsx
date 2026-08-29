@@ -3,6 +3,10 @@ import { BattleToken } from './BattleToken';
 import type { TokenHealthFrame } from './TokenFrame';
 import type { Character } from '../../types/session';
 import type { SessionTokenColor } from '../../utils/sessionTokenColors';
+import type {
+  CombatMotionPreference,
+  CombatTokenVisualEffect,
+} from '../../features/sessionPlay/presentation/combatEffectTypes';
 
 type VttToken = VttMapStateDto['tokens'][number];
 
@@ -15,6 +19,8 @@ interface BattleMapTokenLayerProps {
   isMeasureMode: boolean;
   isPingMode: boolean;
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
+  tokenVisualEffectByTokenId?: Record<string, CombatTokenVisualEffect>;
+  combatMotionPreference?: CombatMotionPreference;
   getTokenColor: (token: VttToken, characters: Character[]) => SessionTokenColor;
   canControlToken: (token: VttToken) => boolean;
   constrainTokenDragPosition?: (
@@ -38,6 +44,8 @@ export function BattleMapTokenLayer({
   isMeasureMode,
   isPingMode,
   tokenHealthByTokenId,
+  tokenVisualEffectByTokenId,
+  combatMotionPreference,
   getTokenColor,
   canControlToken,
   constrainTokenDragPosition,
@@ -61,6 +69,8 @@ export function BattleMapTokenLayer({
           isMeasureMode={isMeasureMode}
           isPingMode={isPingMode}
           health={tokenHealthByTokenId?.[token.id]}
+          visualEffect={tokenVisualEffectByTokenId?.[token.id]}
+          motionPreference={combatMotionPreference}
           constrainDragPosition={
             constrainTokenDragPosition
               ? (x, y, shiftKey) => constrainTokenDragPosition(token, x, y, shiftKey)

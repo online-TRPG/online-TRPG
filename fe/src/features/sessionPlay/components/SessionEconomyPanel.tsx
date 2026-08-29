@@ -45,10 +45,12 @@ type EconomyStateView = {
 };
 
 interface SessionEconomyPanelProps {
+  isOpen: boolean;
   economy: EconomyStateView | null;
   characters: SessionCharacterResponseDto[];
   isBusy: boolean;
   feedback?: string | null;
+  onClose: () => void;
   onApply: (payload: ApplySessionEconomyActionDto) => Promise<void> | void;
 }
 
@@ -64,6 +66,15 @@ const actionLabels: Record<ApplySessionEconomyActionDto["actionType"], string> =
   attune: "조율",
   recover_charges: "충전 회복",
 };
+
+const craftingStatusLabels: Record<string, string> = {
+  in_progress: "진행 중",
+  completed: "완료",
+};
+
+function getCraftingStatusLabel(value: string): string {
+  return craftingStatusLabels[value] ?? "알 수 없음";
+}
 
 function toEconomyActionType(value: string): ApplySessionEconomyActionDto["actionType"] | null {
   switch (value) {
@@ -104,13 +115,14 @@ function readOptionalOptionId(value: string, allowedIds: readonly string[]): str
 }
 
 export function SessionEconomyPanel({
+  isOpen,
   economy,
   characters,
   isBusy,
   feedback,
+  onClose,
   onApply,
 }: SessionEconomyPanelProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const [actionType, setActionType] =
     useState<ApplySessionEconomyActionDto["actionType"]>("purchase");
   const [sessionCharacterId, setSessionCharacterId] = useState("");
@@ -189,22 +201,25 @@ export function SessionEconomyPanel({
     void onApply(payload);
   }
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <aside className={`session-economy-panel${collapsed ? " collapsed" : ""}`}>
+    <aside id="session-economy-panel" className="session-economy-panel" aria-label="캠페인 경제">
       <button
         type="button"
         className="session-economy-toggle"
-        onClick={() => setCollapsed((current) => !current)}
-        aria-expanded={!collapsed}
+        onClick={onClose}
+        aria-expanded="true"
       >
-        {collapsed ? "경제" : "경제 패널 접기"}
+        경제 패널 접기
       </button>
-      {!collapsed ? (
-        <div className="session-economy-body">
-          <header>
+      <div className="session-economy-body">
+          <div className="session-economy-heading">
             <strong>캠페인 경제</strong>
-            <span>서버 권위 상태 · 모든 변경 감사 로그 기록</span>
-          </header>
+            <span>공동 자금과 아이템, 제작 진행 상황을 관리합니다.</span>
+          </div>
 
           <section className="session-economy-summary">
             <div>
@@ -226,7 +241,7 @@ export function SessionEconomyPanel({
                     {formatInternalIdAsReadableName(item.itemDefinitionId, "아이템")} ×{item.quantity}
                     {item.identified === false ? " · 미감정" : ""}
                     {item.damaged ? " · 손상" : ""}
-                    {item.chargesRemaining != null ? ` · ${item.chargesRemaining} charge` : ""}
+                    {item.chargesRemaining != null ? ` · 충전 ${item.chargesRemaining}회` : ""}
                   </span>
                 ))
               ) : (
@@ -236,9 +251,9 @@ export function SessionEconomyPanel({
             <div>
               <b>상점</b>
               {shops.length
-                ? shops.map((shop) => (
+                ? shops.map((shop, index) => (
                     <span key={shop.shopId}>
-                      {formatInternalIdAsReadableName(shop.shopId, "상점")}: 재고 {shop.inventory.length}종
+                      상점 {index + 1}: 재고 {shop.inventory.length}종
                     </span>
                   ))
                 : <span>등록된 상점 없음</span>}
@@ -246,9 +261,9 @@ export function SessionEconomyPanel({
             <div>
               <b>제작</b>
               {craftingEntries.length
-                ? craftingEntries.map((entry) => (
+                ? craftingEntries.map((entry, index) => (
                     <span key={entry.craftingId}>
-                      {formatInternalIdAsReadableName(entry.craftingId, "제작")}: {entry.completedHours}/{entry.requiredHours}h · {entry.status}
+                      제작 {index + 1}: {entry.completedHours}/{entry.requiredHours}시간 · {getCraftingStatusLabel(entry.status)}
                     </span>
                   ))
                 : <span>진행 중인 제작 없음</span>}
@@ -299,9 +314,9 @@ export function SessionEconomyPanel({
               }}
             >
               <option value="">상점 선택</option>
-              {shops.map((shop) => (
+              {shops.map((shop, index) => (
                 <option value={shop.shopId} key={shop.shopId}>
-                  {formatInternalIdAsReadableName(shop.shopId, "상점")}
+                  상점 {index + 1}
                 </option>
               ))}
             </select>
@@ -380,9 +395,9 @@ export function SessionEconomyPanel({
                 }}
               >
                 <option value="">제작 선택</option>
-                {craftingEntries.map((entry) => (
+                {craftingEntries.map((entry, index) => (
                   <option value={entry.craftingId} key={entry.craftingId}>
-                    {formatInternalIdAsReadableName(entry.craftingId, "제작")}
+                    제작 {index + 1}
                   </option>
                 ))}
               </select>
@@ -419,8 +434,7 @@ export function SessionEconomyPanel({
             </button>
           </section>
           {feedback ? <p className="session-economy-feedback">{feedback}</p> : null}
-        </div>
-      ) : null}
+      </div>
     </aside>
   );
 }

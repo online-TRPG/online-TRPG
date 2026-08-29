@@ -62,7 +62,7 @@ const stackableConditionKeys = ['exhaustion'];
 export function describeCombatParticipantObservation(
   participant: Pick<
     CombatParticipant,
-    'currentHp' | 'maxHp' | 'isAlive' | 'conditions' | 'concentration'
+    'currentHp' | 'maxHp' | 'isAlive' | 'conditionStates' | 'concentration'
   >
 ): CombatParticipantObservation {
   const concentrationTexts = participant.concentration
@@ -70,7 +70,7 @@ export function describeCombatParticipantObservation(
     : [];
   const conditionTexts = [
     ...concentrationTexts,
-    ...describeConditions(participant.conditions ?? []),
+    ...describeConditions((participant.conditionStates ?? []).map((condition) => condition.conditionId)),
   ].slice(0, 3);
   return {
     healthText: describeHealth(participant.currentHp, participant.maxHp, participant.isAlive),

@@ -147,7 +147,7 @@ export class MainCommandProgressEvidenceService {
       .reverse()
       .map((row) => {
         const parts = compactStrings([row.rawInput, row.narration]);
-        return parts.join(" => ").trim();
+        return parts.join(" => ").trim().slice(-1000);
       })
       .flatMap((line) => compactStrings([line]));
   }

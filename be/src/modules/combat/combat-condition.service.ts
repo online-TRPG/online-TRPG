@@ -1,4 +1,8 @@
 import { Injectable } from "@nestjs/common";
+import {
+  SRD_COMBAT_CONDITION_IDS,
+  type CombatConditionViewDto,
+} from "@trpg/shared-types";
 import { parseJsonOrThrow } from "../../common/utils/json-runtime";
 import { PrismaService } from "../../database/prisma.service";
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
@@ -19,6 +23,16 @@ const COMBAT_INCAPACITATING_CONDITION_TAGS = new Set([
   "condition:paralyzed",
   "condition:petrified",
   "condition:stunned",
+]);
+const DISPLAY_PRIORITY_CONDITION_IDS = new Set<string>([
+  ...SRD_COMBAT_CONDITION_IDS,
+  "condition.burning",
+  "condition.concentration",
+  "condition.dodge",
+  "condition.disengage",
+  "condition.hidden",
+  "condition.rage",
+  "condition.sleep",
 ]);
 
 @Injectable()
@@ -139,6 +153,45 @@ export class CombatConditionService {
     return Array.from(new Set(entries.flatMap((entry) => this.conditionEntryTags(entry))));
   }
 
+  combatConditionViews(entries: ConditionStateEntry[]): CombatConditionViewDto[] {
+    const views = entries.flatMap((entry) => {
+      const directConditionId = this.toDisplayConditionId(
+        typeof entry === "string" ? entry : entry.conditionId,
+      );
+      const tags = typeof entry === "string" ? [entry] : entry.tags;
+      const taggedConditionIds = tags.flatMap((tag) => {
+        const conditionId = this.toDisplayConditionId(tag);
+        return conditionId && DISPLAY_PRIORITY_CONDITION_IDS.has(conditionId)
+          ? [conditionId]
+          : [];
+      });
+      const conditionIds = taggedConditionIds.length
+        ? Array.from(new Set(taggedConditionIds))
+        : directConditionId
+          ? [directConditionId]
+          : [];
+      const remainingRounds =
+        typeof entry !== "string" && entry.duration.type === "rounds"
+          ? entry.duration.remaining
+          : null;
+      return conditionIds.map((conditionId) => ({
+          conditionId,
+          sourceId: typeof entry === "string" ? null : entry.sourceId,
+          polarity: this.resolveConditionPolarity(conditionId, tags),
+          remainingRounds,
+        } satisfies CombatConditionViewDto));
+    });
+
+    return Array.from(
+      new Map(
+        views.map((view) => [
+          `${view.conditionId}:${view.sourceId ?? ""}`,
+          view,
+        ]),
+      ).values(),
+    );
+  }
+
   isCombatParticipantIncapacitated(participant: CombatConditionParticipant): boolean {
     const tags = this.parseConditions(participant.conditionsJson ?? "[]");
     return tags.some((tag) => COMBAT_INCAPACITATING_CONDITION_TAGS.has(tag));
@@ -231,5 +284,82 @@ export class CombatConditionService {
       }
       return condition;
     });
+  }
+
+  private toDisplayConditionId(value: string): string | null {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    const runtimeConditionIds: Record<string, string> = {
+      "combat:dodge": "condition.dodge",
+      "combat:disengage": "condition.disengage",
+      "combat:hidden": "condition.hidden",
+      "combat:sleep": "condition.sleep",
+      "condition:unconscious": "condition.unconscious",
+    };
+    if (runtimeConditionIds[normalized]) {
+      return runtimeConditionIds[normalized];
+    }
+    if (normalized.startsWith("condition.")) {
+      return normalized;
+    }
+    if (/^condition:[a-z0-9_]+$/.test(normalized)) {
+      return `condition.${normalized.slice("condition:".length)}`;
+    }
+    return null;
+  }
+
+  private resolveConditionPolarity(
+    conditionId: string,
+    tags: string[],
+  ): CombatConditionViewDto["polarity"] {
+    if (
+      [
+        "condition.invisible",
+        "condition.concentration",
+        "condition.dodge",
+        "condition.disengage",
+        "condition.hidden",
+        "condition.rage",
+      ].includes(conditionId)
+    ) {
+      return "beneficial";
+    }
+    if (
+      SRD_COMBAT_CONDITION_IDS.includes(
+        conditionId as (typeof SRD_COMBAT_CONDITION_IDS)[number],
+      ) ||
+      conditionId === "condition.burning" ||
+      conditionId === "condition.sleep"
+    ) {
+      return "harmful";
+    }
+    if (
+      tags.some((tag) =>
+        tag.startsWith("roll_bonus:") ||
+        tag.startsWith("temporary_hp:") ||
+        tag.startsWith("advantage:") ||
+        tag.startsWith("grant:") ||
+        tag.startsWith("movement_speed_bonus:"),
+      )
+    ) {
+      return "beneficial";
+    }
+    if (
+      conditionId.startsWith("condition.spell.") ||
+      tags.some((tag) =>
+        tag.startsWith("condition:") ||
+        tag.startsWith("disadvantage:") ||
+        tag.startsWith("damage_over_time:") ||
+        tag === "action_blocked" ||
+        tag === "reaction_blocked" ||
+        tag === "movement_blocked" ||
+        tag === "speed:zero",
+      )
+    ) {
+      return "harmful";
+    }
+    return "neutral";
   }
 }

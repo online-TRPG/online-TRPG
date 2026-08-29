@@ -4,19 +4,30 @@
  * 읽는 순서:
  * 1) 상단 헬퍼: 상태/GM 라벨 변환, 초대 코드/페이지 에러 메시지 정리
  * 2) state: 현재 탭, 검색/필터/정렬, 페이지네이션, 초대 모달, 상세 모달
- * 3) useMemo: 세션 목록 필터링/정렬/페이지 자르기
+ * 3) useSessionCatalog: 공개/내 세션의 서버 검색·정렬·페이지 상태 분리
  * 4) handler: 초대 코드 참가, 상세 모달 열기, 세션 참가/복귀, 페이지 이동
  * 5) JSX: 좌측 사이드바, 필터 바, 세션 카드 목록, 페이지네이션, 초대 코드 모달, 상세 모달
  */
-import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
-import { SessionStatus, isAiGmMode, isBlockingSessionStatus as isBlockingSharedSessionStatus } from "@trpg/shared-types/frontend";
+import { FormEvent, MouseEvent, useEffect, useMemo, useState } from "react";
+import {
+  GmMode,
+  SessionActivityStatus,
+  SessionListSort,
+} from "@trpg/shared-types/frontend";
 import { Icon } from "../components/Icon";
 import { SessionDetailModal } from "../components/SessionDetailModal";
 import sidePanelImage from "../components/Side_Panel.webp";
 import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.webp";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
-import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
-import { getScenario } from "../services/scenarioApi";
+import { scenarioPlaceholder } from "../data/sessionVisuals";
+import { useSessionCatalog } from "../hooks/useSessionCatalog";
+import { useDialogFocusTrap } from "../hooks/useDialogFocusTrap";
+import {
+  getGmModeLabel,
+  getSessionActivityStatusLabel,
+  getSessionStatusLabel,
+  sessionActivityStatusLabels,
+} from "../presentation/sessionLabels";
 import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
 import "./SessionDiscoverPage.css";
 
@@ -25,54 +36,39 @@ interface SessionDiscoverPageProps {
   user: StoredUser;
   accessToken: string | null;
   snapshot: SessionSnapshot | null;
-  sessionList: AvailableSessionListItem[];
   mySessionList: AvailableSessionListItem[];
   initialSection?: DiscoverSection;
   busy: boolean;
   error: string | null;
   onClearError: () => void;
-  onJoinSession: (inviteCode: string) => void | Promise<void>;
+  onJoinSession: (inviteCode: string) => Promise<SessionSnapshot | null>;
   onJoinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
   onRequestSessionDetail: (sessionId: string) => Promise<SessionDetail>;
   onOpenHostProfile: (host: User) => void;
-  onOpenCreate: () => void;
-  onOpenPlay: () => void;
 }
 
 // 세션 탐색 탭 종류입니다. public은 공개 목록, my는 내가 참여한 목록입니다.
 type DiscoverSection = "public" | "my";
-// 세션 목록 정렬 기준입니다.
-type SessionSort = "latest" | "title" | "players";
-
-function toSessionSort(value: string): SessionSort | null {
-  return value === "latest" || value === "title" || value === "players" ? value : null;
+interface DiscoverFilters {
+  query: string;
+  gmMode: string;
+  status: string;
+  sort: SessionListSort;
 }
-
 // 서버 세션 상태값을 한국어 라벨로 바꿉니다.
-const STATUS_LABEL: Record<string, string> = {
-  [SessionStatus.RECRUITING]: "모집 중",
-  [SessionStatus.PLAYING]: "진행 중",
-  [SessionStatus.PAUSED]: "일시 정지",
-  [SessionStatus.COMPLETED]: "완료",
-  [SessionStatus.DISBANDED]: "해산",
-};
-
 const PAGE_SIZE = 4;
 const PAGE_TOAST_DURATION_MS = 2600;
-const JOIN_BLOCKED_TOAST_DURATION_MS = 5200;
-const GENERAL_GM_LABEL = "\uC77C\uBC18 GM";
 const AI_GM_LABEL = "AI GM";
 const ALL_FILTER = "all";
-const GM_FILTER_OPTIONS = [AI_GM_LABEL, GENERAL_GM_LABEL] as const;
-const THEME_FILTER_OPTIONS = [...new Set(sessionVisualPresets.map((preset) => preset.theme))];
-const JOIN_BLOCKED_NOTICE =
-  "\uD604\uC7AC \uB2E4\uB978 \uBAA8\uC9D1 \uC911\uC778 \uC138\uC158\uC5D0 \uC774\uBBF8 \uCC38\uC5EC \uD588\uC2B5\uB2C8\uB2E4.\n\uBAA8\uC9D1\uC744 \uB05D\uB0B4\uAC70\uB098 \uB098\uAC04 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.";
+const GM_FILTER_OPTIONS = [GmMode.AI, GmMode.HUMAN] as const;
+const DEFAULT_FILTERS: DiscoverFilters = {
+  query: "",
+  gmMode: ALL_FILTER,
+  status: ALL_FILTER,
+  sort: SessionListSort.RECENT,
+};
 
 // GM 모드 값에 따라 일반 GM/AI GM 라벨을 반환합니다.
-function getGmModeLabel(gmMode?: string | null): string {
-  return isAiGmMode(gmMode) ? AI_GM_LABEL : GENERAL_GM_LABEL;
-}
-
 function readFilterValue(value: string, options: readonly string[]): string | null {
   return value === ALL_FILTER || options.includes(value) ? value : null;
 }
@@ -94,9 +90,6 @@ function isInviteCodeError(error: string | null): boolean {
   return Boolean(error?.includes("Session with this invite code was not found."));
 }
 
-function isBlockingSessionStatus(status: string | undefined): boolean {
-  return isBlockingSharedSessionStatus(status);
-}
 
 // 페이지 전체에 띄울 에러만 걸러내고 메시지를 정리합니다.
 function getPageErrorMessage(error: string | null): string | null {
@@ -121,7 +114,6 @@ export function SessionDiscoverPage({
   user,
   accessToken,
   snapshot,
-  sessionList,
   mySessionList,
   initialSection = "public",
   busy,
@@ -131,17 +123,16 @@ export function SessionDiscoverPage({
   onJoinSessionById,
   onRequestSessionDetail,
   onOpenHostProfile,
-  onOpenPlay,
 }: SessionDiscoverPageProps) {
   // 화면 상태: 탭, 검색/필터/정렬, 모달, 페이지네이션을 관리합니다.
   const [activeSection, setActiveSection] = useState<DiscoverSection>(initialSection);
   const [inviteCode, setInviteCode] = useState("");
-  const [query, setQuery] = useState("");
-  const [themeFilter, setThemeFilter] = useState(ALL_FILTER);
-  const [gmFilter, setGmFilter] = useState(ALL_FILTER);
-  const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
-  const [sortOrder, setSortOrder] = useState<SessionSort>("latest");
+  const [publicFilters, setPublicFilters] = useState<DiscoverFilters>(DEFAULT_FILTERS);
+  const [myFilters, setMyFilters] = useState<DiscoverFilters>(DEFAULT_FILTERS);
+  const [debouncedPublicQuery, setDebouncedPublicQuery] = useState("");
+  const [debouncedMyQuery, setDebouncedMyQuery] = useState("");
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const inviteDialogFocus = useDialogFocusTrap<HTMLDivElement>(isInviteModalOpen, closeInviteModal);
   const [inviteErrorVisible, setInviteErrorVisible] = useState(false);
   const [invitePending, setInvitePending] = useState(false);
   const [pageToast, setPageToast] = useState<string | null>(null);
@@ -150,10 +141,58 @@ export function SessionDiscoverPage({
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<SessionDetail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [scenarioPreviewImages, setScenarioPreviewImages] = useState<Record<string, string>>({});
 
-  // 이미 참여 중인 모집 세션이 있으면 다른 모집 세션 참가를 막기 위한 상태입니다.
-  const hasBlockingSession = mySessionList.some((item) => isBlockingSessionStatus(item.status));
+  const activeFilters = activeSection === "public" ? publicFilters : myFilters;
+
+  function updateActiveFilters(update: Partial<DiscoverFilters>) {
+    if (activeSection === "public") {
+      setPublicFilters((current) => ({ ...current, ...update }));
+    } else {
+      setMyFilters((current) => ({ ...current, ...update }));
+    }
+    updatePage(0);
+  }
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedPublicQuery(publicFilters.query.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [publicFilters.query]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedMyQuery(myFilters.query.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [myFilters.query]);
+
+  const publicParams = useMemo(
+    () => ({
+      query: debouncedPublicQuery || undefined,
+      gmMode: publicFilters.gmMode === ALL_FILTER ? undefined : (publicFilters.gmMode as GmMode),
+      activityStatus: publicFilters.status === ALL_FILTER ? undefined : (publicFilters.status as SessionActivityStatus),
+      sort: publicFilters.sort,
+      page: publicPage,
+      size: PAGE_SIZE,
+    }),
+    [debouncedPublicQuery, publicFilters.gmMode, publicFilters.sort, publicFilters.status, publicPage],
+  );
+  const myParams = useMemo(
+    () => ({
+      query: debouncedMyQuery || undefined,
+      gmMode: myFilters.gmMode === ALL_FILTER ? undefined : (myFilters.gmMode as GmMode),
+      activityStatus: myFilters.status === ALL_FILTER ? undefined : (myFilters.status as SessionActivityStatus),
+      sort: myFilters.sort,
+      page: myPage,
+      size: PAGE_SIZE,
+    }),
+    [debouncedMyQuery, myFilters.gmMode, myFilters.sort, myFilters.status, myPage],
+  );
+  const catalog = useSessionCatalog(
+    user,
+    accessToken,
+    publicParams,
+    myParams,
+    snapshot?.session.id ?? null,
+  );
+
   const inviteError = getInviteErrorMessage(error);
   const pageError = getPageErrorMessage(error);
   // 내 세션 목록에 있는 sessionId를 Set으로 만들어 참가 여부 확인을 빠르게 합니다.
@@ -175,17 +214,6 @@ export function SessionDiscoverPage({
     return () => window.clearTimeout(timeout);
   }, [pageError]);
 
-  // 중복 참가 불가 안내 토스트를 표시합니다.
-  function showJoinBlockedToast() {
-    setPageToast(null);
-    window.setTimeout(() => {
-      setPageToast(JOIN_BLOCKED_NOTICE);
-      window.setTimeout(() => {
-        setPageToast((current) => (current === JOIN_BLOCKED_NOTICE ? null : current));
-      }, JOIN_BLOCKED_TOAST_DURATION_MS);
-    }, 0);
-  }
-
   useEffect(() => {
     if (!isInviteModalOpen || !invitePending) return;
     if (!inviteError) return;
@@ -193,86 +221,13 @@ export function SessionDiscoverPage({
     setInvitePending(false);
   }, [inviteError, invitePending, isInviteModalOpen]);
 
-  // 현재 탭에 맞춰 사용할 원본 목록과 페이지 인덱스를 결정합니다.
-  const currentSection = activeSection;
-  const currentSource = activeSection === "public" ? sessionList : mySessionList;
+  // 공개 목록과 내 목록은 서로 독립된 서버 페이지 상태를 사용합니다.
+  const currentCatalog = activeSection === "public" ? catalog.publicSessions : catalog.mySessions;
+  const currentSource = currentCatalog.data.content;
   const currentPage = activeSection === "public" ? publicPage : myPage;
-
-  // 검색어/테마/GM/상태 필터와 정렬을 적용한 목록입니다.
-  const filteredSessions = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-
-    const next = currentSource.filter((item) => {
-      const visual = findSessionVisualByTitle(item.scenarioTitle) ?? sessionVisualPresets[0];
-      const statusLabel = STATUS_LABEL[item.status] ?? item.status;
-      const matchesKeyword =
-        !keyword ||
-        [item.title, item.scenarioTitle, item.ruleSetName, visual.theme, statusLabel]
-          .join(" ")
-          .toLowerCase()
-          .includes(keyword);
-      const matchesTheme = themeFilter === ALL_FILTER || visual.theme === themeFilter;
-      const matchesGm = gmFilter === ALL_FILTER || getGmModeLabel(item.gmMode) === gmFilter;
-      const matchesStatus = statusFilter === ALL_FILTER || item.status === statusFilter;
-      return matchesKeyword && matchesTheme && matchesGm && matchesStatus;
-    });
-
-    if (sortOrder === "title") {
-      next.sort((left, right) => left.title.localeCompare(right.title));
-    } else if (sortOrder === "players") {
-      next.sort((left, right) => right.currentPlayers - left.currentPlayers);
-    }
-
-    return next;
-  }, [currentSource, gmFilter, query, sortOrder, statusFilter, themeFilter]);
-
-  // 페이지네이션 계산값입니다. safePage는 범위를 벗어난 페이지 접근을 막습니다.
-  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / PAGE_SIZE));
+  const totalPages = Math.max(1, currentCatalog.data.totalPages);
   const safePage = Math.min(currentPage, totalPages - 1);
-  const pagedSessions = useMemo(
-    () => filteredSessions.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
-    [filteredSessions, safePage],
-  );
-
-  useEffect(() => {
-    let ignore = false;
-    const pending = pagedSessions.filter((item) => item.scenarioId && !scenarioPreviewImages[item.scenarioId]);
-
-    if (!pending.length) {
-      return () => {
-        ignore = true;
-      };
-    }
-
-    void Promise.all(
-      pending.map(async (item) => {
-        try {
-          const detail = await getScenario(item.scenarioId, user, accessToken);
-          const firstNodeImage =
-            detail.nodes.find((node) => typeof node.imageUrl === "string" && node.imageUrl.trim())?.imageUrl?.trim() ??
-            null;
-          return [item.scenarioId, firstNodeImage || item.scenarioThumbnailUrl || ""] as const;
-        } catch {
-          return [item.scenarioId, item.scenarioThumbnailUrl || ""] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (ignore) return;
-      setScenarioPreviewImages((current) => {
-        const next = { ...current };
-        for (const [scenarioId, image] of entries) {
-          if (image) {
-            next[scenarioId] = image;
-          }
-        }
-        return next;
-      });
-    });
-
-    return () => {
-      ignore = true;
-    };
-  }, [accessToken, pagedSessions, scenarioPreviewImages, user]);
+  const pagedSessions = currentSource;
 
   const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, index) => index), [totalPages]);
 
@@ -316,10 +271,6 @@ export function SessionDiscoverPage({
     event.preventDefault();
     const trimmedCode = inviteCode.trim().toUpperCase();
     if (!trimmedCode) return;
-    if (hasBlockingSession) {
-      showJoinBlockedToast();
-      return;
-    }
     setInviteErrorVisible(false);
     setInvitePending(true);
     void onJoinSession(trimmedCode);
@@ -352,28 +303,9 @@ export function SessionDiscoverPage({
 
     const targetSessionId = selectedSessionDetail.session.id;
     const targetSessionPublicId = selectedSessionDetail.session.publicId;
-    const isCurrentSession =
-      snapshot?.session.id === targetSessionId ||
-      (Boolean(targetSessionPublicId) && snapshot?.session.publicId === targetSessionPublicId);
-    const isKnownSelectedSession =
-      joinedSessionIds.has(targetSessionId) ||
-      (Boolean(targetSessionPublicId) && joinedSessionIds.has(targetSessionPublicId));
-
-    if (isCurrentSession) {
-      closeSessionDetail();
-      onOpenPlay();
-      return;
-    }
-
-    if (!isKnownSelectedSession && hasBlockingSession) {
-      showJoinBlockedToast();
-      return;
-    }
-
     const nextSnapshot = await onJoinSessionById(targetSessionPublicId || targetSessionId);
     if (nextSnapshot) {
       closeSessionDetail();
-      onOpenPlay();
     }
   }
 
@@ -389,50 +321,14 @@ export function SessionDiscoverPage({
   ) {
     event.stopPropagation();
 
-    const isCurrentSession =
-      snapshot?.session.id === sessionId ||
-      (Boolean(sessionPublicId) && snapshot?.session.publicId === sessionPublicId);
-    const isKnownSession =
-      joinedSessionIds.has(sessionId) ||
-      (sessionPublicId ? joinedSessionIds.has(sessionPublicId) : false) ||
-      isCurrentSession;
-
-    if (isCurrentSession) {
-      onOpenPlay();
-      return;
-    }
-
-    if (isKnownSession) {
-      const nextSnapshot = await onJoinSessionById(sessionPublicId || sessionId);
-      if (nextSnapshot) {
-        onOpenPlay();
-      }
-      return;
-    }
-
-    if (hasBlockingSession) {
-      showJoinBlockedToast();
-      return;
-    }
-
-    const nextSnapshot = await onJoinSessionById(sessionPublicId || sessionId);
-    if (nextSnapshot) {
-      onOpenPlay();
-    }
+    await onJoinSessionById(sessionPublicId || sessionId);
   }
 
   // 키보드 접근성: Enter/Space로 세션 카드를 열 수 있게 합니다.
-  function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, sessionId: string) {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    void openSessionDetail(sessionId);
-  }
-
   const isCurrentSelectedSession = selectedSessionDetail?.session.id === snapshot?.session.id;
   const isKnownSelectedSession =
     (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) || isCurrentSelectedSession;
   const canEnterSelectedSession = Boolean(selectedSessionDetail);
-  const isSelectedSessionBlocked = !isKnownSelectedSession && hasBlockingSession;
 
   return (
     <main className="session-discover-shell">
@@ -478,7 +374,7 @@ export function SessionDiscoverPage({
                   type="button"
                   className="session-discover-sidebutton"
                   data-label="최근 세션 열기"
-                  onClick={onOpenPlay}
+                  onClick={() => void onJoinSessionById(snapshot.session.publicId || snapshot.session.id)}
                 >
                   <img src={sidePanelImage} alt="" aria-hidden="true" />
                   <span>현재 세션 열기</span>
@@ -497,108 +393,98 @@ export function SessionDiscoverPage({
             <div className="session-discover-search">
               <Icon name="eye" />
               <input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  updatePage(0);
-                }}
-                placeholder="세션 이름, 테마, 룰셋 검색"
+                value={activeFilters.query}
+                onChange={(event) => updateActiveFilters({ query: event.target.value })}
+                placeholder="세션 제목, 설명, 시나리오 검색"
                 aria-label="세션 검색"
               />
             </div>
 
             <div className="session-discover-filters">
               <select
-                value={themeFilter}
-                onChange={(event) => {
-                  const nextThemeFilter = readFilterValue(event.target.value, THEME_FILTER_OPTIONS);
-                  if (nextThemeFilter) {
-                    setThemeFilter(nextThemeFilter);
-                    updatePage(0);
-                  }
-                }}
-                aria-label="테마 필터"
-              >
-                <option value={ALL_FILTER}>모든 테마</option>
-                {THEME_FILTER_OPTIONS.map((theme) => (
-                  <option key={theme} value={theme}>
-                    {theme}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={gmFilter}
+                value={activeFilters.gmMode}
                 onChange={(event) => {
                   const nextGmFilter = readFilterValue(event.target.value, GM_FILTER_OPTIONS);
                   if (nextGmFilter) {
-                    setGmFilter(nextGmFilter);
-                    updatePage(0);
+                    updateActiveFilters({ gmMode: nextGmFilter });
                   }
                 }}
                 aria-label="GM 필터"
               >
                 <option value={ALL_FILTER}>모든 GM</option>
-                {GM_FILTER_OPTIONS.map((gmLabel) => (
-                  <option key={gmLabel} value={gmLabel}>
-                    {gmLabel}
+                {GM_FILTER_OPTIONS.map((gmMode) => (
+                  <option key={gmMode} value={gmMode}>
+                    {getGmModeLabel(gmMode)}
                   </option>
                 ))}
               </select>
 
               <select
-                value={statusFilter}
+                value={activeFilters.status}
                 onChange={(event) => {
                   const nextStatusFilter = readFilterValue(
                     event.target.value,
-                    Object.keys(STATUS_LABEL)
+                    Object.keys(sessionActivityStatusLabels)
                   );
                   if (nextStatusFilter) {
-                    setStatusFilter(nextStatusFilter);
-                    updatePage(0);
+                    updateActiveFilters({ status: nextStatusFilter });
                   }
                 }}
                 aria-label="상태 필터"
               >
-                <option value={ALL_FILTER}>모든 상태</option>
-                {Object.entries(STATUS_LABEL).map(([status, label]) => (
+                <option value={ALL_FILTER}>
+                  모든 상태
+                </option>
+                {Object.entries(sessionActivityStatusLabels)
+                  .filter(([status]) => activeSection !== "public" || ![
+                    SessionActivityStatus.COMPLETED,
+                    SessionActivityStatus.DISBANDED,
+                  ].includes(status as SessionActivityStatus))
+                  .map(([status, label]) => (
                   <option key={status} value={status}>
                     {label}
                   </option>
-                ))}
+                  ))}
               </select>
 
               <select
-                value={sortOrder}
+                value={activeFilters.sort}
                 onChange={(event) => {
-                  const nextSortOrder = toSessionSort(event.target.value);
-                  if (nextSortOrder) {
-                    setSortOrder(nextSortOrder);
-                    updatePage(0);
-                  }
+                  updateActiveFilters({ sort: event.target.value as SessionListSort });
                 }}
                 aria-label="정렬"
               >
-                <option value="latest">최신 순</option>
-                <option value="title">이름 순</option>
-                <option value="players">인원 순</option>
+                <option value={SessionListSort.RECENT}>최근 활동 순</option>
+                <option value={SessionListSort.SOONEST}>시작 임박 순</option>
+                <option value={SessionListSort.TITLE}>이름 순</option>
               </select>
             </div>
           </section>
 
-          <section className="session-discover-list">
-            {pagedSessions.length ? (
+          <div className="session-discover-result-summary" aria-live="polite">
+            총 {currentCatalog.data.totalElements}개 · {safePage + 1}/{totalPages} 페이지
+          </div>
+
+          {currentCatalog.error ? (
+            <article className="session-discover-load-notice" role="alert">
+              <span>{currentCatalog.error}</span>
+              <button type="button" onClick={currentCatalog.retry}>다시 시도</button>
+            </article>
+          ) : null}
+
+          <section className="session-discover-list" aria-busy={currentCatalog.loading}>
+            {currentCatalog.loading && !pagedSessions.length ? (
+              <article className="session-discover-empty">
+                <h2>세션을 불러오는 중입니다</h2>
+              </article>
+            ) : pagedSessions.length ? (
               pagedSessions.map((item, index) => {
-                const visual =
-                  findSessionVisualByTitle(item.scenarioTitle) ??
-                  sessionVisualPresets[(safePage * PAGE_SIZE + index) % sessionVisualPresets.length];
-                const previewImage =
-                  scenarioPreviewImages[item.scenarioId] || item.scenarioThumbnailUrl || visual.image;
+                const previewImage = item.scenarioThumbnailUrl || scenarioPlaceholder;
                 const detailId = item.sessionPublicId || item.sessionId;
                 const isCurrentListSession =
                   snapshot?.session.id === item.sessionId ||
                   (Boolean(item.sessionPublicId) && snapshot?.session.publicId === item.sessionPublicId);
-                const isKnownListSession = joinedSessionIds.has(item.sessionId) || isCurrentListSession;
+                const isKnownListSession = Boolean(item.role) || joinedSessionIds.has(item.sessionId) || isCurrentListSession;
                 const isJoinBlocked = busy;
                 const gmLabel = getGmModeLabel(item.gmMode);
                 const joinButtonLabel = isKnownListSession ? "세션 열기" : "세션 참가";
@@ -607,13 +493,9 @@ export function SessionDiscoverPage({
                   <article
                     className="session-discover-row"
                     key={getSessionListItemKey(item, safePage * PAGE_SIZE + index)}
-                    onClick={() => void openSessionDetail(detailId)}
-                    onKeyDown={(event) => handleRowKeyDown(event, detailId)}
-                    role="button"
-                    tabIndex={0}
                   >
                     <div className="session-discover-thumbnail-frame">
-                      <img src={previewImage} alt={`${visual.title} thumbnail`} className="session-discover-thumbnail" />
+                      <img src={previewImage} alt={`${item.scenarioTitle} 대표 이미지`} className="session-discover-thumbnail" />
                     </div>
 
                     <div className="session-discover-row-copy">
@@ -623,8 +505,16 @@ export function SessionDiscoverPage({
                         </span>
                       </div>
 
-                      <h2>{item.title}</h2>
-                      <p>{visual.description}</p>
+                      <h2>
+                        <button
+                          type="button"
+                          className="session-discover-detail-link"
+                          onClick={() => void openSessionDetail(detailId)}
+                        >
+                          {item.title}
+                        </button>
+                      </h2>
+                      <p>{item.scenarioDescription?.trim() || "시나리오 설명이 아직 입력되지 않았습니다."}</p>
 
                       <div className="session-discover-row-meta">
                         <span className="session-discover-meta-item">
@@ -633,15 +523,24 @@ export function SessionDiscoverPage({
                             {item.currentPlayers} / {item.maxPlayers}
                           </strong>
                         </span>
-                        <span className="session-discover-meta-pill">{visual.theme}</span>
-                        <span className="session-discover-meta-pill muted">{STATUS_LABEL[item.status] ?? item.status}</span>
+                        <span className="session-discover-meta-pill">
+                          {item.scenarioTags?.[0] ?? "테마 미정"}
+                        </span>
+                        <span className="session-discover-meta-pill">
+                          {item.scenarioEstimatedMinutes
+                            ? `약 ${item.scenarioEstimatedMinutes}분`
+                            : "예상 시간 미정"}
+                        </span>
+                        <span className="session-discover-meta-pill muted">
+                          {item.activityStatus ? getSessionActivityStatusLabel(item.activityStatus) : getSessionStatusLabel(item.status)}
+                        </span>
                       </div>
                     </div>
 
                     <div className="session-discover-row-actions">
                       <button
                         type="button"
-                        className={`session-discover-join${!isKnownListSession && hasBlockingSession ? " is-blocked" : ""}`}
+                        className="session-discover-join"
                         data-label={joinButtonLabel}
                         disabled={isJoinBlocked}
                         onClick={(event) =>
@@ -666,7 +565,7 @@ export function SessionDiscoverPage({
             )}
           </section>
 
-          {filteredSessions.length > PAGE_SIZE ? (
+          {currentCatalog.data.totalPages > 1 ? (
             <nav className="session-discover-pagination" aria-label="세션 페이지 이동">
               <button type="button" onClick={() => updatePage(Math.max(0, safePage - 1))} disabled={safePage === 0}>
                 {"<"}
@@ -697,9 +596,12 @@ export function SessionDiscoverPage({
       {isInviteModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={closeInviteModal}>
           <div
+            ref={inviteDialogFocus.dialogRef}
+            tabIndex={-1}
             className="modal-card session-invite-modal"
             role="dialog"
             aria-modal="true"
+            onKeyDown={inviteDialogFocus.onDialogKeyDown}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
@@ -748,8 +650,6 @@ export function SessionDiscoverPage({
         error={detailError}
         busy={busy}
         canEnter={canEnterSelectedSession}
-        isEnterBlocked={isSelectedSessionBlocked}
-        isCurrentSession={isCurrentSelectedSession}
         isKnownMember={isKnownSelectedSession}
         onClose={closeSessionDetail}
         onEnter={enterSelectedSession}

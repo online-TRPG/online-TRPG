@@ -5,6 +5,7 @@ export {
   AuthProvider,
   CombatStatus,
   DiceAdvantageState,
+  GamePhase,
   GmMode,
   MainCommandCategory,
   MainCommandIntent,
@@ -14,14 +15,39 @@ export {
   ScenarioAssetKind,
   ScenarioLicense,
   ScenarioNodeType,
+  ParticipantRole,
   SessionParticipantStatus,
+  SessionActivityStatus,
+  RecruitmentStatus,
+  SessionJoinPolicy,
+  SessionPlayStatus,
+  SessionAttendanceStatus,
+  SessionApplicationStatus,
+  SessionJoinTiming,
+  SessionCharacterStatus,
+  SessionListSort,
   SessionScenarioStatus,
   SessionStatus,
+  SessionVisibility,
   UserRole,
 } from "./constants/enums";
 export {
   MONSTER_ACTION_UNAVAILABLE_REASONS,
 } from "./constants/combat-reasons";
+export {
+  COMBAT_CONDITION_POLARITIES,
+  COMBAT_DAMAGE_TYPES,
+  COMBAT_PRESENTATION_CONDITION_OPERATIONS,
+  COMBAT_PRESENTATION_DAMAGE_MODIFIERS,
+  COMBAT_PRESENTATION_DELIVERIES,
+  COMBAT_PRESENTATION_HEALING_KINDS,
+  COMBAT_PRESENTATION_OUTCOMES,
+  SRD_COMBAT_CONDITION_IDS,
+} from "./constants/combat-presentation";
+export {
+  COMBAT_TARGET_SHAPES,
+} from "./constants/combat-targeting";
+export type { CombatTargetShape } from "./constants/combat-targeting";
 export {
   MAIN_COMMAND_CHECK_EFFECT_TYPES,
   VTT_CHECK_EFFECT_ACTIONS,
@@ -69,6 +95,7 @@ export {
   decodeClassDefinitionResponseArray,
   decodeCombatActionResult,
   decodeCombatMoveResult,
+  decodeCombatPresentationV1,
   decodeCombatReactionPromptEvent,
   decodeCombatReactionPrompt,
   decodeCombatResponse,
@@ -81,6 +108,8 @@ export {
   decodeHumanGmAiAssistSuggestionArray,
   decodeHumanGmNodeMoveOption,
   decodeHumanGmNodeMoveOptionArray,
+  decodeHumanGmRevealOption,
+  decodeHumanGmRevealOptionArray,
   decodeHumanGmPrivateNote,
   decodeHumanGmPrivateNoteArray,
   decodeGameStateResponse,
@@ -90,6 +119,7 @@ export {
   decodeMainCommandResponse,
   decodeOAuthUrlResponse,
   decodePaginatedResponse,
+  decodePublicUserResponse,
   decodeParticipantUpdatedEvent,
   decodeRaceResponse,
   decodeRaceResponseArray,
@@ -117,7 +147,9 @@ export {
   decodeSessionCharacter,
   decodeSessionListItem,
   decodeSessionParticipant,
+  decodeSessionResponse,
   decodeSessionRevealResponse,
+  decodeSessionNodeTransitionResponse,
   decodeSessionSnapshot,
   decodeSessionSnapshotEvent,
   decodeStateDiffResponse,
@@ -143,6 +175,13 @@ export {
   isMainCommandCheckRequired,
   isMainCommandImpossible,
 } from "./utils/main-command-response";
+export {
+  getCombatTargetDistance,
+  isPointInCombatCircle,
+  isPointInCombatCone,
+  isPointInCombatLine,
+} from "./utils/combat-targeting-geometry";
+export type { CombatTargetPoint } from "./utils/combat-targeting-geometry";
 export {
   isActiveCombatStatus,
   isActiveSessionScenarioStatus,

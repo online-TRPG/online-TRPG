@@ -1,7 +1,7 @@
 # /be/Dockerfile — NestJS 백엔드 (npm workspaces 모노레포, 빌드 컨텍스트=레포 루트)
 
 # 1. 빌드 스테이지
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 # workspace 정의 + 루트 lock + 각 workspace 의 package.json 만 먼저 복사 (의존성 레이어 캐시)
@@ -18,6 +18,10 @@ RUN npm ci
 COPY shared-types/ ./shared-types/
 RUN npm run build -w @trpg/shared-types
 
+# backend build:test-deps 가 canonical SRD 생성·검증을 실행하므로
+# srd-data 소스와 scripts도 builder stage에 포함해야 한다.
+COPY srd-data/ ./srd-data/
+
 # backend 소스 복사
 COPY be/ ./be/
 
@@ -28,7 +32,7 @@ RUN npm run prisma:generate -w @trpg/be
 RUN npm run build -w @trpg/be
 
 # 2. 런타임 스테이지 — prod 의존성만 재설치해서 이미지 최소화
-FROM node:20-alpine
+FROM node:24-alpine
 WORKDIR /app
 
 ENV NODE_ENV=production

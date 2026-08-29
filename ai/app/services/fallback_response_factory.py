@@ -39,16 +39,10 @@ class RoleFallbackResponseFactory:
     ) -> InterpreterHarnessResponse:
         parsed = self._interpreter_fallback_service.build_output(request)
         return InterpreterHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="interpreter.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="interpreter", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )
 
     def narrator(
@@ -56,16 +50,10 @@ class RoleFallbackResponseFactory:
     ) -> NarratorHarnessResponse:
         parsed = self._role_fallback_templates.narrator(request)
         return NarratorHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="narrator.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="narrator", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )
 
     def director(
@@ -73,16 +61,10 @@ class RoleFallbackResponseFactory:
     ) -> DirectorHarnessResponse:
         parsed = self._role_fallback_templates.director(request)
         return DirectorHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="director.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="director", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )
 
     def summarizer(
@@ -90,31 +72,19 @@ class RoleFallbackResponseFactory:
     ) -> SummarizerHarnessResponse:
         parsed = self._role_fallback_templates.summarizer(request)
         return SummarizerHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="summarizer.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="summarizer", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )
 
     def actor(self, request: ActorHarnessRequest, error: AiClientError) -> ActorHarnessResponse:
         parsed = self._role_fallback_templates.actor(request)
         return ActorHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="actor.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="actor", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )
 
     def npc_dialogue(
@@ -122,16 +92,10 @@ class RoleFallbackResponseFactory:
     ) -> NpcDialogueHarnessResponse:
         parsed = self._role_fallback_templates.npc_dialogue(request)
         return NpcDialogueHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="npc_dialogue.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="npc_dialogue", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )
 
     def check_result(
@@ -139,14 +103,8 @@ class RoleFallbackResponseFactory:
     ) -> CheckResultHarnessResponse:
         parsed = self._role_fallback_templates.check_result(request)
         return CheckResultHarnessResponse(
-            provider="template-fallback",
-            model="local-template",
-            latencyMs=0,
-            promptVersion="check_result.fallback.v1",
-            rawOutput="",
-            finishReason="FALLBACK",
             trace=self._trace_service.fallback_trace(role="check_result", error=error),
             parsed=parsed,
             fallback=True,
-            fallbackReason=error.message,
+            fallbackReason=error.failure_type,
         )

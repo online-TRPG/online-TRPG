@@ -496,8 +496,8 @@ function isMonsterLimitedUseEntryValue(value: unknown): value is {
   usage: string;
   used: number;
   limit: number;
-  roundNo: number;
-  turnNo: number;
+  roundNo?: number;
+  turnNo?: number;
 } {
   if (!isRecordValue(value)) {
     return false;
@@ -511,10 +511,10 @@ function isMonsterLimitedUseEntryValue(value: unknown): value is {
     typeof value.limit === "number" &&
     Number.isInteger(value.limit) &&
     value.limit > 0 &&
-    typeof value.roundNo === "number" &&
-    Number.isFinite(value.roundNo) &&
-    typeof value.turnNo === "number" &&
-    Number.isFinite(value.turnNo)
+    (value.roundNo === undefined ||
+      (typeof value.roundNo === "number" && Number.isFinite(value.roundNo))) &&
+    (value.turnNo === undefined ||
+      (typeof value.turnNo === "number" && Number.isFinite(value.turnNo)))
   );
 }
 

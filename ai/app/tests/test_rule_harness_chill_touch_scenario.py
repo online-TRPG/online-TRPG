@@ -41,7 +41,6 @@ class ChillTouchScenarioClient:
                 {
                     "action": {
                         "type": "MAP_CAST_SPELL",
-                        "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
                         "attackKind": "ranged_spell_attack",
@@ -56,17 +55,11 @@ class ChillTouchScenarioClient:
                     "clarificationQuestion": None,
                     "mentionedSpellId": "spell.chill_touch",
                     "mentionedItemId": None,
-                    "mentionedConditionIds": [],
                     "requiredRuleCheckIds": [
                         "rule.spellcasting.casting_time.action",
                         "rule.spellcasting.range",
                         "rule.spellcasting.spell_attack",
                         "rule.combat.attack_roll",
-                    ],
-                    "rulesConfidence": 0.91,
-                    "safetyNotes": [
-                        "명중 여부, 피해, 치유 차단 적용은 백엔드 엔진이 확정해야 함",
-                        "주문 슬롯 소비는 캔트립이므로 엔진 검증 대상이지만 AI가 확정하지 않음",
                     ],
                 },
                 ensure_ascii=False,
@@ -74,7 +67,6 @@ class ChillTouchScenarioClient:
             parsed_json={
                 "action": {
                     "type": "MAP_CAST_SPELL",
-                    "actorCharacterId": "wizard-1",
                     "targetId": "goblin-1",
                     "spellId": "spell.chill_touch",
                     "attackKind": "ranged_spell_attack",
@@ -89,17 +81,11 @@ class ChillTouchScenarioClient:
                 "clarificationQuestion": None,
                 "mentionedSpellId": "spell.chill_touch",
                 "mentionedItemId": None,
-                "mentionedConditionIds": [],
                 "requiredRuleCheckIds": [
                     "rule.spellcasting.casting_time.action",
                     "rule.spellcasting.range",
                     "rule.spellcasting.spell_attack",
                     "rule.combat.attack_roll",
-                ],
-                "rulesConfidence": 0.91,
-                "safetyNotes": [
-                    "명중 여부, 피해, 치유 차단 적용은 백엔드 엔진이 확정해야 함",
-                    "주문 슬롯 소비는 캔트립이므로 엔진 검증 대상이지만 AI가 확정하지 않음",
                 ],
             },
             model=kwargs["model"],
@@ -193,10 +179,9 @@ def test_frontend_level_1_wizard_casts_chill_touch_on_goblin(capsys):
         pretty_print("BACKEND state summary", backend_state_summary)
         pretty_print("BACKEND -> AI Interpreter request", ai_request.model_dump())
         pretty_print("AI prompt sent by backend", ai_prompt)
-        pretty_print("AI raw output", response.rawOutput)
+        pretty_print("AI trace", response.trace.model_dump())
         pretty_print("AI parsed result returned to backend", response.parsed.model_dump())
         pretty_print("Harness trace", response.trace.model_dump())
-        pretty_print("Harness log paths", response.logPaths)
 
     assert "spell.chill_touch" in ai_prompt
     assert "싸늘한 손길" in ai_prompt
@@ -213,7 +198,7 @@ def test_frontend_level_1_wizard_casts_chill_touch_on_goblin(capsys):
     assert response.parsed.action.attackKind == "ranged_spell_attack"
     assert response.parsed.mentionedSpellId == "spell.chill_touch"
     assert "rule.combat.attack_roll" in response.parsed.requiredRuleCheckIds
-    assert response.logPaths is not None
+    assert not hasattr(response, "logPaths")
 
 
 if __name__ == "__main__":

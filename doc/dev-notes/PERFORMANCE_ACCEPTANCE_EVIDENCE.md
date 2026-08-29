@@ -3,7 +3,7 @@
 기준일: 2026-07-11
 전체 상태: 구현 및 정적 검증 완료, 데이터 기반 동적 검증 대기
 
-이 문서는 `doc/performance_scalability_remediation_plan.md`의 PERF-01~09 완료 여부를 증거 단위로 추적한다. 테스트와 benchmark를 실행하지 않은 항목은 완료로 간주하지 않으며 측정값을 추정하지 않는다.
+이 문서는 `doc/completed/performance_scalability_remediation_plan.md`의 PERF-01~09 완료 여부를 증거 단위로 추적한다. 테스트와 benchmark를 실행하지 않은 항목은 완료로 간주하지 않으며 측정값을 추정하지 않는다.
 
 ## 공통 정적 증거
 
@@ -21,7 +21,7 @@
 
 ## 후속 보완 정적 증거
 
-`doc/performance_scalability_followup_remediation_plan.md`의 FOLLOWUP-01~04 구현 후 다음 소스 증거를 확인했다.
+`doc/completed/performance_scalability_followup_remediation_plan.md`의 FOLLOWUP-01~04 구현 후 다음 소스 증거를 확인했다.
 
 - moderation queue는 projection 기준으로 DB에서 선택한 page를 재필터링하지 않으며 활성 appeal count만 사용한다.
 - fail-closed 공개 revision은 projection 기준으로 queue에 남고 운영자 action 대상이 된다.

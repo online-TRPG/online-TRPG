@@ -22,6 +22,7 @@ import { getClassLabel } from "../services/staticSrd";
 import type { AvailableSessionListItem, PersistentCharacter, StoredUser, User } from "../types/session";
 import type { CharacterVaultItemDto } from "@trpg/shared-types";
 import { buildPublicProfilePath } from "../utils/routes";
+import { getSessionStatusLabel } from "../presentation/sessionLabels";
 import "./ProfilePage.css";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
@@ -177,30 +178,42 @@ export function ProfilePage({
   ];
 
   async function handleRequestTransfer(item: CharacterVaultItemDto) {
-    const targetSessionId = window.prompt("이관할 대상 세션 id 또는 공개 id를 입력하세요.", "");
-    if (!targetSessionId?.trim()) return;
-    const modeInput = window.prompt(
-      "이관 방식을 입력하세요: clone=원본 보관 유지, transfer=원본 완료 캐릭터를 이관 완료 처리",
-      "clone",
+    const targetSessions = mySessions.filter(
+      (session) => session.sessionId !== item.sourceSessionId,
     );
-    const mode: "clone" | "transfer" = modeInput?.trim().toLowerCase() === "transfer" ? "transfer" : "clone";
+    if (!targetSessions.length) {
+      setVaultFeedback("이관할 수 있는 다른 세션이 없습니다.");
+      return;
+    }
+    const selectedNumber = window.prompt(
+      [
+        "이관할 세션 번호를 입력하세요.",
+        ...targetSessions.map((session, index) => `${index + 1}. ${session.title}`),
+      ].join("\n"),
+      "1",
+    );
+    const targetSession = targetSessions[Number(selectedNumber) - 1];
+    if (!targetSession) return;
+    const modeInput = window.prompt(
+      "이관 방식을 입력하세요: 복제 또는 이관",
+      "복제",
+    );
+    const mode: "clone" | "transfer" = modeInput?.trim() === "이관" ? "transfer" : "clone";
     setVaultFeedback(null);
     try {
       const result = await requestCharacterTransfer(
         user,
-        targetSessionId.trim(),
+        targetSession.sessionPublicId || targetSession.sessionId,
         {
           sourceSessionId: item.sourceSessionId,
           sourceSessionCharacterId: item.sourceSessionCharacterId,
           mode,
-          note: `${item.sourceSessionTitle} archive ${item.archiveId}에서 ${mode} 이관 요청`,
+          note: `${item.sourceSessionTitle} 완결 캐릭터 ${mode === "clone" ? "복제" : "이관"} 요청`,
         },
         accessToken,
       );
       setVaultFeedback(
-        `이관 요청이 접수되었습니다: ${result.requestId} · 방식 ${result.mode} · 원본 처리 ${
-          result.sourceDisposition ?? "승인 대기"
-        }`,
+        `캐릭터 ${result.mode === "clone" ? "복제" : "이관"} 요청을 접수했습니다. 세션 관리자 승인을 기다려주세요.`,
       );
     } catch (caught) {
       setVaultFeedback(caught instanceof Error ? caught.message : "캐릭터 이관 요청에 실패했습니다.");
@@ -350,7 +363,7 @@ export function ProfilePage({
                     <div key={session.sessionId} className="profile-session-item">
                       <strong>{session.title}</strong>
                       <span>
-                        {session.scenarioTitle} · {session.status}
+                        {session.scenarioTitle} · {getSessionStatusLabel(session.status)}
                       </span>
                     </div>
                   ))}
@@ -369,7 +382,7 @@ export function ProfilePage({
           <div className="profile-frame-surface">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">P6 Character Vault</span>
+              <span className="eyebrow">캐릭터 보관소</span>
               <h2>완료 캠페인 캐릭터 보관소</h2>
             </div>
           </div>
@@ -385,14 +398,14 @@ export function ProfilePage({
                     {item.subclassName ? ` / ${item.subclassName}` : ""} · {item.sourceSessionTitle}
                   </span>
                   <span>
-                    archive {item.archiveId} · {item.transferable ? "이관 가능" : "이관 불가"} · {formatCompactDate(item.archivedAt)}
+                    {item.transferable ? "이관 가능" : "이관 불가"} · {formatCompactDate(item.archivedAt)}
                   </span>
                   {item.transferable ? (
-                    <span>clone은 원본 보관을 유지하고, transfer는 승인 후 원본 완료 캐릭터를 이관 완료 처리합니다.</span>
+                    <span>복제는 원본을 보관하고, 이관은 승인 후 원본 캐릭터를 이관 완료로 처리합니다.</span>
                   ) : null}
                   {item.transferable ? (
                     <button type="button" className="ghost" onClick={() => void handleRequestTransfer(item)}>
-                      새 세션으로 clone/transfer 요청
+                      다른 세션으로 복제·이관 요청
                     </button>
                   ) : null}
                 </div>

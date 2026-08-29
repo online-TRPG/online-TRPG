@@ -41,8 +41,6 @@ services:
     depends_on:
       backend:
         condition: service_started
-      ai-server:
-        condition: service_started
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -59,6 +57,10 @@ services:
       - .env.backend
     environment:
       TZ: Asia/Seoul
+      # .env.backend의 localhost URL은 호스트 직접 실행용이다.
+      # 컨테이너에서는 Compose service DNS를 사용해야 한다.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      AI_SERVICE_URL: http://ai-server:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,7 +98,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/internal/ai/health').status==200 else 1)"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/internal/ai/health/ready').status==200 else 1)"
       interval: 15s
       timeout: 5s
       retries: 5

@@ -94,8 +94,8 @@ describe("srd equipment policy", () => {
 
     expect(JSON.parse(toItemDefinitionData(pack).packContentsJson ?? "[]")).toEqual([
       { itemId: "equipment.rope", name: "equipment.rope", quantity: 1 },
-      { itemId: "equipment.torch", name: "equipment.torch", quantity: 5 },
+      { itemId: "equipment.torch", name: "횃불", quantity: 5 },
     ]);
-    expect(buildSrdPackAddedSummary(pack)).toBe("equipment.rope x1, equipment.torch x5");
+    expect(buildSrdPackAddedSummary(pack)).toBe("equipment.rope x1, 횃불 x5");
   });
 });
