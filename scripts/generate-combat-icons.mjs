@@ -8,6 +8,24 @@ const outputRoot = resolve(root, "fe/public/assets/combat-icons");
 const iconSet = JSON.parse(await readFile(resolve(packageRoot, "icons.json"), "utf8"));
 const info = JSON.parse(await readFile(resolve(packageRoot, "info.json"), "utf8"));
 
+async function writeFileIfChanged(path, content) {
+  let existingContent;
+  try {
+    existingContent = await readFile(path, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  if (existingContent === content) {
+    return false;
+  }
+
+  await writeFile(path, content, "utf8");
+  return true;
+}
+
 const selections = {
   damage: {
     acid: "acid-blob",
@@ -58,6 +76,7 @@ const selections = {
 };
 
 await mkdir(outputRoot, { recursive: true });
+let updatedFileCount = 0;
 
 for (const [category, entries] of Object.entries(selections)) {
   const categoryRoot = resolve(outputRoot, category);
@@ -76,7 +95,9 @@ for (const [category, entries] of Object.entries(selections)) {
       `<g fill="white">${icon.body}</g>`,
       "</svg>\n",
     ].join("");
-    await writeFile(resolve(categoryRoot, `${localName}.svg`), svg, "utf8");
+    if (await writeFileIfChanged(resolve(categoryRoot, `${localName}.svg`), svg)) {
+      updatedFileCount += 1;
+    }
   }
 }
 
@@ -85,15 +106,30 @@ const manifest = {
   license: info.license,
   selections,
 };
-await writeFile(
-  resolve(outputRoot, "manifest.json"),
-  `${JSON.stringify(manifest, null, 2)}\n`,
-  "utf8",
-);
-await writeFile(
-  resolve(outputRoot, "LICENSE.md"),
-  `# Combat icon attribution\n\nThe SVG glyphs in this directory are generated from [${info.name}](${info.author.url}) and distributed under [${info.license.title}](${info.license.url}).\n\nRun \`node scripts/generate-combat-icons.mjs\` after changing the source mapping. Exact source glyph names are recorded in \`manifest.json\`.\n`,
-  "utf8",
-);
+if (
+  await writeFileIfChanged(
+    resolve(outputRoot, "manifest.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  )
+) {
+  updatedFileCount += 1;
+}
+if (
+  await writeFileIfChanged(
+    resolve(outputRoot, "LICENSE.md"),
+    `# Combat icon attribution\n\nThe SVG glyphs in this directory are generated from [${info.name}](${info.author.url}) and distributed under [${info.license.title}](${info.license.url}).\n\nRun \`node scripts/generate-combat-icons.mjs\` after changing the source mapping. Exact source glyph names are recorded in \`manifest.json\`.\n`,
+  )
+) {
+  updatedFileCount += 1;
+}
 
-console.log(`Generated ${Object.values(selections).reduce((sum, group) => sum + Object.keys(group).length, 0)} combat icons.`);
+const iconCount = Object.values(selections).reduce(
+  (sum, group) => sum + Object.keys(group).length,
+  0,
+);
+const generatedFileCount = iconCount + 2;
+console.log(
+  updatedFileCount === 0
+    ? `Prepared ${iconCount} combat icons; all ${generatedFileCount} generated files are up to date.`
+    : `Prepared ${iconCount} combat icons; updated ${updatedFileCount} of ${generatedFileCount} generated files.`,
+);

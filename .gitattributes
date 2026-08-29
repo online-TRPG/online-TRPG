@@ -1,0 +1,2 @@
+# Node generates these assets with LF on every platform.
+fe/public/assets/combat-icons/** text eol=lf
