@@ -23,7 +23,7 @@ RUN python -m compileall -q app
 
 
 # =============== 2. 런타임: 슬림 이미지 ===============
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 # 비루트 유저
 RUN groupadd --system app && useradd --system --gid app --home-dir /app app
