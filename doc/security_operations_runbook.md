@@ -1,8 +1,10 @@
 # 보안 조치 배포·운영 런북
 
 기준일: 2026-08-12  
-적용 대상: `security_remediation_plan.md`의 SEC-01~SEC-10  
+적용 대상: `completed/security_remediation_plan.md`의 SEC-01~SEC-10
 원칙: 비밀값, token, cookie, OAuth code, 원문 사용자 payload를 문서·명령 로그·티켓에 남기지 않는다.
+
+범위: 보안 계획은 2026-08-29 완료됐다. 실제 OAuth·R2 외부 연결 smoke test, 4절의 자격 증명·세션 작업, 5절의 GitHub PR 기록 정리와 원격 CI 실행은 완료 조건이 아니며 재발 사고 대응용 참고 절차로만 보존한다.
 
 ## 1. 역할과 승인
 
@@ -33,7 +35,7 @@
    - R2 byte/dimension/pixel/user/scenario quota와 AI concurrency/daily limit
    - `ENABLE_SWAGGER=0`, `AI_LOG_PAYLOADS=false`
 
-4. 다음 로컬/CI gate가 모두 통과했는지 확인한다.
+4. 다음 로컬 gate가 모두 통과했는지 확인한다.
 
 ```text
 npm test
@@ -48,7 +50,7 @@ uvx --from pip-audit==2.10.1 pip-audit --strict --requirement <ai locked product
 ```
 
 5. `nginx -t`를 실제 배포 template별로 실행한다. HTTP와 HTTPS template은 동시에 로드하지 않는다.
-6. `.github/workflows/security.yml`의 checksum 검증된 Gitleaks 8.30.0 전체 이력 검사를 실행하고 결과에는 secret 원문을 저장하지 않는다. 먼저 합성 canary 탐지가 성공해야 하며, workflow가 실행되지 않는 환경에서도 동일 버전·canary·`--redact=100` 설정으로 검사한다.
+6. secret 검사는 로컬에서 checksum 검증된 Gitleaks 8.30.0과 합성 canary, `--redact=100` 설정으로 실행한다. 원격 workflow 실행은 완료 조건으로 사용하지 않는다.
 
 ## 3. 배포 순서
 
@@ -83,6 +85,8 @@ uvx --from pip-audit==2.10.1 pip-audit --strict --requirement <ai locked product
 
 ## 4. 자격 증명 교체와 세션 폐기
 
+범위 상태: 이번 보안 계획의 목표에서 제외했다. 아래 내용은 별도 사고 대응이 승인됐을 때만 사용하는 참고 절차다.
+
 이 절은 운영 책임자의 명시적 승인 후에만 실행한다. 노출 가능성이 확인된 항목만 교체하되, dump/log에 실제 값이 없었다는 사실도 검토 증거와 함께 기록한다.
 
 권장 순서는 다음과 같다.
@@ -100,7 +104,7 @@ uvx --from pip-audit==2.10.1 pip-audit --strict --requirement <ai locked product
 
 ## 5. Git 이력 정리
 
-상태(2026-08-12): 저장소 소유자 승인에 따라 원격 브랜치와 쓰기 가능한 보조 refs의 재작성·force push를 완료했다. GitHub 읽기 전용 PR refs 11개는 Support purge 대기 중이다. 아래 절차는 이번 실행 기록이자 재발 시 표준 절차다.
+범위 상태: GitHub PR 기록 삭제는 이번 보안 계획의 목표에서 제외했다. 아래 내용은 2026-08-12에 완료한 쓰기 가능한 refs 정리 기록과 재발 시 참고 절차다.
 
 이 절은 저장소 소유자의 승인, push 동결, remote/fork 목록 확보 후에만 실행한다. 원본 clone에서 직접 연습하지 말고 접근 제한된 새 mirror clone에서 dry-run한다.
 
@@ -127,7 +131,7 @@ ai/.env.example
 
 이력 재작성은 이미 복제된 데이터의 회수를 보장하지 않는다. 그래서 4절의 credential·세션 폐기를 별도로 수행한다.
 
-이번 GitHub Support 요청 정보:
+과거 GitHub Support 요청 준비 정보:
 
 ```text
 repository: online-TRPG/online-TRPG
@@ -198,4 +202,4 @@ NestJS 10 전이 의존성의 High 항목은 NestJS 11.1.29 전환과 검증된 
 
 ## 10. 완료 기록
 
-배포 artifact/commit, migration 결과, 자동 테스트, E2E·smoke test, audit, secret scan, Git 이력 정리, credential·세션 폐기, 관찰 결과와 승인자를 `security_remediation_execution.md` 또는 연결된 변경 기록에 남긴다. 모든 출시 게이트가 충족되기 전에는 계획 문서를 `doc/completed/`로 이동하지 않는다.
+배포 artifact/commit, migration 결과, 자동 테스트, E2E·smoke test, audit, secret scan, 관찰 결과와 승인자를 `security_remediation_execution.md` 또는 연결된 변경 기록에 남긴다. 실제 OAuth·R2 외부 연결 smoke test는 사용자 결정에 따라 제외했으며 계획 문서는 `doc/completed/`로 이동했다.

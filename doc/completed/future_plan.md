@@ -2,6 +2,12 @@
 
 작성일: 2026-05-23
 
+상태: 완료 — P6 검증으로 핵심 장기 범위 종료
+
+완료 근거: `future_plan_mvp.md`부터 `future_plan_p6.md`까지 단계별 구현과
+검증을 마쳤다. 이후 과제는
+이 로드맵의 미완료가 아니라 운영 품질과 제품화 작업으로 분리한다.
+
 ## Summary
 
 현재 구조는 `RuleEngineService`, `ActionRuleService`, `CombatService`, `InventoryRuntimeService`, `Scenario`/`GameState` 중심의 engine-heavy 아키텍처를 유지한다. 앞으로 구현할 기능은 단발성 하드코딩으로 추가하지 않고, **룰 데이터 카탈로그 + 공통 런타임 resolver + UI 액션 표면**으로 나눈다.
@@ -10,7 +16,7 @@
 
 "직업 8종 추가"는 현재 기능 구현이 일부 들어간 파이터/바바리안/로그/레인저 외의 8개 직업을 우선 실행 가능하게 만드는 것으로 본다.
 
-SRD 데이터 원천과 FE/BE/AI 정합성 관리는 완료된 [`completed/future_plan_srd_data_consistency.md`](completed/future_plan_srd_data_consistency.md)의 운영 규칙을 따른다. 캐릭터 생성/레벨업/주문 진행 규칙의 단일 원천화는 완료된 [`completed/future_plan_srd_character_rules_single_source.md`](completed/future_plan_srd_character_rules_single_source.md)의 운영 규칙을 따른다. 새 SRD id, 표시 데이터, 직업별 주문 목록, runtime metadata, seed/scenario content id를 추가하거나 바꿀 때는 `srd-data` source/generated 산출물, FE public sync, `npm run verify:rule-data-sync`를 기준으로 drift를 확인한다.
+SRD 데이터 원천과 FE/BE/AI 정합성 관리는 완료된 [`future_plan_srd_data_consistency.md`](future_plan_srd_data_consistency.md)의 운영 규칙을 따른다. 캐릭터 생성/레벨업/주문 진행 규칙의 단일 원천화는 완료된 [`future_plan_srd_character_rules_single_source.md`](future_plan_srd_character_rules_single_source.md)의 운영 규칙을 따른다. 새 SRD id, 표시 데이터, 직업별 주문 목록, runtime metadata, seed/scenario content id를 추가하거나 바꿀 때는 `srd-data` source/generated 산출물, FE public sync, `npm run verify:rule-data-sync`를 기준으로 drift를 확인한다.
 
 ## 문서 역할
 
@@ -24,7 +30,7 @@ SRD 데이터 원천과 FE/BE/AI 정합성 관리는 완료된 [`completed/futur
 - 317개 몬스터.
 - SRD 공개 범위 안의 대표 서브클래스, 몬스터 특수 능력, 아이템/지형/시나리오 런타임.
 
-[`completed/future_plan_mvp.md`](completed/future_plan_mvp.md), [`completed/future_plan_p1.md`](completed/future_plan_p1.md), [`completed/future_plan_p2.md`](completed/future_plan_p2.md), [`completed/future_plan_p3.md`](completed/future_plan_p3.md), [`completed/future_plan_p4.md`](completed/future_plan_p4.md), [`completed/future_plan_p5.md`](completed/future_plan_p5.md), [`completed/future_plan_p6.md`](completed/future_plan_p6.md)는 이 장기 플랜을 대체하거나 줄이는 문서가 아니다. 완료 문서는 장기 범위로 가는 과정에서 닫은 실행 단계와 검증 기준을 기록한다. P6 완료로 이 문서의 핵심 장기 범위는 실행 가능한 제품 기능으로 닫혔고, 이후 계획은 신규 SRD 범위 확장이 아니라 운영 품질과 제품화 단계로 분리한다.
+[`future_plan_mvp.md`](future_plan_mvp.md), [`future_plan_p1.md`](future_plan_p1.md), [`future_plan_p2.md`](future_plan_p2.md), [`future_plan_p3.md`](future_plan_p3.md), [`future_plan_p4.md`](future_plan_p4.md), [`future_plan_p5.md`](future_plan_p5.md), [`future_plan_p6.md`](future_plan_p6.md)는 이 장기 플랜을 대체하거나 줄이는 문서가 아니다. 완료 문서는 장기 범위로 가는 과정에서 닫은 실행 단계와 검증 기준을 기록한다. P6 완료로 이 문서의 핵심 장기 범위는 실행 가능한 제품 기능으로 닫혔고, 이후 계획은 신규 SRD 범위 확장이 아니라 운영 품질과 제품화 단계로 분리한다.
 
 ## 1. 룰 데이터 기반 확장 레이어
 

@@ -1,11 +1,22 @@
 # 보안 취약점 개선 및 운영 조치 계획
 
 기준일: 2026-08-12  
-상태: 구현 진행 중 — 상세 현황은 `security_remediation_execution.md` 참조  
+상태: 완료 (2026-08-29) — 상세 현황은 `../security_remediation_execution.md` 참조
 대상: `be`, `fe`, `ai`, `infra`, Git 저장소와 배포 운영 절차  
 근거: 2026-08-11 정적 코드 점검, Git 추적 파일 확인, Node/Python 의존성 감사, 인증 미들웨어 테스트
 
-> 이 문서는 목표 상태와 완료 기준을 정의한다. 실제 구현·검증 결과, 승인 대기 항목과 운영 절차는 각각 `security_remediation_execution.md`, `security_operations_runbook.md`에 기록한다.
+> 이 문서는 목표 상태와 완료 기준을 정의한다. 실제 구현·검증 결과와 운영 절차는 각각 `../security_remediation_execution.md`, `../security_operations_runbook.md`에 기록한다.
+
+## 처음 보는 개발자를 위한 현재 상태
+
+계획 범위의 코드, 로컬 PostgreSQL E2E, Nginx 설정·응답과 OAuth·업로드 보안
+계약 검증이 끝났다. 실제 OAuth 공급자와 R2 외부 연결 smoke test는
+2026-08-29 사용자 결정에 따라 수행하지 않고 완료 조건에서 제외했다.
+
+실행 순서는 [`security_operations_runbook.md`](../security_operations_runbook.md)를
+따르고, 결과는
+[`security_remediation_execution.md`](../security_remediation_execution.md)에
+기록한다. 비밀값 자체는 어떤 문서에도 적지 않는다.
 
 ## 1. 결론
 
@@ -15,7 +26,7 @@
 
 1. 임의의 `x-user-id` 또는 WebSocket `auth.userId`만으로 다른 사용자가 될 수 없다.
 2. 허용 목록에 없는 Origin은 credentialed REST 및 WebSocket 요청을 사용할 수 없다.
-3. DB 덤프와 원문 AI 로그가 Git의 현재 트리와 공유된 이력에서 제거되고, 실제 비밀정보나 사용자 데이터가 포함되었다면 관련 자격 증명과 세션이 폐기된다.
+3. DB 덤프와 원문 AI 로그가 Git의 현재 트리와 쓰기 가능한 공유 이력에서 제거되고 재유입 검사가 통과한다.
 
 이미 외부에 배포된 환경이라면 SEC-01~SEC-03을 일반 개선 작업이 아니라 사고 억제 작업으로 먼저 수행한다.
 
@@ -29,12 +40,15 @@
 - Git, 로그, API 응답에 필요한 최소 데이터만 남긴다.
 - 알려진 High 등급 런타임 의존성 취약점을 제거한다.
 - 인증·복구·AI·실시간 요청에 남용 방지 한도를 적용한다.
-- 보안 회귀를 자동 테스트와 CI 정책으로 차단한다.
+- 보안 회귀를 반복 가능한 로컬 자동 테스트로 차단한다.
 
 ### 제외 범위
 
-- 이 문서만으로 운영 자격 증명을 실제 교체하거나 기존 세션을 폐기하지 않는다.
-- Git 이력 재작성, 강제 push, 운영 데이터 삭제는 별도 승인과 팀 조율 후 실행한다.
+- GitHub가 관리하는 PR 기록 삭제와 Support purge는 완료 목표에서 제외한다.
+- 과거 Google API key 교체는 완료 목표에서 제외한다.
+- 추가 credential 교체 범위와 기존 사용자 세션 폐기 판단은 완료 목표에서 제외한다.
+- GitHub Actions 등 원격 CI 실행은 완료 목표에서 제외한다. 로컬 자동 검증을 증거로 사용한다.
+- 운영 자격 증명 변경, 세션 폐기, 강제 push와 운영 데이터 삭제는 이 계획에서 실행하지 않는다.
 - 운영 환경 침투 테스트와 개인정보 영향 평가는 이 계획의 구현 후 별도 승인된 절차로 수행한다.
 - 게임 규칙, 시나리오 콘텐츠, UI 디자인의 기능 개선은 보안 변경에 필요한 범위만 다룬다.
 
@@ -59,13 +73,13 @@
 
 | 단계 | 권장 시점 | 포함 작업 | 단계 완료 조건 |
 | --- | --- | --- | --- |
-| Phase 0. 억제와 사실 확인 | 즉시, 0~24시간 | SEC-03 노출 범위 확인, 외부 공개 변경 동결, 위험 자격 증명 목록 작성 | 노출 저장소·배포 환경·데이터 종류가 기록되고 승인권자가 지정됨 |
+| Phase 0. 억제와 사실 확인 | 즉시, 0~24시간 | SEC-03 추적 파일 확인, 외부 공개 변경 동결 | 추적 중인 민감 경로와 재유입 방지 범위가 기록됨 |
 | Phase 1. 신원·토큰 경계 복구 | 1~3일 | SEC-01, SEC-02, SEC-04 핵심 변경 | 위조 ID 및 비허용 Origin 테스트가 모두 거부되고 정상 로그인·게스트·WS 흐름이 통과함 |
 | Phase 2. 데이터 최소화와 남용 방지 | 3~7일 | SEC-03 정리 실행, SEC-05, SEC-07 | 민감 파일 비추적, 공개 DTO 최소화, 주요 경로의 429 정책 동작 |
 | Phase 3. 공급망·브라우저·입력 강화 | 1~2주 | SEC-06, SEC-08, SEC-09, SEC-10 | High 런타임 취약점 제거 또는 승인된 예외 기록, OAuth·헤더·업로드 회귀 테스트 통과 |
-| Phase 4. 지속 검증 | 지속 | CI 보안 게이트, 로그·알림·정기 감사 | 보안 테스트와 감사가 기본 브랜치 병합 조건으로 동작 |
+| Phase 4. 지속 검증 | 지속 | 로컬 보안 검사, 로그·알림·정기 감사 | 같은 명령으로 보안 테스트와 감사를 반복할 수 있음 |
 
-Phase 0의 Git 이력 재작성과 자격 증명 교체는 외부에 영향을 주는 작업이다. 실행 전에 저장소 소유자, 배포 담당자, 개발 참여자의 승인과 작업 시간 조율이 필요하다.
+외부 상태를 바꾸는 이력 재작성, 자격 증명 교체와 세션 폐기는 이번 완료 범위에 포함하지 않는다.
 
 ## 5. 상세 조치 계획
 
@@ -155,7 +169,7 @@ Phase 0의 Git 이력 재작성과 자격 증명 교체는 외부에 영향을 �
 
 - DB dump, 원문 AI payload, token, 비밀 설정은 Git에서 추적되지 않는다.
 - 이미 공유된 이력의 데이터 종류와 영향 사용자를 식별한다.
-- 노출 가능성이 있는 자격 증명과 refresh token은 더 이상 사용할 수 없다.
+- 민감 파일과 원문 payload 로그가 현재 코드 경로로 다시 생성되지 않는다.
 - 운영·진단 로그는 최소 데이터, 짧은 보존 기간, 제한된 접근 권한을 갖는다.
 
 #### 조사 대상
@@ -165,25 +179,23 @@ Phase 0의 Git 이력 재작성과 자격 증명 교체는 외부에 영향을 �
 - `runtime_logs/*.latest.json`
 - `tmp/*.dump`
 - `.gitignore`
-- 모든 remote와 fork, CI artifact, 배포 서버, 팀원이 보유한 clone
+- 현재 트리와 쓰기 가능한 로컬·원격 refs
 
 #### 구현 및 운영 작업
 
 1. 파일 내용의 실제 데이터 여부를 비밀값을 출력하지 않는 방식으로 분류한다. 사용자, 이메일, password hash, refresh token hash, OAuth 식별자, AI 대화, 세션 데이터, API 키 포함 여부를 항목별로 기록한다.
 2. 현재 트리에서 dump와 runtime payload 로그의 추적을 중단한다. `.gitignore`에는 특정 dump 디렉터리, `tmp/*.dump`, runtime JSON/JSONL을 명시하고 합성 fixture만 예외 처리한다.
 3. AI payload 원문 기록은 기본 비활성화한다. 필요한 진단 로그에는 trace ID, endpoint, 상태, latency, bounded error만 남기고 사용자 원문·provider raw output·token은 제거한다.
-4. 실제 민감 데이터가 remote에 올라간 적이 있다면 작업 시간 동안 push를 동결하고 검증된 도구로 모든 branch와 tag의 이력을 재작성한다. 이후 보호 브랜치와 팀 clone을 새 이력에 맞춰 재동기화한다.
-5. 노출 범위에 따라 JWT secret, OAuth client secret, AI API key, R2 credential, DB credential을 교체하고 모든 refresh token을 폐기한다. password hash가 포함되었다면 사용자 통지·비밀번호 초기화 필요성을 별도로 판단한다.
-6. CI에 secret scanner와 민감 파일 경로 검사를 추가하고 artifact 보존 기간과 접근 권한을 설정한다.
+4. 이미 승인되어 완료된 쓰기 가능한 branch와 보조 refs의 정리 결과를 실행 문서에 보존한다. GitHub PR refs 등 provider 관리 기록은 이번 목표에 포함하지 않는다.
+5. 민감 파일 경로 검사와 secret scanner를 로컬에서 반복 실행할 수 있게 유지한다.
 
 #### 완료 조건
 
 - `git ls-files` 결과에 dump와 runtime payload 로그가 없다.
-- 이력 재작성이 필요한 경우 `git log --all -- <대상 경로>`에서 대상 데이터가 발견되지 않는다.
-- secret scanner가 현재 트리와 전체 이력에서 통과한다.
-- 노출로 분류된 기존 refresh token과 자격 증명으로 인증할 수 없다.
+- 현재 트리와 쓰기 가능한 refs에서 대상 데이터가 발견되지 않는다.
+- secret scanner가 현재 트리와 검사 가능한 쓰기 가능 이력에서 통과한다.
 - 테스트 데이터는 실제 이메일·토큰·대화가 아닌 합성 fixture다.
-- 사고 판단, 회전 항목, 실행자, 실행 시각, 검증 결과가 비밀값 없이 기록된다.
+- 정리 범위, 실행 시각과 검증 결과가 비밀값 없이 기록된다.
 
 ### SEC-04. JWT 설정·수명·폐기 모델 개선
 
@@ -228,7 +240,7 @@ Phase 0의 Git 이력 재작성과 자격 증명 교체는 외부에 영향을 �
 3. `multer`, `js-yaml`, `lodash`, `body-parser`, React Router 관련 안전 업데이트를 적용한다.
 4. Nest 11이 필요한 수정은 `npm audit fix --force`로 일괄 적용하지 않고 별도 호환성 작업으로 진행한다. Nest 10에서 가능한 patch를 먼저 적용하고 남은 항목은 근거와 만료일이 있는 예외로 기록한다.
 5. lockfile을 갱신한 뒤 backend build/test, frontend build/test, Swagger, 업로드, Socket.IO smoke test를 실행한다.
-6. CI에서 `npm audit --omit=dev --audit-level=high`를 기본 병합 게이트로 사용하고 정기 업데이트 봇을 설정한다.
+6. `npm audit --omit=dev --audit-level=high`를 로컬 검증 명령으로 유지하고 정기 업데이트 봇 설정은 참고 자동화로 관리한다.
 
 #### 완료 조건
 
@@ -353,14 +365,14 @@ Phase 0의 Git 이력 재작성과 자격 증명 교체는 외부에 영향을 �
 
 ## 8. 완료 판정
 
-다음 조건이 모두 충족되면 이 계획을 완료로 판정하고 문서를 `doc/completed/`로 이동한다.
+다음 조건을 충족해 2026-08-29 완료로 판정하고 문서를 `doc/completed/`로 이동했다.
 
 - SEC-01~SEC-03 출시 차단 조건이 모두 해제되었다.
 - SEC-04~SEC-10의 완료 조건과 공통 자동 테스트가 통과했다.
 - 운영 런타임 의존성에 승인되지 않은 High/Critical 취약점이 없다.
-- Git 현재 트리와 필요한 경우 전체 공유 이력에 민감 dump·payload 로그·secret이 없다.
-- 노출 가능성이 있었던 token과 credential의 교체·폐기 결과가 기록되었다.
-- 스테이징 수동 검증과 운영 smoke test 결과가 남아 있다.
+- Git 현재 트리와 쓰기 가능한 refs에 민감 dump·payload 로그·secret이 없다.
+- 로컬 PostgreSQL·Nginx 검증과 OAuth·업로드 보안 계약 테스트 결과가 남아 있다.
+- 실제 OAuth·R2 외부 연결 smoke test는 사용자 결정에 따라 완료 조건에서 제외했다.
 - 남은 예외에는 위험, 임시 완화, 책임 역할, 해소 기한이 있다.
 - 실제 코드와 운영 정책에 맞춰 인증·권한·AI 로그 관련 기준 문서가 갱신되었다.
 

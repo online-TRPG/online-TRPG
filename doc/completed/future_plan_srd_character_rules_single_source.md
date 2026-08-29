@@ -398,7 +398,7 @@ export function resolveKnownSpellDelta(input: KnownSpellDeltaInput): KnownSpellD
 
 업데이트 대상:
 
-- `doc/future_plan.md`
+- `doc/completed/future_plan.md`
 - `doc/rules/ARCHITECTURE_RULES.md`
 - `srd-data/sources/README.md`
 - `srd-data/overrides/README.md`

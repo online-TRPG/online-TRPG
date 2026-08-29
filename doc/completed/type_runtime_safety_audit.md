@@ -2,6 +2,13 @@
 
 작성일: 2026-07-05
 
+상태: 완료 (2026-08-29 재검증)
+
+완료 근거: 231차 기록의 전체 build 통과에 더해 Backend 148 suites·1,274
+tests, Frontend 18 files·44 tests와 통합 production build가 통과했다. 이
+문서의 완료 기준인 외부 입력 decoder, 런타임 guard, 명시적 adapter 타입,
+변경 경로 build·선택 테스트를 모두 충족했다.
+
 ## 조사 범위
 
 - 대상: `be/src`, `fe/src`, `shared-types/src`

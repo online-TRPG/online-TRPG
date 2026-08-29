@@ -6,12 +6,12 @@
 
 연관 기준 문서:
 
-- [`structure/RUNTIME_SESSION_TURN_FLOW.md`](structure/RUNTIME_SESSION_TURN_FLOW.md)
-- [`structure/SCREEN.md`](structure/SCREEN.md)
-- [`rules/ARCHITECTURE_RULES.md`](rules/ARCHITECTURE_RULES.md)
-- [`rules/CONTENT_LICENSE_RULES.md`](rules/CONTENT_LICENSE_RULES.md)
-- [`rules/FRONTEND_DISPLAY_RULES.md`](rules/FRONTEND_DISPLAY_RULES.md)
-- [`completed/trpg_combat_ui_implementation_plan.md`](completed/trpg_combat_ui_implementation_plan.md)
+- [`structure/RUNTIME_SESSION_TURN_FLOW.md`](../structure/RUNTIME_SESSION_TURN_FLOW.md)
+- [`structure/SCREEN.md`](../structure/SCREEN.md)
+- [`rules/ARCHITECTURE_RULES.md`](../rules/ARCHITECTURE_RULES.md)
+- [`rules/CONTENT_LICENSE_RULES.md`](../rules/CONTENT_LICENSE_RULES.md)
+- [`rules/FRONTEND_DISPLAY_RULES.md`](../rules/FRONTEND_DISPLAY_RULES.md)
+- [`trpg_combat_ui_implementation_plan.md`](trpg_combat_ui_implementation_plan.md)
 
 ## 1. 결론
 

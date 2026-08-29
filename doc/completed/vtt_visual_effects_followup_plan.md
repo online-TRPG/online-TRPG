@@ -12,10 +12,10 @@
 
 연관 기준 문서:
 
-- [`structure/RUNTIME_SESSION_TURN_FLOW.md`](structure/RUNTIME_SESSION_TURN_FLOW.md)
-- [`structure/SCREEN.md`](structure/SCREEN.md)
-- [`rules/ARCHITECTURE_RULES.md`](rules/ARCHITECTURE_RULES.md)
-- [`rules/FRONTEND_DISPLAY_RULES.md`](rules/FRONTEND_DISPLAY_RULES.md)
+- [`structure/RUNTIME_SESSION_TURN_FLOW.md`](../structure/RUNTIME_SESSION_TURN_FLOW.md)
+- [`structure/SCREEN.md`](../structure/SCREEN.md)
+- [`rules/ARCHITECTURE_RULES.md`](../rules/ARCHITECTURE_RULES.md)
+- [`rules/FRONTEND_DISPLAY_RULES.md`](../rules/FRONTEND_DISPLAY_RULES.md)
 
 ## 1. 결론
 
