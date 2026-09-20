@@ -1,7 +1,7 @@
 # /be/Dockerfile — NestJS 백엔드 (npm workspaces 모노레포, 빌드 컨텍스트=레포 루트)
 
 # 1. 빌드 스테이지
-FROM node:24-alpine AS builder
+FROM node:25-alpine AS builder
 WORKDIR /app
 
 # workspace 정의 + 루트 lock + 각 workspace 의 package.json 만 먼저 복사 (의존성 레이어 캐시)
@@ -32,7 +32,7 @@ RUN npm run prisma:generate -w @trpg/be
 RUN npm run build -w @trpg/be
 
 # 2. 런타임 스테이지 — prod 의존성만 재설치해서 이미지 최소화
-FROM node:24-alpine
+FROM node:25-alpine
 WORKDIR /app
 
 ENV NODE_ENV=production
