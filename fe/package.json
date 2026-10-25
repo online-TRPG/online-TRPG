@@ -15,15 +15,15 @@
     "test:e2e:a11y": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
-    "@iconify/react": "^6.0.2",
+    "@iconify/react": "^6.0.3",
     "@trpg/shared-types": "file:../shared-types",
     "@trpg/srd-data": "file:../srd-data",
     "konva": "^9.3.18",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.14",
-    "react-router-dom": "^7.18.2",
-    "socket.io-client": "^4.8.1"
+    "react-router-dom": "^7.18.4",
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
